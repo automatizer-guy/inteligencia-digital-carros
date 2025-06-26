@@ -1,0 +1,151 @@
+import re
+import sqlite3
+from datetime import datetime, date
+import os
+
+# 🚗 Precios estimados si no hay datos en la base de datos
+PRECIOS_POR_DEFECTO = {
+    "yaris": 50000, "civic": 60000, "corolla": 45000, "sentra": 40000,
+    "rav4": 120000, "cr-v": 90000, "tucson": 65000, "kia picanto": 39000,
+    "chevrolet spark": 32000, "nissan march": 39000, "suzuki alto": 28000,
+    "suzuki swift": 42000, "hyundai accent": 43000, "mitsubishi mirage": 35000,
+    "suzuki grand vitara": 49000, "hyundai i10": 36000, "kia rio": 42000,
+    "toyota": 45000, "honda": 47000
+}
+
+PALABRAS_NEGATIVAS = [
+    "repuesto", "repuestos", "solo repuestos", "para repuestos", "piezas",
+    "desarme", "chocado", "motor fundido", "no arranca", "no enciende",
+    "papeles atrasados", "sin motor", "para partes", "no funciona"
+]
+
+LUGARES_EXTRANJEROS = [
+    "mexico", "ciudad de méxico", "monterrey", "usa", "estados unidos",
+    "honduras", "el salvador", "panamá", "costa rica", "colombia", "ecuador"
+]
+
+DB_PATH = os.path.abspath("anuncios.db")
+ROI_MINIMO = 10.0
+
+# 🔧 UTILIDADES TEXTO
+
+def normalizar_texto(texto: str) -> str:
+    return re.sub(r"[^a-z0-9]", "", texto.lower())
+
+def coincide_modelo(titulo: str, modelo: str) -> bool:
+    titulo_norm = normalizar_texto(titulo)
+    for palabra in modelo.split():
+        if normalizar_texto(palabra) not in titulo_norm:
+            return False
+    return True
+
+def limpiar_precio(texto: str) -> int:
+    s = texto.lower().replace("q", "").replace("$", "").replace("mx", "") \
+                   .replace(".", "").replace(",", "").strip()
+    m = re.search(r"\b\d{3,6}\b", s)
+    return int(m.group()) if m else 0
+
+def contiene_negativos(texto: str) -> bool:
+    low = texto.lower()
+    return any(p in low for p in PALABRAS_NEGATIVAS)
+
+def es_extranjero(texto: str) -> bool:
+    return any(p in texto.lower() for p in LUGARES_EXTRANJEROS)
+
+# 💰 ROI DINÁMICO BASADO EN PRECIO MÍNIMO EN LA BD
+
+def obtener_precio_referencia(modelo: str, metodo: str = "percentil_15") -> int:
+    """
+    Retorna un precio de referencia real del modelo a partir de la base de datos,
+    con respaldo en PRECIOS_POR_DEFECTO si hay pocos datos.
+    """
+    conn = sqlite3.connect(DB_PATH)
+    cur = conn.cursor()
+
+    # Contar registros en la base de datos
+    cur.execute("SELECT COUNT(*) FROM anuncios WHERE modelo = ?", (modelo,))
+    count = cur.fetchone()[0]
+
+    if count >= 5:
+        if metodo == "minimo":
+            cur.execute("SELECT MIN(precio) FROM anuncios WHERE modelo = ?", (modelo,))
+            result = cur.fetchone()
+            conn.close()
+            return result[0] if result and result[0] else PRECIOS_POR_DEFECTO.get(modelo, 0)
+
+        elif metodo == "percentil_15":
+            cur.execute("""
+                SELECT precio FROM anuncios 
+                WHERE modelo = ? 
+                ORDER BY precio ASC
+                LIMIT 1 OFFSET (SELECT COUNT(*) FROM anuncios WHERE modelo = ?) / 7
+            """, (modelo, modelo))
+            result = cur.fetchone()
+            conn.close()
+            return result[0] if result and result[0] else PRECIOS_POR_DEFECTO.get(modelo, 0)
+
+    conn.close()
+    return PRECIOS_POR_DEFECTO.get(modelo, 0)
+
+
+def calcular_roi(modelo: str, precio_compra: int, año: int, costo_extra: int = 1500) -> float:
+    precio_obj = obtener_precio_referencia(modelo, metodo="percentil_15")
+    if not precio_obj or precio_compra <= 0:
+        return 0.0
+
+    antiguedad = max(0, datetime.now().year - año)
+    penal = max(0, antiguedad - 10) * 0.02
+    precio_dep = precio_obj * (1 - penal)
+
+    inversion = precio_compra + costo_extra
+    ganancia = precio_dep - inversion
+    roi = (ganancia / inversion) * 100 if inversion > 0 else 0.0
+    return round(roi, 1)
+
+def puntuar_anuncio(titulo: str, precio: int, texto: str = None) -> int:
+    tl = titulo.lower()
+    txt = (texto or tl).lower()
+    pts = 0
+
+    modelo = next((m for m in PRECIOS_POR_DEFECTO if coincide_modelo(titulo, m)), None)
+    if modelo:
+        pts += 3
+        match = re.search(r"\b(19|20)\d{2}\b", txt)
+        año = int(match.group()) if match else None
+        if año:
+            r = calcular_roi(modelo, precio, año)
+            pts += 4 if r >= ROI_MINIMO else 2 if r >= 7 else -2
+
+    if contiene_negativos(txt):
+        pts -= 3
+
+    pts += 2 if 0 < precio <= 30000 else -1
+    if len(tl.split()) >= 5:
+        pts += 1
+
+    return max(0, min(pts, 10))
+
+# 📊 FUNCIONES DE BASE DE DATOS
+
+def existe_en_db(link: str) -> bool:
+    conn = sqlite3.connect(DB_PATH)
+    cur = conn.cursor()
+    cur.execute("SELECT 1 FROM anuncios WHERE link = ?", (link,))
+    found = cur.fetchone() is not None
+    conn.close()
+    return found
+
+def insertar_anuncio_db(link: str, modelo: str, anio: int,
+                        precio: int, km: str, roi: float, score: int):
+    conn = sqlite3.connect(DB_PATH)
+    cur = conn.cursor()
+    cur.execute("""
+        INSERT OR IGNORE INTO anuncios
+        (link, modelo, anio, precio, km, fecha_scrape, roi, score)
+        VALUES (?, ?, ?, ?, ?, ?, ?, ?)
+    """, (
+        link, modelo, anio, precio, km,
+        date.today().isoformat(), roi, score
+    ))
+    conn.commit()
+    conn.close()
