@@ -71,8 +71,8 @@ async def buscar_autos_marketplace():
 
             vistos = set()
             for a in items:
-                texto    = (await a.inner_text()).strip()
-                href     = await a.get_attribute("href")
+                texto = (await a.inner_text()).strip()
+                href = await a.get_attribute("href")
                 full_url = limpiar_url(href)
 
                 if (not texto
@@ -87,29 +87,37 @@ async def buscar_autos_marketplace():
                     continue
 
                 precio = limpiar_precio(match.group())
+                if precio < 3000:
+                    continue  # precio sospechoso, se descarta
 
                 if not coincide_modelo(texto, modelo):
                     continue
 
                 lines = [l for l in texto.splitlines() if l]
-                anio  = None
                 title = modelo.title()
-                try:
-                    if len(lines) > 1 and lines[1].strip() and lines[1].split()[0].isdigit():
-                       
-                        title = " ".join(lines[1].split()[1:]).title()
-                except Exception as e:
-                    pendientes_manual.append(f"⚠️ Error con anuncio: {texto[:60]}...\n{full_url}")
-                    continue
+                anio = None
 
-                    anio  = int(lines[1].split()[0])
-                    title = " ".join(lines[1].split()[1:]).title()
+                # Extraer año de forma estructurada
+                try:
+                    if len(lines) > 1 and lines[1].split()[0].isdigit():
+                        posible_anio = int(lines[1].split()[0])
+                        if 1990 <= posible_anio <= 2030:
+                            anio = posible_anio
+                            title = " ".join(lines[1].split()[1:]).title()
+                except:
+                    pass
+
+                # Buscar año en todo el texto si no se obtuvo antes
+                if not anio:
+                    match_anio = re.search(r"\b(19[9]\d|20[0-2]\d|2030)\b", texto)
+                    if match_anio:
+                        anio = int(match_anio.group())
 
                 if not anio or precio == 0:
                     continue
 
-                km    = lines[3] if len(lines) > 3 else ""
-                roi   = calcular_roi(modelo, precio, anio)
+                km = lines[3] if len(lines) > 3 else ""
+                roi = calcular_roi(modelo, precio, anio)
                 score = puntuar_anuncio(title, precio, texto)
 
                 insertar_anuncio_db(full_url, modelo, anio, precio, km, roi, score)
