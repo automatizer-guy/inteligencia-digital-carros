@@ -1,0 +1,12 @@
+# Archivos sensibles que no deben subirse
+anuncios.db
+fb_cookies.json
+.env
+
+# Archivos temporales y de Python
+__pycache__/
+*.pyc
+*.pyo
+
+# Config del editor
+.vscode/
