@@ -96,7 +96,7 @@ async def buscar_autos_marketplace():
                 title = modelo.title()
                 try:
                     if len(lines) > 1 and lines[1].strip() and lines[1].split()[0].isdigit():
-                        anio = int(lines[1].split()[0])
+                       
                         title = " ".join(lines[1].split()[1:]).title()
                 except Exception as e:
                     pendientes_manual.append(f"⚠️ Error con anuncio: {texto[:60]}...\n{full_url}")
