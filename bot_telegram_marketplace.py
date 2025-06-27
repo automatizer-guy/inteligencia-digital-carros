@@ -6,11 +6,18 @@ from telegram import Bot
 from telegram.helpers import escape_markdown
 import sqlite3
 import os
+from dotenv import load_dotenv
+load_dotenv()
 
 # 📍 Token y chat
-TOKEN = "8094743474:AAFE2LF3haFPvIf5Zc05_BBXpVZh389Pzn8"
-CHAT_ID = 5323334350
+TOKEN = os.getenv("TELEGRAM_TOKEN")
+chat_id_raw = os.getenv("CHAT_ID")
+if not chat_id_raw:
+    raise ValueError("❗No se encontró la variable CHAT_ID en el archivo .env")
+CHAT_ID = int(chat_id_raw)
+
 bot = Bot(token=TOKEN)
+
 
 DB_PATH = os.path.abspath("anuncios.db")
 
