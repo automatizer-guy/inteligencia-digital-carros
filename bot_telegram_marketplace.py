@@ -6,22 +6,16 @@ from telegram import Bot
 from telegram.helpers import escape_markdown
 import sqlite3
 import os
-from dotenv import load_dotenv
 from utils_analisis import inicializar_tabla_anuncios
 
 # 🌱 Inicializar tabla si no existe
 inicializar_tabla_anuncios()
 
-# 🔑 Cargar variables de entorno
-load_dotenv()
+# 🔐 Leer variables desde entorno (GitHub Actions o local)
+BOT_TOKEN = os.environ["BOT_TOKEN"]
+CHAT_ID = int(os.environ["CHAT_ID"])
 
-TOKEN = os.getenv("TELEGRAM_TOKEN")
-chat_id_raw = os.getenv("CHAT_ID")
-if not chat_id_raw:
-    raise ValueError("❗No se encontró la variable CHAT_ID en el archivo .env")
-CHAT_ID = int(chat_id_raw)
-
-bot = Bot(token=TOKEN)
+bot = Bot(token=BOT_TOKEN)
 
 # 🛣️ Ruta a la base central
 DB_PATH = os.path.abspath("upload-artifact/anuncios.db")
@@ -88,7 +82,7 @@ async def safe_send(text: str, parse_mode="MarkdownV2"):
                 parse_mode=parse_mode,
                 disable_web_page_preview=True
             )
-        except Exception as e:
+        except Exception:
             await asyncio.sleep(1)
 
 def extraer_roi(txt: str) -> float:
