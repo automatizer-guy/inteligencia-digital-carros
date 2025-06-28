@@ -32,15 +32,23 @@ def limpiar_url(link: str) -> str:
     return f"https://www.facebook.com{path}"
 
 async def cargar_contexto_con_cookies(browser):
-    ctx = await browser.new_context(locale="es-ES")
-    if os.path.exists(COOKIES_PATH):
-        with open(COOKIES_PATH, "r", encoding="utf-8") as f:
-            cookies = json.load(f)
-        await ctx.add_cookies(cookies)
-        print("✅ Cookies cargadas.")
-    else:
-        print("⚠️ No hay cookies. Sesión anónima.")
-    return ctx
+    print("🔐 Cargando cookies desde GitHub Secret…")
+
+    cookies_json = os.environ.get("FB_COOKIES_JSON", "")
+    if not cookies_json:
+        print("⚠️ FB_COOKIES_JSON no encontrado. Sesión anónima.")
+        return await browser.new_context(locale="es-ES")
+
+    with open("cookies.json", "w", encoding="utf-8") as f:
+        f.write(cookies_json)
+
+    context = await browser.new_context(
+        storage_state="cookies.json",
+        locale="es-ES"
+    )
+    print("✅ Cookies restauradas desde storage_state.")
+    return context
+
 
 async def buscar_autos_marketplace():
     print("\n🔎 Iniciando búsqueda en Marketplace…")
