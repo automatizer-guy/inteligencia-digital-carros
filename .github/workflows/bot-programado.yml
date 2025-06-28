@@ -20,12 +20,15 @@ jobs:
           name: anuncios-db
           path: upload-artifact
 
-      - name: Verificar si existe anuncios.db, si no, crearlo
+      - name: Verificar existencia de base persistente
         run: |
           if [ ! -f "upload-artifact/anuncios.db" ]; then
-            echo "⚠️ Base no encontrada, creando base vacía..."
-            touch upload-artifact/anuncios.db
+            echo "❌ La base de datos anuncios.db no fue encontrada."
+            echo "💡 Esta herramienta requiere una base persistente con histórico para calcular ROI con precisión."
+            echo "➡️ Subí una base con el workflow: 'Subir Base Inicial'"
+            exit 1
           fi
+
 
       - name: Instalar dependencias
         run: |
