@@ -2,7 +2,6 @@ name: Ejecutar Bot Automáticamente
 
 on:
   schedule:
-    # Corre cada 2 horas entre las 8 AM y 6 PM (UTC-6 para Guatemala)
     - cron: '0 8-18/2 * * *'
   workflow_dispatch:
 
@@ -14,12 +13,6 @@ jobs:
       - name: Clonar el repo
         uses: actions/checkout@v3
 
-      - name: Descargar artefacto anuncios.db
-        uses: actions/download-artifact@v4
-        with:
-          name: anuncios-db
-          path: upload-artifact
-
       - name: Verificar existencia de base persistente
         run: |
           if [ ! -f "upload-artifact/anuncios.db" ]; then
@@ -28,7 +21,6 @@ jobs:
             echo "➡️ Subí una base con el workflow: 'Subir Base Inicial'"
             exit 1
           fi
-
 
       - name: Instalar dependencias
         run: |
