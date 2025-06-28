@@ -1,17 +1,21 @@
-# dashboard.py
 import streamlit as st
 import pandas as pd
 import sqlite3
 import matplotlib.pyplot as plt
 import numpy as np
+import os
 
 st.set_page_config(page_title="Análisis de Autos", layout="centered")
 
 st.title("📈 Análisis de Anuncios de Autos")
 st.write("Selecciona un modelo y año para analizar su comportamiento en el mercado.")
 
+# 🛣️ Ruta a la base central
+DB_PATH = os.path.abspath("upload-artifact/anuncios.db")
+os.makedirs(os.path.dirname(DB_PATH), exist_ok=True)
+
 # Cargar datos desde la base de datos
-conn = sqlite3.connect("anuncios.db")
+conn = sqlite3.connect(DB_PATH)
 df = pd.read_sql_query("SELECT * FROM anuncios", conn)
 conn.close()
 
@@ -58,11 +62,7 @@ else:
     st.info("Se necesitan más datos para mostrar la tendencia de ROI.")
 
 # Histograma de precios
-
-
 st.subheader("📊 Distribución de Precios por Rangos")
-
-# Definir número de bins (rango ajustable según tus datos)
 num_bins = 10
 precios = df_modelo["precio"].dropna()
 
@@ -77,7 +77,6 @@ if not precios.empty:
     st.pyplot(fig)
 else:
     st.info("No hay precios disponibles para graficar.")
-
 
 # Botón para descarga
 st.download_button(

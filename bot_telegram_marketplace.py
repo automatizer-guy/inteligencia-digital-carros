@@ -7,9 +7,14 @@ from telegram.helpers import escape_markdown
 import sqlite3
 import os
 from dotenv import load_dotenv
+from utils_analisis import inicializar_tabla_anuncios
+
+# 🌱 Inicializar tabla si no existe
+inicializar_tabla_anuncios()
+
+# 🔑 Cargar variables de entorno
 load_dotenv()
 
-# 📍 Token y chat
 TOKEN = os.getenv("TELEGRAM_TOKEN")
 chat_id_raw = os.getenv("CHAT_ID")
 if not chat_id_raw:
@@ -18,8 +23,9 @@ CHAT_ID = int(chat_id_raw)
 
 bot = Bot(token=TOKEN)
 
-
-DB_PATH = os.path.abspath("anuncios.db")
+# 🛣️ Ruta a la base central
+DB_PATH = os.path.abspath("upload-artifact/anuncios.db")
+os.makedirs(os.path.dirname(DB_PATH), exist_ok=True)
 
 # 🔍 ROI real desde la base
 def get_precio_minimo(modelo: str) -> int:
@@ -46,7 +52,6 @@ def calcular_roi_real(modelo: str, precio_compra: int, año: int, costo_extra: i
     roi = (ganancia / inversion) * 100 if inversion > 0 else 0.0
     return round(roi, 1)
 
-# 🧠 Recalcular el ROI desde el texto y link
 def ajustar_roi(texto: str) -> str:
     modelo_match = re.search(r"• Año: \d+\n• Precio: Q([\d,]+)", texto)
     anio_match   = re.search(r"• Año: (\d+)", texto)
@@ -54,13 +59,11 @@ def ajustar_roi(texto: str) -> str:
     modelo_txt   = texto.split("🚘 *")[-1].split("*")[0].lower()
 
     if not (modelo_match and anio_match and link_match):
-        return texto  # No cambia si no se puede extraer
+        return texto
 
     precio = int(modelo_match.group(1).replace(",", ""))
     anio = int(anio_match.group(1))
-    link = link_match.group(0)
 
-    # Buscar el modelo real que coincide
     posibles = [
         "yaris", "civic", "corolla", "sentra", "cr-v", "rav4", "tucson",
         "kia picanto", "chevrolet spark", "honda", "nissan march",
@@ -75,7 +78,6 @@ def ajustar_roi(texto: str) -> str:
     texto = re.sub(r"ROI: [\d\.-]+%", f"ROI: {roi}%", texto)
     return texto
 
-# 📤 Envío seguro a Telegram
 async def safe_send(text: str, parse_mode="MarkdownV2"):
     escaped = escape_markdown(text, version=2)
     for _ in range(3):
@@ -89,7 +91,6 @@ async def safe_send(text: str, parse_mode="MarkdownV2"):
         except Exception as e:
             await asyncio.sleep(1)
 
-# 🎯 ROI y Score
 def extraer_roi(txt: str) -> float:
     m = re.search(r"ROI:\s?([\d\.-]+)%", txt)
     return float(m.group(1)) if m else 0.0
@@ -98,16 +99,13 @@ def extraer_score(txt: str) -> int:
     m = re.search(r"Score:\s?(\d+)/10", txt)
     return int(m.group(1)) if m else 0
 
-# 🚀 Ejecutar bot
 async def enviar_ofertas():
     print("📡 Buscando autos...")
     brutos, pendientes = await buscar_autos_marketplace()
 
-    # Aplicar nuevo ROI real
     ajustados = [ajustar_roi(txt) for txt in brutos]
-
-    # Filtrar por criterios
     buenos = [r for r in ajustados if extraer_roi(r) >= 10 and extraer_score(r) >= 6]
+
     if not buenos:
         print("📭 No hay ofertas relevantes.")
         return

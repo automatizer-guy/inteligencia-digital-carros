@@ -1,19 +1,25 @@
-# init_db.py
 import sqlite3
-conn = sqlite3.connect("anuncios.db")
+import os
+
+# 📍 Ruta alineada con el sistema automatizado
+DB_PATH = os.path.abspath("upload-artifact/anuncios.db")
+os.makedirs(os.path.dirname(DB_PATH), exist_ok=True)
+
+conn = sqlite3.connect(DB_PATH)
 c = conn.cursor()
 c.execute("""
 CREATE TABLE IF NOT EXISTS anuncios (
-  link         TEXT    PRIMARY KEY,
-  modelo       TEXT,
-  anio         INTEGER,
-  precio       INTEGER,
-  km           TEXT,
+  id INTEGER PRIMARY KEY AUTOINCREMENT,
+  link TEXT UNIQUE,
+  modelo TEXT,
+  anio INTEGER,
+  precio INTEGER,
+  km TEXT,
   fecha_scrape TEXT,
-  roi          REAL,
-  score        INTEGER
+  roi REAL,
+  score INTEGER
 );
 """)
 conn.commit()
 conn.close()
-print("✅ Base de datos inicializada.")
+print(f"✅ Base de datos inicializada correctamente en: {DB_PATH}")

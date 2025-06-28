@@ -1,0 +1,42 @@
+name: Ejecutar Bot Automáticamente
+
+on:
+  schedule:
+    # Corre cada 2 horas entre las 8 AM y 6 PM (UTC-6 para Guatemala)
+    - cron: '0 8-18/2 * * *'
+  workflow_dispatch:
+
+jobs:
+  run-bot:
+    runs-on: ubuntu-latest
+
+    steps:
+      - name: Clonar el repo
+        uses: actions/checkout@v3
+
+      - name: Descargar artefacto anuncios.db
+        uses: actions/download-artifact@v4
+        with:
+          name: anuncios-db
+          path: upload-artifact
+
+      - name: Verificar si existe anuncios.db, si no, crearlo
+        run: |
+          if [ ! -f "upload-artifact/anuncios.db" ]; then
+            echo "⚠️ Base no encontrada, creando base vacía..."
+            touch upload-artifact/anuncios.db
+          fi
+
+      - name: Instalar dependencias
+        run: |
+          python -m pip install --upgrade pip
+          pip install -r requirements.txt
+
+      - name: Ejecutar bot
+        run: python run_bot.py
+
+      - name: Subir base actualizada
+        uses: actions/upload-artifact@v4
+        with:
+          name: anuncios-db
+          path: upload-artifact/anuncios.db

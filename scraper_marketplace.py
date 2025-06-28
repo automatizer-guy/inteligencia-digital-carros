@@ -7,8 +7,11 @@ from playwright.async_api import async_playwright
 from utils_analisis import (
     limpiar_precio, contiene_negativos, puntuar_anuncio,
     calcular_roi, coincide_modelo,
-    existe_en_db, insertar_anuncio_db
+    existe_en_db, insertar_anuncio_db, inicializar_tabla_anuncios
 )
+
+# Inicializar tabla si no existe
+inicializar_tabla_anuncios()
 
 MODELOS_INTERES = [
     "yaris", "civic", "corolla", "sentra", "cr-v", "rav4", "tucson",
@@ -97,7 +100,6 @@ async def buscar_autos_marketplace():
                 title = modelo.title()
                 anio = None
 
-                # Extraer año de forma estructurada
                 try:
                     if len(lines) > 1 and lines[1].split()[0].isdigit():
                         posible_anio = int(lines[1].split()[0])
@@ -107,7 +109,6 @@ async def buscar_autos_marketplace():
                 except:
                     pass
 
-                # Buscar año en todo el texto si no se obtuvo antes
                 if not anio:
                     match_anio = re.search(r"\b(19[9]\d|20[0-2]\d|2030)\b", texto)
                     if match_anio:
@@ -139,7 +140,6 @@ async def buscar_autos_marketplace():
         await browser.close()
 
     return resultados, pendientes_manual
-
 if __name__ == "__main__":
     async def main():
         brutos, pendientes = await buscar_autos_marketplace()

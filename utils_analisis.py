@@ -3,7 +3,12 @@ import sqlite3
 from datetime import datetime, date
 import os
 
-# 🚗 Precios estimados si no hay datos en la base de datos
+# 🚩 Ruta centralizada a la base de datos
+DB_PATH = os.path.abspath("upload-artifact/anuncios.db")
+os.makedirs(os.path.dirname(DB_PATH), exist_ok=True)
+
+ROI_MINIMO = 10.0
+
 PRECIOS_POR_DEFECTO = {
     "yaris": 50000, "civic": 60000, "corolla": 45000, "sentra": 40000,
     "rav4": 120000, "cr-v": 90000, "tucson": 65000, "kia picanto": 39000,
@@ -24,8 +29,25 @@ LUGARES_EXTRANJEROS = [
     "honduras", "el salvador", "panamá", "costa rica", "colombia", "ecuador"
 ]
 
-DB_PATH = os.path.abspath("anuncios.db")
-ROI_MINIMO = 10.0
+# 🔧 Crear tabla si no existe
+def inicializar_tabla_anuncios():
+    conn = sqlite3.connect(DB_PATH)
+    cur = conn.cursor()
+    cur.execute("""
+        CREATE TABLE IF NOT EXISTS anuncios (
+            id INTEGER PRIMARY KEY AUTOINCREMENT,
+            link TEXT UNIQUE,
+            modelo TEXT,
+            anio INTEGER,
+            precio INTEGER,
+            km TEXT,
+            fecha_scrape TEXT,
+            roi REAL,
+            score INTEGER
+        )
+    """)
+    conn.commit()
+    conn.close()
 
 # 🔧 UTILIDADES TEXTO
 
@@ -55,14 +77,9 @@ def es_extranjero(texto: str) -> bool:
 # 💰 ROI DINÁMICO BASADO EN PRECIO MÍNIMO EN LA BD
 
 def obtener_precio_referencia(modelo: str, metodo: str = "percentil_15") -> int:
-    """
-    Retorna un precio de referencia real del modelo a partir de la base de datos,
-    con respaldo en PRECIOS_POR_DEFECTO si hay pocos datos.
-    """
     conn = sqlite3.connect(DB_PATH)
     cur = conn.cursor()
 
-    # Contar registros en la base de datos
     cur.execute("SELECT COUNT(*) FROM anuncios WHERE modelo = ?", (modelo,))
     count = cur.fetchone()[0]
 
@@ -86,7 +103,6 @@ def obtener_precio_referencia(modelo: str, metodo: str = "percentil_15") -> int:
 
     conn.close()
     return PRECIOS_POR_DEFECTO.get(modelo, 0)
-
 
 def calcular_roi(modelo: str, precio_compra: int, año: int, costo_extra: int = 1500) -> float:
     precio_obj = obtener_precio_referencia(modelo, metodo="percentil_15")
