@@ -46,3 +46,10 @@ jobs:
         with:
           name: anuncios-db
           path: upload-artifact/anuncios.db
+          
+      - name: Subir capturas del navegador
+        uses: actions/upload-artifact@v4
+        with:
+          name: screenshots
+          path: screenshots/
+
