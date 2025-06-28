@@ -1,5 +1,10 @@
 import re
 import os
+import os
+
+# Crear carpeta si no existe
+os.makedirs("screenshots", exist_ok=True)
+
 import json
 import asyncio
 from urllib.parse import urlparse
@@ -72,6 +77,8 @@ async def buscar_autos_marketplace():
                 "&sortBy=best_match&conditions=used_good_condition"
             )
             await page.goto(url)
+            await page.screenshot(path=f"screenshots/{modelo.replace(' ', '_')}.png", full_page=True)
+
             await asyncio.sleep(TIEMPO_CARGA)
             for _ in range(SCROLL_VECES):
                 await page.evaluate("window.scrollTo(0, document.body.scrollHeight)")
