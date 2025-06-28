@@ -2,12 +2,18 @@ name: Ejecutar Bot Automáticamente
 
 on:
   schedule:
+    # Corre cada 2 horas entre las 8 AM y 6 PM (UTC-6 para Guatemala)
     - cron: '0 8-18/2 * * *'
   workflow_dispatch:
 
 jobs:
   run-bot:
     runs-on: ubuntu-latest
+
+    # 👇 Exponer secrets como variables de entorno
+    env:
+      BOT_TOKEN: ${{ secrets.BOT_TOKEN }}
+      CHAT_ID: ${{ secrets.CHAT_ID }}
 
     steps:
       - name: Clonar el repo
