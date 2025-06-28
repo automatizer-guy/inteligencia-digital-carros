@@ -2,3 +2,4 @@ playwright
 pandas
 streamlit
 python-telegram-bot
+python-dotenv
