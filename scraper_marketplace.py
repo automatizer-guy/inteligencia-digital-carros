@@ -135,8 +135,18 @@ async def buscar_autos_marketplace():
                 km = lines[3] if len(lines) > 3 else ""
                 roi = calcular_roi(modelo, precio, anio)
                 score = puntuar_anuncio(title, precio, texto)
-
-                insertar_anuncio_db(full_url, modelo, anio, precio, km, roi, score)
+                relevante = score >= 6  # Podés ajustar el umbral si querés
+                
+                insertar_anuncio_db(
+                    url=full_url,
+                    modelo=modelo,
+                    año=anio,
+                    precio=precio,
+                    kilometraje=km,
+                    roi=roi,
+                    score=score,
+                    relevante=relevante
+                )
 
                 resultados.append(
                     f"🚘 *{title}*\n"
