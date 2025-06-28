@@ -12,7 +12,6 @@ jobs:
 
       - name: Subir anuncios.db como artefacto
         uses: actions/upload-artifact@v4
-
         with:
           name: anuncios-db
           path: upload-artifact/anuncios.db
