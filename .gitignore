@@ -1,5 +1,4 @@
 # Archivos sensibles que no deben subirse
-anuncios.db
 fb_cookies.json
 .env
 
