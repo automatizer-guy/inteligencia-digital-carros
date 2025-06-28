@@ -100,16 +100,19 @@ async def enviar_ofertas():
     ajustados = [ajustar_roi(txt) for txt in brutos]
     buenos = [r for r in ajustados if extraer_roi(r) >= 10 and extraer_score(r) >= 6]
 
+    print(f"📊 Procesados: {len(ajustados)} | Relevantes: {len(buenos)}")
+    await safe_send(f"📊 Procesados: {len(ajustados)} | Relevantes: {len(buenos)}")
+
     if not buenos:
         print("📭 No hay ofertas relevantes.")
+        hora = datetime.now().strftime("%H:%M")
+        await safe_send(f"📡 Bot ejecutado a las {hora}, sin ofertas nuevas.")
         return
 
     buenos.sort(key=extraer_roi, reverse=True)
     fecha = datetime.now().strftime("%Y-%m-%d %H:%M")
-    partes = []
     texto = f"🚘 *Ofertas nuevas ({fecha}):*\n\n" + "\n\n".join(buenos)
-    for i in range(0, len(texto), 3000):
-        partes.append(texto[i:i+3000])
+    partes = [texto[i:i+3000] for i in range(0, len(texto), 3000)]
 
     for p in partes:
         await safe_send(p)
@@ -120,6 +123,15 @@ async def enviar_ofertas():
         for i in range(0, len(pm), 3000):
             await safe_send(pm[i:i+3000])
             await asyncio.sleep(1)
+
+    conn = sqlite3.connect(DB_PATH)
+    cur = conn.cursor()
+    cur.execute("SELECT COUNT(*) FROM anuncios")
+    total = cur.fetchone()[0]
+    conn.close()
+
+    print(f"📦 Total acumulado en base: {total}")
+    await safe_send(f"📦 Total acumulado en base: {total} anuncios")
 
 if __name__ == "__main__":
     asyncio.run(enviar_ofertas())
