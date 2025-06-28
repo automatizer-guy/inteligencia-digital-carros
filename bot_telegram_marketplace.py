@@ -98,7 +98,7 @@ async def enviar_ofertas():
     brutos, pendientes = await buscar_autos_marketplace()
 
     ajustados = [ajustar_roi(txt) for txt in brutos]
-    buenos = [r for r in ajustados if extraer_roi(r) >= 10 and extraer_score(r) >= 6]
+    buenos = [r for r in ajustados if extraer_roi(r) >= 0 and extraer_score(r) >= 0]
 
     print(f"📊 Procesados: {len(ajustados)} | Relevantes: {len(buenos)}")
     await safe_send(f"📊 Procesados: {len(ajustados)} | Relevantes: {len(buenos)}")
