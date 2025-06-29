@@ -25,9 +25,7 @@ os.makedirs(os.path.dirname(DB_PATH), exist_ok=True)
 def get_precio_minimo(modelo: str) -> int:
     conn = sqlite3.connect(DB_PATH)
     cur = conn.cursor()
-    cur.execute("""
-        SELECT MIN(precio) FROM anuncios WHERE modelo = ?
-    """, (modelo,))
+    cur.execute("SELECT MIN(precio) FROM anuncios WHERE modelo = ?", (modelo,))
     resultado = cur.fetchone()
     conn.close()
     return resultado[0] if resultado and resultado[0] else 0
@@ -97,33 +95,32 @@ async def enviar_ofertas():
     print("📡 Buscando autos...")
     brutos, pendientes = await buscar_autos_marketplace()
 
-ajustados = [ajustar_roi(txt) for txt in brutos]
+    ajustados = [ajustar_roi(txt) for txt in brutos]
 
-buenos = []
-potenciales = []
-descartados = []
+    buenos = []
+    potenciales = []
+    descartados = []
 
-for txt in ajustados:
-    roi = extraer_roi(txt)
-    score = extraer_score(txt)
-    print(f"🔎 ROI: {roi} | Score: {score}")
+    for txt in ajustados:
+        roi = extraer_roi(txt)
+        score = extraer_score(txt)
+        print(f"🔎 ROI: {roi} | Score: {score}")
 
-    if roi >= 10 and score >= 6:
-        buenos.append(txt)
-    elif roi >= 7 and score >= 4:
-        potenciales.append(txt)
-    else:
-        descartados.append(txt)
+        if roi >= 10 and score >= 6:
+            buenos.append(txt)
+        elif roi >= 7 and score >= 4:
+            potenciales.append(txt)
+        else:
+            descartados.append(txt)
 
-print(f"📊 Procesados: {len(ajustados)} | Relevantes: {len(buenos)} | Potenciales: {len(potenciales)}")
-await safe_send(f"📊 Procesados: {len(ajustados)} | Relevantes: {len(buenos)} | Potenciales: {len(potenciales)}")
+    print(f"📊 Procesados: {len(ajustados)} | Relevantes: {len(buenos)} | Potenciales: {len(potenciales)}")
+    await safe_send(f"📊 Procesados: {len(ajustados)} | Relevantes: {len(buenos)} | Potenciales: {len(potenciales)}")
 
-if not buenos and not potenciales:
-    print("📭 No hay ofertas relevantes.")
-    hora = datetime.now().strftime("%H:%M")
-    await safe_send(f"📡 Bot ejecutado a las {hora}, sin ofertas nuevas.")
-    return
-
+    if not buenos and not potenciales:
+        print("📭 No hay ofertas relevantes.")
+        hora = datetime.now().strftime("%H:%M")
+        await safe_send(f"📡 Bot ejecutado a las {hora}, sin ofertas nuevas.")
+        return
 
     buenos.sort(key=extraer_roi, reverse=True)
     fecha = datetime.now().strftime("%Y-%m-%d %H:%M")
