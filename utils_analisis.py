@@ -43,12 +43,20 @@ def inicializar_tabla_anuncios():
             km TEXT,
             fecha_scrape TEXT,
             roi REAL,
-            score INTEGER,
-            relevante BOOLEAN DEFAULT 0
+            score INTEGER
         )
     """)
+
+    # Agregar la columna 'relevante' si aún no existe
+    try:
+        cur.execute("ALTER TABLE anuncios ADD COLUMN relevante BOOLEAN DEFAULT 0;")
+        print("🧱 Se agregó columna 'relevante' a la tabla.")
+    except sqlite3.OperationalError:
+        pass  # ya existe
+
     conn.commit()
     conn.close()
+
 
 # 🔧 UTILIDADES TEXTO
 def normalizar_texto(texto: str) -> str:
