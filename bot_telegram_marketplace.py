@@ -97,17 +97,33 @@ async def enviar_ofertas():
     print("📡 Buscando autos...")
     brutos, pendientes = await buscar_autos_marketplace()
 
-    ajustados = [ajustar_roi(txt) for txt in brutos]
-    buenos = [r for r in ajustados if extraer_roi(r) >= 0 and extraer_score(r) >= 0]
+ajustados = [ajustar_roi(txt) for txt in brutos]
 
-    print(f"📊 Procesados: {len(ajustados)} | Relevantes: {len(buenos)}")
-    await safe_send(f"📊 Procesados: {len(ajustados)} | Relevantes: {len(buenos)}")
+buenos = []
+potenciales = []
+descartados = []
 
-    if not buenos:
-        print("📭 No hay ofertas relevantes.")
-        hora = datetime.now().strftime("%H:%M")
-        await safe_send(f"📡 Bot ejecutado a las {hora}, sin ofertas nuevas.")
-        return
+for txt in ajustados:
+    roi = extraer_roi(txt)
+    score = extraer_score(txt)
+    print(f"🔎 ROI: {roi} | Score: {score}")
+
+    if roi >= 10 and score >= 6:
+        buenos.append(txt)
+    elif roi >= 7 and score >= 4:
+        potenciales.append(txt)
+    else:
+        descartados.append(txt)
+
+print(f"📊 Procesados: {len(ajustados)} | Relevantes: {len(buenos)} | Potenciales: {len(potenciales)}")
+await safe_send(f"📊 Procesados: {len(ajustados)} | Relevantes: {len(buenos)} | Potenciales: {len(potenciales)}")
+
+if not buenos and not potenciales:
+    print("📭 No hay ofertas relevantes.")
+    hora = datetime.now().strftime("%H:%M")
+    await safe_send(f"📡 Bot ejecutado a las {hora}, sin ofertas nuevas.")
+    return
+
 
     buenos.sort(key=extraer_roi, reverse=True)
     fecha = datetime.now().strftime("%Y-%m-%d %H:%M")
