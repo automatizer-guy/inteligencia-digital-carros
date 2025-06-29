@@ -11,7 +11,7 @@ from utils_analisis import (
 )
 
 # Crear carpeta si no existe
-os.makedirs("screenshots", exist_ok=True)
+#os.makedirs("screenshots", exist_ok=True)
 
 # Inicializar tabla si no existe
 inicializar_tabla_anuncios()
@@ -69,7 +69,7 @@ async def buscar_autos_marketplace():
                 "&sortBy=best_match&conditions=used_good_condition"
             )
             await page.goto(url)
-            await page.screenshot(path=f"screenshots/{modelo.replace(' ', '_')}.png", full_page=True)
+            #await page.screenshot(path=f"screenshots/{modelo.replace(' ', '_')}.png", full_page=True)
             await asyncio.sleep(TIEMPO_CARGA)
 
             nuevos_urls = set()
