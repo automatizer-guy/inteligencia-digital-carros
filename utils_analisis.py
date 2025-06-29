@@ -43,14 +43,14 @@ def inicializar_tabla_anuncios():
             km TEXT,
             fecha_scrape TEXT,
             roi REAL,
-            score INTEGER
+            score INTEGER,
+            relevante BOOLEAN DEFAULT 0
         )
     """)
     conn.commit()
     conn.close()
 
 # 🔧 UTILIDADES TEXTO
-
 def normalizar_texto(texto: str) -> str:
     return re.sub(r"[^a-z0-9]", "", texto.lower())
 
@@ -74,8 +74,7 @@ def contiene_negativos(texto: str) -> bool:
 def es_extranjero(texto: str) -> bool:
     return any(p in texto.lower() for p in LUGARES_EXTRANJEROS)
 
-# 💰 ROI DINÁMICO BASADO EN PRECIO MÍNIMO EN LA BD
-
+# 💰 ROI dinámico basado en la base
 def obtener_precio_referencia(modelo: str, metodo: str = "percentil_15") -> int:
     conn = sqlite3.connect(DB_PATH)
     cur = conn.cursor()
@@ -89,7 +88,6 @@ def obtener_precio_referencia(modelo: str, metodo: str = "percentil_15") -> int:
             result = cur.fetchone()
             conn.close()
             return result[0] if result and result[0] else PRECIOS_POR_DEFECTO.get(modelo, 0)
-
         elif metodo == "percentil_15":
             cur.execute("""
                 SELECT precio FROM anuncios 
@@ -151,17 +149,32 @@ def existe_en_db(link: str) -> bool:
     conn.close()
     return found
 
-def insertar_anuncio_db(link: str, modelo: str, anio: int,
-                        precio: int, km: str, roi: float, score: int):
+def insertar_anuncio_db(
+    url: str,
+    modelo: str,
+    año: int,
+    precio: int,
+    kilometraje: str,
+    roi: float,
+    score: int,
+    relevante: bool
+):
     conn = sqlite3.connect(DB_PATH)
     cur = conn.cursor()
     cur.execute("""
         INSERT OR IGNORE INTO anuncios
-        (link, modelo, anio, precio, km, fecha_scrape, roi, score)
-        VALUES (?, ?, ?, ?, ?, ?, ?, ?)
+        (link, modelo, anio, precio, km, fecha_scrape, roi, score, relevante)
+        VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)
     """, (
-        link, modelo, anio, precio, km,
-        date.today().isoformat(), roi, score
+        url,
+        modelo,
+        año,
+        precio,
+        kilometraje,
+        date.today().isoformat(),
+        roi,
+        score,
+        int(relevante)
     ))
     conn.commit()
     conn.close()
