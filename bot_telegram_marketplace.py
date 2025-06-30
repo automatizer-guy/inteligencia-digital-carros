@@ -1,74 +1,25 @@
 import asyncio
 import re
+import os
+import sqlite3
 from datetime import datetime
 from scraper_marketplace import buscar_autos_marketplace
 from telegram import Bot
 from telegram.helpers import escape_markdown
-import sqlite3
-import os
-from utils_analisis import inicializar_tabla_anuncios
+from utils_analisis import inicializar_tabla_anuncios, calcular_roi_real, coincide_modelo
 
 # 🌱 Inicializar tabla si no existe
 inicializar_tabla_anuncios()
 
-# 🔐 Leer variables desde entorno (GitHub Actions o local)
+# 🔐 Leer variables desde entorno
 BOT_TOKEN = os.environ["BOT_TOKEN"]
 CHAT_ID = int(os.environ["CHAT_ID"])
 
 bot = Bot(token=BOT_TOKEN)
 
-# 🛣️ Ruta a la base central
+# 🛣️ Ruta base
 DB_PATH = os.path.abspath("upload-artifact/anuncios.db")
 os.makedirs(os.path.dirname(DB_PATH), exist_ok=True)
-
-# 🔍 ROI real desde la base
-def get_precio_minimo(modelo: str) -> int:
-    conn = sqlite3.connect(DB_PATH)
-    cur = conn.cursor()
-    cur.execute("SELECT MIN(precio) FROM anuncios WHERE modelo = ?", (modelo,))
-    resultado = cur.fetchone()
-    conn.close()
-    return resultado[0] if resultado and resultado[0] else 0
-
-def calcular_roi_real(modelo: str, precio_compra: int, año: int, costo_extra: int = 1500) -> float:
-    precio_obj = get_precio_minimo(modelo)
-    if not precio_obj or precio_compra <= 0:
-        return 0.0
-
-    antiguedad = max(0, datetime.now().year - año)
-    penal = max(0, antiguedad - 10) * 0.02
-    precio_dep = precio_obj * (1 - penal)
-
-    inversion = precio_compra + costo_extra
-    ganancia = precio_dep - inversion
-    roi = (ganancia / inversion) * 100 if inversion > 0 else 0.0
-    return round(roi, 1)
-
-def ajustar_roi(texto: str) -> str:
-    modelo_match = re.search(r"• Año: \d+\n• Precio: Q([\d,]+)", texto)
-    anio_match   = re.search(r"• Año: (\d+)", texto)
-    link_match   = re.search(r"https://www\.facebook\.com/marketplace/item/\d+", texto)
-    modelo_txt   = texto.split("🚘 *")[-1].split("*")[0].lower()
-
-    if not (modelo_match and anio_match and link_match):
-        return texto
-
-    precio = int(modelo_match.group(1).replace(",", ""))
-    anio = int(anio_match.group(1))
-
-    posibles = [
-        "yaris", "civic", "corolla", "sentra", "cr-v", "rav4", "tucson",
-        "kia picanto", "chevrolet spark", "honda", "nissan march",
-        "suzuki alto", "suzuki swift", "suzuki grand vitara",
-        "hyundai accent", "hyundai i10", "kia rio"
-    ]
-    modelo = next((m for m in posibles if m in modelo_txt), None)
-    if not modelo:
-        return texto
-
-    roi = calcular_roi_real(modelo, precio, anio)
-    texto = re.sub(r"ROI: [\d\.-]+%", f"ROI: {roi}%", texto)
-    return texto
 
 async def safe_send(text: str, parse_mode="MarkdownV2"):
     escaped = escape_markdown(text, version=2)
@@ -83,46 +34,70 @@ async def safe_send(text: str, parse_mode="MarkdownV2"):
         except Exception:
             await asyncio.sleep(1)
 
-def extraer_roi(txt: str) -> float:
-    m = re.search(r"ROI:\s?([\d\.-]+)%", txt)
-    return float(m.group(1)) if m else 0.0
+def extraer_info(txt: str):
+    link = re.search(r"https://www\.facebook\.com/marketplace/item/\d+", txt)
+    año = re.search(r"Año: (\d{4})", txt)
+    precio = re.search(r"Precio: Q([\d,]+)", txt)
+    modelo = re.search(r"🚘 \*(.+?)\*", txt)
+    return (
+        link.group(0) if link else "",
+        int(año.group(1)) if año else None,
+        int(precio.group(1).replace(",", "")) if precio else None,
+        modelo.group(1).lower() if modelo else ""
+    )
 
-def extraer_score(txt: str) -> int:
-    m = re.search(r"Score:\s?(\d+)/10", txt)
-    return int(m.group(1)) if m else 0
+def mensaje_valido(txt: str):
+    link, año, precio, modelo_txt = extraer_info(txt)
+    if not all([link, año, precio, modelo_txt]):
+        return False, 0.0
+
+    modelo_detectado = next((
+        m for m in [
+            "yaris", "civic", "corolla", "sentra", "cr-v", "rav4", "tucson",
+            "kia picanto", "chevrolet spark", "nissan march", "suzuki alto",
+            "suzuki swift", "suzuki grand vitara", "hyundai accent", "hyundai i10",
+            "kia rio", "mitsubishi mirage", "toyota", "honda"
+        ] if coincide_modelo(modelo_txt, m)
+    ), None)
+
+    if not modelo_detectado:
+        return False, 0.0
+
+    roi = calcular_roi_real(modelo_detectado, precio, año)
+    return roi >= 10, roi
 
 async def enviar_ofertas():
     print("📡 Buscando autos...")
     brutos, pendientes = await buscar_autos_marketplace()
 
-    ajustados = [ajustar_roi(txt) for txt in brutos]
-
     buenos = []
     potenciales = []
     descartados = []
 
-    for txt in ajustados:
-        roi = extraer_roi(txt)
-        score = extraer_score(txt)
-        print(f"🔎 ROI: {roi} | Score: {score}")
+    for txt in brutos:
+        valido, roi = mensaje_valido(txt)
+        score_match = re.search(r"Score:\s?(\d+)/10", txt)
+        score = int(score_match.group(1)) if score_match else 0
 
-        if roi >= 10 and score >= 6:
+        print(f"🔎 ROI: {roi:.1f}% | Score: {score}")
+
+        if valido and score >= 6:
             buenos.append(txt)
         elif roi >= 7 and score >= 4:
             potenciales.append(txt)
         else:
             descartados.append(txt)
 
-    print(f"📊 Procesados: {len(ajustados)} | Relevantes: {len(buenos)} | Potenciales: {len(potenciales)}")
-    await safe_send(f"📊 Procesados: {len(ajustados)} | Relevantes: {len(buenos)} | Potenciales: {len(potenciales)}")
+    total = len(buenos) + len(potenciales) + len(descartados)
+    print(f"📊 Procesados: {total} | Relevantes: {len(buenos)} | Potenciales: {len(potenciales)}")
+    await safe_send(f"📊 Procesados: {total} | Relevantes: {len(buenos)} | Potenciales: {len(potenciales)}")
 
     if not buenos and not potenciales:
-        print("📭 No hay ofertas relevantes.")
         hora = datetime.now().strftime("%H:%M")
         await safe_send(f"📡 Bot ejecutado a las {hora}, sin ofertas nuevas.")
         return
 
-    buenos.sort(key=extraer_roi, reverse=True)
+    buenos.sort(key=lambda x: float(re.search(r"ROI:\s?([\d\.-]+)%", x).group(1)), reverse=True)
     fecha = datetime.now().strftime("%Y-%m-%d %H:%M")
     texto = f"🚘 *Ofertas nuevas ({fecha}):*\n\n" + "\n\n".join(buenos)
     partes = [texto[i:i+3000] for i in range(0, len(texto), 3000)]
