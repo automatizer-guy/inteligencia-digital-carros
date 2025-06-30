@@ -1,6 +1,7 @@
 import re
 import os
 import json
+import random
 import asyncio
 from urllib.parse import urlparse
 from playwright.async_api import async_playwright
@@ -9,9 +10,6 @@ from utils_analisis import (
     calcular_roi, coincide_modelo,
     existe_en_db, insertar_anuncio_db, inicializar_tabla_anuncios
 )
-
-# Crear carpeta si no existe
-#os.makedirs("screenshots", exist_ok=True)
 
 # Inicializar tabla si no existe
 inicializar_tabla_anuncios()
@@ -23,8 +21,6 @@ MODELOS_INTERES = [
     "hyundai accent", "hyundai i10", "kia rio"
 ]
 
-TIEMPO_CARGA   = 8
-SCROLL_PAUSA   = 2
 COOKIES_PATH   = "fb_cookies.json"
 MIN_RESULTADOS = 20
 MAX_RESULTADOS = 30
@@ -43,7 +39,11 @@ async def cargar_contexto_con_cookies(browser):
         return await browser.new_context(locale="es-ES")
     with open("cookies.json", "w", encoding="utf-8") as f:
         f.write(cookies_json)
-    context = await browser.new_context(storage_state="cookies.json", locale="es-ES")
+    context = await browser.new_context(
+        storage_state="cookies.json",
+        locale="es-ES",
+        user_agent="Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 Chrome/124.0.0.0 Safari/537.36"
+    )
     print("✅ Cookies restauradas desde storage_state.")
     return context
 
@@ -57,7 +57,10 @@ async def buscar_autos_marketplace():
         ctx = await cargar_contexto_con_cookies(browser)
         page = await ctx.new_page()
 
-        for modelo in MODELOS_INTERES:
+        modelos = MODELOS_INTERES.copy()
+        random.shuffle(modelos)
+
+        for modelo in modelos:
             if len(resultados) >= MIN_RESULTADOS:
                 break
 
@@ -69,13 +72,9 @@ async def buscar_autos_marketplace():
                 "&sortBy=best_match&conditions=used_good_condition"
             )
             await page.goto(url)
-            #await page.screenshot(path=f"screenshots/{modelo.replace(' ', '_')}.png", full_page=True)
-            await asyncio.sleep(TIEMPO_CARGA)
+            await asyncio.sleep(random.uniform(4, 7))
 
-            nuevos_urls = set()
-            vistos = set()
-
-                        # Verificación de sesión activa
+            # Verificación de sesión activa
             nombre_usuario = "👤 Sesión anónima"
             if await page.query_selector("a[role='link'][href^='/me/']"):
                 nombre_usuario = await page.inner_text("a[role='link'][href^='/me/']")
@@ -177,9 +176,9 @@ async def buscar_autos_marketplace():
                     print(f"✅ Se encontraron {len(nuevos_urls)} nuevos para {modelo}")
                     break
                 else:
-                    await page.evaluate("window.scrollBy(0, document.body.scrollHeight)")
-                    await asyncio.sleep(SCROLL_PAUSA)
-
+                    for _ in range(5):
+                        await page.mouse.wheel(0, 400)
+                        await asyncio.sleep(random.uniform(0.8, 1.5))
 
         await browser.close()
     return resultados, pendientes_manual
