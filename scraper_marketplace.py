@@ -75,20 +75,43 @@ async def buscar_autos_marketplace():
             nuevos_urls = set()
             vistos = set()
 
+                        # Verificación de sesión activa
+            nombre_usuario = "👤 Sesión anónima"
+            if await page.query_selector("a[role='link'][href^='/me/']"):
+                nombre_usuario = await page.inner_text("a[role='link'][href^='/me/']")
+            print(f"🙋 Usuario detectado: {nombre_usuario}")
+
+            nuevos_urls = set()
+            vistos = set()
+
             for intento in range(MAX_INTENTOS):
                 items = await page.query_selector_all("a[href*='/marketplace/item']")
                 print(f"🔄 Intento {intento+1}/{MAX_INTENTOS}: {len(items)} elementos detectados para {modelo}")
+
+                # Diagnóstico por causas
+                contador = {
+                    "total": 0,
+                    "duplicado": 0,
+                    "sin_precio": 0,
+                    "negativo": 0,
+                    "sin_anio": 0,
+                    "guardado": 0
+                }
 
                 for a in items:
                     texto = (await a.inner_text()).strip()
                     href = await a.get_attribute("href")
                     full_url = limpiar_url(href)
-                    if (not texto or full_url in vistos or existe_en_db(full_url) or contiene_negativos(texto)):
+                    contador["total"] += 1
+
+                    if not texto or full_url in vistos or existe_en_db(full_url) or contiene_negativos(texto):
+                        contador["duplicado"] += 1
                         continue
                     vistos.add(full_url)
 
                     match = re.search(r"[Qq\$]\s?[\d\.,]+", texto)
                     if not match:
+                        contador["sin_precio"] += 1
                         pendientes_manual.append(f"🔍 {modelo.title()}\n📝 {texto}\n📎 {full_url}")
                         continue
 
@@ -117,6 +140,7 @@ async def buscar_autos_marketplace():
                             anio = int(match_anio.group())
 
                     if not anio or precio == 0:
+                        contador["sin_anio"] += 1
                         continue
 
                     km = lines[3] if len(lines) > 3 else ""
@@ -145,6 +169,9 @@ async def buscar_autos_marketplace():
                         f"🔗 {full_url}"
                     )
                     nuevos_urls.add(full_url)
+                    contador["guardado"] += 1
+
+                print(f"📊 Diagnóstico para {modelo.upper()}: {contador}")
 
                 if len(nuevos_urls) >= MINIMO_NUEVOS:
                     print(f"✅ Se encontraron {len(nuevos_urls)} nuevos para {modelo}")
@@ -152,6 +179,7 @@ async def buscar_autos_marketplace():
                 else:
                     await page.evaluate("window.scrollBy(0, document.body.scrollHeight)")
                     await asyncio.sleep(SCROLL_PAUSA)
+
 
         await browser.close()
     return resultados, pendientes_manual
