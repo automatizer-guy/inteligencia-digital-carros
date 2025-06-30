@@ -43,22 +43,20 @@ def inicializar_tabla_anuncios():
             km TEXT,
             fecha_scrape TEXT,
             roi REAL,
-            score INTEGER
+            score INTEGER,
+            relevante BOOLEAN DEFAULT 0
         )
     """)
-
-    # Agregar la columna 'relevante' si aún no existe
+    # Añadir columna relevante si no existe (por compatibilidad con DB vieja)
     try:
         cur.execute("ALTER TABLE anuncios ADD COLUMN relevante BOOLEAN DEFAULT 0;")
         print("🧱 Se agregó columna 'relevante' a la tabla.")
     except sqlite3.OperationalError:
-        pass  # ya existe
-
+        pass
     conn.commit()
     conn.close()
 
-
-# 🔧 UTILIDADES TEXTO
+# 🔧 UTILIDADES DE TEXTO
 def normalizar_texto(texto: str) -> str:
     return re.sub(r"[^a-z0-9]", "", texto.lower())
 
@@ -71,7 +69,7 @@ def coincide_modelo(titulo: str, modelo: str) -> bool:
 
 def limpiar_precio(texto: str) -> int:
     s = texto.lower().replace("q", "").replace("$", "").replace("mx", "") \
-                   .replace(".", "").replace(",", "").strip()
+                     .replace(".", "").replace(",", "").strip()
     m = re.search(r"\b\d{3,6}\b", s)
     return int(m.group()) if m else 0
 
@@ -82,43 +80,39 @@ def contiene_negativos(texto: str) -> bool:
 def es_extranjero(texto: str) -> bool:
     return any(p in texto.lower() for p in LUGARES_EXTRANJEROS)
 
-# 💰 ROI dinámico basado en la base
-def obtener_precio_referencia(modelo: str, metodo: str = "percentil_15") -> int:
+# 💰 ROI mejorado por año y modelo
+def get_precio_referencia(modelo: str, año: int, tolerancia: int = 2) -> int:
     conn = sqlite3.connect(DB_PATH)
     cur = conn.cursor()
-
-    cur.execute("SELECT COUNT(*) FROM anuncios WHERE modelo = ?", (modelo,))
-    count = cur.fetchone()[0]
-
-    if count >= 5:
-        if metodo == "minimo":
-            cur.execute("SELECT MIN(precio) FROM anuncios WHERE modelo = ?", (modelo,))
-            result = cur.fetchone()
-            conn.close()
-            return result[0] if result and result[0] else PRECIOS_POR_DEFECTO.get(modelo, 0)
-        elif metodo == "percentil_15":
-            cur.execute("""
-                SELECT precio FROM anuncios 
-                WHERE modelo = ? 
-                ORDER BY precio ASC
-                LIMIT 1 OFFSET (SELECT COUNT(*) FROM anuncios WHERE modelo = ?) / 7
-            """, (modelo, modelo))
-            result = cur.fetchone()
-            conn.close()
-            return result[0] if result and result[0] else PRECIOS_POR_DEFECTO.get(modelo, 0)
-
+    cur.execute("""
+        SELECT MIN(precio) FROM anuncios
+        WHERE modelo = ?
+        AND ABS(anio - ?) <= ?
+    """, (modelo, año, tolerancia))
+    result = cur.fetchone()
     conn.close()
-    return PRECIOS_POR_DEFECTO.get(modelo, 0)
+    return result[0] if result and result[0] else PRECIOS_POR_DEFECTO.get(modelo, 0)
 
+def calcular_roi_real(modelo: str, precio_compra: int, año: int, costo_extra: int = 1500) -> float:
+    precio_obj = get_precio_referencia(modelo, año)
+    if not precio_obj or precio_compra <= 0:
+        return 0.0
+    antiguedad = max(0, datetime.now().year - año)
+    penal = max(0, antiguedad - 10) * 0.02
+    precio_dep = precio_obj * (1 - penal)
+    inversion = precio_compra + costo_extra
+    ganancia = precio_dep - inversion
+    roi = (ganancia / inversion) * 100 if inversion > 0 else 0.0
+    return round(roi, 1)
+
+# ROI antiguo (aún se puede usar en el scraper si querés comparar)
 def calcular_roi(modelo: str, precio_compra: int, año: int, costo_extra: int = 1500) -> float:
     precio_obj = obtener_precio_referencia(modelo, metodo="percentil_15")
     if not precio_obj or precio_compra <= 0:
         return 0.0
-
     antiguedad = max(0, datetime.now().year - año)
     penal = max(0, antiguedad - 10) * 0.02
     precio_dep = precio_obj * (1 - penal)
-
     inversion = precio_compra + costo_extra
     ganancia = precio_dep - inversion
     roi = (ganancia / inversion) * 100 if inversion > 0 else 0.0
@@ -128,27 +122,22 @@ def puntuar_anuncio(titulo: str, precio: int, texto: str = None) -> int:
     tl = titulo.lower()
     txt = (texto or tl).lower()
     pts = 0
-
     modelo = next((m for m in PRECIOS_POR_DEFECTO if coincide_modelo(titulo, m)), None)
     if modelo:
         pts += 3
         match = re.search(r"\b(19|20)\d{2}\b", txt)
         año = int(match.group()) if match else None
         if año:
-            r = calcular_roi(modelo, precio, año)
+            r = calcular_roi_real(modelo, precio, año)
             pts += 4 if r >= ROI_MINIMO else 2 if r >= 7 else -2
-
     if contiene_negativos(txt):
         pts -= 3
-
     pts += 2 if 0 < precio <= 30000 else -1
     if len(tl.split()) >= 5:
         pts += 1
-
     return max(0, min(pts, 10))
 
 # 📊 FUNCIONES DE BASE DE DATOS
-
 def existe_en_db(link: str) -> bool:
     conn = sqlite3.connect(DB_PATH)
     cur = conn.cursor()
