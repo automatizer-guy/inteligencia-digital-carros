@@ -50,7 +50,8 @@ jobs:
         run: playwright install
 
       - name: Ejecutar bot con Telegram
-        run: python bot_telegram.py
+        run: python bot_telegram_marketplace.py
+
 
 
       - name: Subir base actualizada
