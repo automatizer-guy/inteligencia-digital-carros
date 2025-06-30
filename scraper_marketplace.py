@@ -11,7 +11,6 @@ from utils_analisis import (
     existe_en_db, insertar_anuncio_db, inicializar_tabla_anuncios
 )
 
-# Inicializar tabla si no existe
 inicializar_tabla_anuncios()
 
 MODELOS_INTERES = [
@@ -74,7 +73,6 @@ async def buscar_autos_marketplace():
             await page.goto(url)
             await asyncio.sleep(random.uniform(4, 7))
 
-            # Verificación de sesión activa
             nombre_usuario = "👤 Sesión anónima"
             if await page.query_selector("a[role='link'][href^='/me/']"):
                 nombre_usuario = await page.inner_text("a[role='link'][href^='/me/']")
@@ -87,7 +85,6 @@ async def buscar_autos_marketplace():
                 items = await page.query_selector_all("a[href*='/marketplace/item']")
                 print(f"🔄 Intento {intento+1}/{MAX_INTENTOS}: {len(items)} elementos detectados para {modelo}")
 
-                # Diagnóstico por causas
                 contador = {
                     "total": 0,
                     "duplicado": 0,
@@ -145,30 +142,40 @@ async def buscar_autos_marketplace():
                     km = lines[3] if len(lines) > 3 else ""
                     roi = calcular_roi(modelo, precio, anio)
                     score = puntuar_anuncio(title, precio, texto)
-                    relevante = score >= 6
 
-                    insertar_anuncio_db(
-                        url=full_url,
-                        modelo=modelo,
-                        año=anio,
-                        precio=precio,
-                        kilometraje=km,
-                        roi=roi,
-                        score=score,
-                        relevante=relevante
-                    )
+                    print(f"📝 Evaluando → Precio: Q{precio:,} | Año: {anio} | ROI: {roi:.1f}% | Score: {score}/10")
 
-                    resultados.append(
-                        f"🚘 *{title}*\n"
-                        f"• Año: {anio}\n"
-                        f"• Precio: Q{precio:,}\n"
-                        f"• Kilometraje: {km}\n"
-                        f"• ROI: {roi}%\n"
-                        f"• Score: {score}/10\n"
-                        f"🔗 {full_url}"
-                    )
-                    nuevos_urls.add(full_url)
-                    contador["guardado"] += 1
+                    if existe_en_db(full_url):
+                        print(f"⚠️ Ya existe en base. Saltando → {full_url}")
+                        contador["duplicado"] += 1
+                        continue
+
+                    if score >= 6 and roi >= -10:
+                        insertar_anuncio_db(
+                            url=full_url,
+                            modelo=modelo,
+                            año=anio,
+                            precio=precio,
+                            kilometraje=km,
+                            roi=roi,
+                            score=score,
+                            relevante=True
+                        )
+                        nuevos_urls.add(full_url)
+                        contador["guardado"] += 1
+                        resultados.append(
+                            f"🚘 *{title}*\n"
+                            f"• Año: {anio}\n"
+                            f"• Precio: Q{precio:,}\n"
+                            f"• Kilometraje: {km}\n"
+                            f"• ROI: {roi:.1f}%\n"
+                            f"• Score: {score}/10\n"
+                            f"🔗 {full_url}"
+                        )
+                    elif score >= 8:
+                        print(f"🟡 Relevante pero ROI bajo. Score alto ({score}) pero ROI: {roi:.1f}% → {full_url}")
+                    else:
+                        print(f"⛔ Descartado. Score: {score} | ROI: {roi:.1f}% → {full_url}")
 
                 print(f"📊 Diagnóstico para {modelo.upper()}: {contador}")
 
