@@ -142,6 +142,7 @@ async def buscar_autos_marketplace():
                     km = lines[3] if len(lines) > 3 else ""
                     roi = calcular_roi(modelo, precio, anio)
                     score = puntuar_anuncio(title, precio, texto)
+                    relevante = score >= 6 and roi >= -10
 
                     print(f"📝 Evaluando → Precio: Q{precio:,} | Año: {anio} | ROI: {roi:.1f}% | Score: {score}/10")
 
@@ -150,19 +151,19 @@ async def buscar_autos_marketplace():
                         contador["duplicado"] += 1
                         continue
 
-                    if score >= 6 and roi >= -10:
-                        insertar_anuncio_db(
-                            url=full_url,
-                            modelo=modelo,
-                            año=anio,
-                            precio=precio,
-                            kilometraje=km,
-                            roi=roi,
-                            score=score,
-                            relevante=True
-                        )
+                    insertar_anuncio_db(
+                        url=full_url,
+                        modelo=modelo,
+                        año=anio,
+                        precio=precio,
+                        kilometraje=km,
+                        roi=roi,
+                        score=score,
+                        relevante=relevante
+                    )
+                    contador["guardado"] += 1
+                    if relevante:
                         nuevos_urls.add(full_url)
-                        contador["guardado"] += 1
                         resultados.append(
                             f"🚘 *{title}*\n"
                             f"• Año: {anio}\n"
