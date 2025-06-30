@@ -26,7 +26,6 @@ jobs:
           name: anuncios-db
           path: upload-artifact
 
-
       - name: Verificar existencia de base persistente
         run: |
           if [ ! -f "upload-artifact/anuncios.db" ]; then
