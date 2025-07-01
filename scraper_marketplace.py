@@ -8,7 +8,7 @@ from playwright.async_api import async_playwright
 from utils_analisis import (
     limpiar_precio, contiene_negativos, puntuar_anuncio,
     calcular_roi_real, coincide_modelo,
-    existe_en_db, insertar_anuncio_db, inicializar_tabla_anuncios
+    existe_en_db, insertar_anuncio_db, inicializar_tabla_anuncios, limpiar_link
 )
 
 inicializar_tabla_anuncios()
@@ -20,15 +20,14 @@ MODELOS_INTERES = [
     "hyundai accent", "hyundai i10", "kia rio"
 ]
 
-COOKIES_PATH   = "fb_cookies.json"
+COOKIES_PATH = "fb_cookies.json"
 MIN_RESULTADOS = 20
 MAX_RESULTADOS = 30
-MINIMO_NUEVOS  = 10
-MAX_INTENTOS   = 6
+MINIMO_NUEVOS = 10
+MAX_INTENTOS = 6
 
 def limpiar_url(link: str) -> str:
-    """Limpia caracteres no imprimibles de una URL y devuelve solo el path de Facebook."""
-    clean_link = re.sub(r'[\x00-\x1F\x7F]', '', link).strip()
+    clean_link = link.strip().replace('\n', '').replace('\r', '').replace(' ', '')
     path = urlparse(clean_link).path.rstrip('/')
     return f"https://www.facebook.com{path}"
 
@@ -100,6 +99,7 @@ async def buscar_autos_marketplace():
                     texto = (await a.inner_text()).strip()
                     href = await a.get_attribute("href")
                     full_url = limpiar_url(href)
+                    full_url = limpiar_link(full_url)
                     contador["total"] += 1
 
                     if not full_url.startswith("https://www.facebook.com/marketplace/item/"):
