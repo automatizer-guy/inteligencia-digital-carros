@@ -47,7 +47,6 @@ def inicializar_tabla_anuncios():
             relevante BOOLEAN DEFAULT 0
         )
     """)
-    # Añadir columna relevante si no existe (por compatibilidad con DB vieja)
     try:
         cur.execute("ALTER TABLE anuncios ADD COLUMN relevante BOOLEAN DEFAULT 0;")
         print("🧱 Se agregó columna 'relevante' a la tabla.")
@@ -55,6 +54,10 @@ def inicializar_tabla_anuncios():
         pass
     conn.commit()
     conn.close()
+
+# 🧽 Limpieza robusta de enlaces para prevenir errores
+def limpiar_link(link: str) -> str:
+    return link.strip().replace('\n', '').replace('\r', '').replace(' ', '')
 
 # 🔧 UTILIDADES DE TEXTO
 def normalizar_texto(texto: str) -> str:
@@ -105,9 +108,9 @@ def calcular_roi_real(modelo: str, precio_compra: int, año: int, costo_extra: i
     roi = (ganancia / inversion) * 100 if inversion > 0 else 0.0
     return round(roi, 1)
 
-# ROI antiguo (aún se puede usar en el scraper si querés comparar)
+# ROI alternativo (antiguo, reparado)
 def calcular_roi(modelo: str, precio_compra: int, año: int, costo_extra: int = 1500) -> float:
-    precio_obj = obtener_precio_referencia(modelo, metodo="percentil_15")
+    precio_obj = PRECIOS_POR_DEFECTO.get(modelo, 0)
     if not precio_obj or precio_compra <= 0:
         return 0.0
     antiguedad = max(0, datetime.now().year - año)
@@ -139,6 +142,7 @@ def puntuar_anuncio(titulo: str, precio: int, texto: str = None) -> int:
 
 # 📊 FUNCIONES DE BASE DE DATOS
 def existe_en_db(link: str) -> bool:
+    link = limpiar_link(link)
     conn = sqlite3.connect(DB_PATH)
     cur = conn.cursor()
     cur.execute("SELECT 1 FROM anuncios WHERE link = ?", (link,))
@@ -156,22 +160,27 @@ def insertar_anuncio_db(
     score: int,
     relevante: bool
 ):
-    conn = sqlite3.connect(DB_PATH)
-    cur = conn.cursor()
-    cur.execute("""
-        INSERT OR IGNORE INTO anuncios
-        (link, modelo, anio, precio, km, fecha_scrape, roi, score, relevante)
-        VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)
-    """, (
-        url,
-        modelo,
-        año,
-        precio,
-        kilometraje,
-        date.today().isoformat(),
-        roi,
-        score,
-        int(relevante)
-    ))
-    conn.commit()
-    conn.close()
+    url = limpiar_link(url)
+    try:
+        conn = sqlite3.connect(DB_PATH)
+        cur = conn.cursor()
+        cur.execute("""
+            INSERT OR IGNORE INTO anuncios
+            (link, modelo, anio, precio, km, fecha_scrape, roi, score, relevante)
+            VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)
+        """, (
+            url,
+            modelo,
+            año,
+            precio,
+            kilometraje,
+            date.today().isoformat(),
+            roi,
+            score,
+            int(relevante)
+        ))
+        conn.commit()
+    except Exception as e:
+        print(f"⚠️ Error al insertar anuncio: {e}")
+    finally:
+        conn.close()
