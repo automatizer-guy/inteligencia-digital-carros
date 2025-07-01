@@ -184,10 +184,6 @@ async def buscar_autos_marketplace():
                             f"🔗 {full_url_limpio}"
                         )
                     
-
-
-
-                        )
                     elif score >= 8:
                         print(f"🟡 Relevante pero ROI bajo. Score alto ({score}) pero ROI: {roi:.1f}% → {full_url}")
                     else:
