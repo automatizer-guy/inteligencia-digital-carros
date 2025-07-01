@@ -57,7 +57,12 @@ def inicializar_tabla_anuncios():
 
 # 🧽 Limpieza robusta de enlaces para prevenir errores
 def limpiar_link(link: str) -> str:
-    return link.strip().replace('\n', '').replace('\r', '').replace(' ', '')
+    if not link:
+        return ""
+    return ''.join(
+        c for c in link.strip()
+        if c.isascii() and c.isprintable() and c not in ['\n', '\r', '\t', '\u2028', '\u2029', '\u00A0', ' ']
+    )
 
 # 🔧 UTILIDADES DE TEXTO
 def normalizar_texto(texto: str) -> str:
@@ -83,14 +88,13 @@ def contiene_negativos(texto: str) -> bool:
 def es_extranjero(texto: str) -> bool:
     return any(p in texto.lower() for p in LUGARES_EXTRANJEROS)
 
-# 💰 ROI mejorado por año y modelo
+# 💰 ROI por año y modelo
 def get_precio_referencia(modelo: str, año: int, tolerancia: int = 2) -> int:
     conn = sqlite3.connect(DB_PATH)
     cur = conn.cursor()
     cur.execute("""
         SELECT MIN(precio) FROM anuncios
-        WHERE modelo = ?
-        AND ABS(anio - ?) <= ?
+        WHERE modelo = ? AND ABS(anio - ?) <= ?
     """, (modelo, año, tolerancia))
     result = cur.fetchone()
     conn.close()
@@ -108,7 +112,7 @@ def calcular_roi_real(modelo: str, precio_compra: int, año: int, costo_extra: i
     roi = (ganancia / inversion) * 100 if inversion > 0 else 0.0
     return round(roi, 1)
 
-# ROI alternativo (antiguo, reparado)
+# ROI alternativo (opcional)
 def calcular_roi(modelo: str, precio_compra: int, año: int, costo_extra: int = 1500) -> float:
     precio_obj = PRECIOS_POR_DEFECTO.get(modelo, 0)
     if not precio_obj or precio_compra <= 0:
