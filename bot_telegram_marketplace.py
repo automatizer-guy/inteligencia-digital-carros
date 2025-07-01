@@ -18,52 +18,35 @@ CHAT_ID = int(os.environ["CHAT_ID"])
 
 bot = Bot(token=BOT_TOKEN)
 
-# 🛣️ Ruta base
+# 🛣️ Ruta base para la base de datos
 DB_PATH = os.path.abspath("upload-artifact/anuncios.db")
 os.makedirs(os.path.dirname(DB_PATH), exist_ok=True)
 
-async def safe_send(text: str, parse_mode="MarkdownV2"):
-    escaped = escape_markdown(text.strip(), version=2)
-    for _ in range(3):
-        try:
-            return await bot.send_message(
-                chat_id=CHAT_ID,
-                text=escaped,
-                parse_mode=parse_mode,
-                disable_web_page_preview=True
-            )
-        except Exception as e:
-            print(f"⚠️ Error al enviar mensaje: {e}")
-            await asyncio.sleep(1)
-
-async def safe_send_with_button(text: str, url: str):
-    escaped = escape_markdown(text.strip(), version=2)
-    button = InlineKeyboardMarkup([
-        [InlineKeyboardButton("🔗 Ver anuncio", url=url)]
-    ])
-    for _ in range(3):
-        try:
-            return await bot.send_message(
-                chat_id=CHAT_ID,
-                text=escaped,
-                parse_mode="MarkdownV2",
-                reply_markup=button,
-                disable_web_page_preview=True
-            )
-        except Exception as e:
-            print(f"⚠️ Error al enviar mensaje con botón: {e}")
-            await asyncio.sleep(1)
-
 def limpiar_link(link: str) -> str:
+    """
+    Limpia un link eliminando caracteres no imprimibles y 
+    reemplaza espacios por %20 para que la URL sea válida.
+    """
     normalized = unicodedata.normalize("NFKD", link)
     cleaned = ''.join(
         c for c in normalized
-        if c.isascii() and c.isprintable() and c not in ['\n', '\r', '\t', '\u2028', '\u2029', '\u00A0', ' ']
-    )
-    return cleaned.strip()
+        if c.isascii() and c.isprintable() and c not in ['\n', '\r', '\t', '\u2028', '\u2029', '\u00A0']
+    ).strip()
+    cleaned = cleaned.replace(' ', '%20')
+    return cleaned
+
+def validar_url_para_telegram(url: str) -> str:
+    """
+    Limpia y valida la URL para que sea segura al enviarla en botones de Telegram.
+    """
+    url = re.sub(r'[\x00-\x1F\x7F]', '', url)  # elimina caracteres no imprimibles
+    url = url.strip()
+    url = url.replace(' ', '%20')
+    return url
 
 def extraer_info(txt: str):
-    link_match = re.search(r"https://www\.facebook\.com/marketplace/item/\d+", txt)
+    # Usar patrón que capture URLs completas hasta un espacio o fin de línea
+    link_match = re.search(r"https://www\.facebook\.com/marketplace/item/[^\s\n\r]+", txt)
     link_url = limpiar_link(link_match.group(0)) if link_match else ""
 
     año = re.search(r"Año: (\d{4})", txt)
@@ -99,6 +82,44 @@ def mensaje_valido(txt: str):
     roi = calcular_roi_real(modelo_detectado, precio, año)
     return roi >= 10, roi
 
+async def safe_send(text: str, parse_mode="MarkdownV2"):
+    escaped = escape_markdown(text.strip(), version=2)
+    for _ in range(3):
+        try:
+            return await bot.send_message(
+                chat_id=CHAT_ID,
+                text=escaped,
+                parse_mode=parse_mode,
+                disable_web_page_preview=True
+            )
+        except Exception as e:
+            print(f"⚠️ Error al enviar mensaje: {e}")
+            await asyncio.sleep(1)
+
+async def safe_send_with_button(text: str, url: str):
+    url = validar_url_para_telegram(url)
+    if not url.startswith("https://www.facebook.com/marketplace/item/"):
+        print(f"🧨 URL inválida o sospechosa para botón → {repr(url)}")
+        await safe_send(text)
+        return
+
+    escaped = escape_markdown(text.strip(), version=2)
+    button = InlineKeyboardMarkup([
+        [InlineKeyboardButton("🔗 Ver anuncio", url=url)]
+    ])
+    for _ in range(3):
+        try:
+            return await bot.send_message(
+                chat_id=CHAT_ID,
+                text=escaped,
+                parse_mode="MarkdownV2",
+                reply_markup=button,
+                disable_web_page_preview=True
+            )
+        except Exception as e:
+            print(f"⚠️ Error al enviar mensaje con botón: {e}")
+            await asyncio.sleep(1)
+
 async def enviar_ofertas():
     print("📡 Buscando autos...")
     brutos, pendientes = await buscar_autos_marketplace()
@@ -132,12 +153,12 @@ async def enviar_ofertas():
         return
 
     for b in buenos:
-        link_match = re.search(r"https://www\.facebook\.com/marketplace/item/\d+", b)
+        link_match = re.search(r"https://www\.facebook\.com/marketplace/item/[^\s\n\r]+", b)
         link_url = limpiar_link(link_match.group(0)) if link_match else None
-        texto_sin_link = re.sub(r"\n?🔗 https://www\.facebook\.com/marketplace/item/\d+", "", b).strip()
+        texto_sin_link = re.sub(r"\n?🔗 https://www\.facebook\.com/marketplace/item/[^\s\n\r]+", "", b).strip()
         texto_sin_link = ''.join(c for c in texto_sin_link if c.isprintable())
 
-        if not link_url or '\n' in link_url or '\r' in link_url or not link_url.startswith("https://"):
+        if not link_url or not link_url.startswith("https://"):
             print(f"🧨 Link inválido o sucio → {repr(link_url)}")
             await safe_send(b)
         else:
