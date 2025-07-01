@@ -3,7 +3,7 @@ name: Ejecutar Bot Automáticamente
 on:
   schedule:
     # Corre cada 2 horas entre las 8 AM y 6 PM (UTC-6 para Guatemala)
-    - cron: '0 8-18/2 * * *'
+    - cron: '0 14-23/2 * * *'
   workflow_dispatch:
 
 jobs:
