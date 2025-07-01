@@ -163,6 +163,11 @@ async def buscar_autos_marketplace():
                         relevante=relevante
                     )
                     contador["guardado"] += 1
+                    if not full_url.endswith("/"):
+                        print(f"🔗 Link limpio confirmado: {repr(full_url)}")
+                    else:
+                        print(f"🚨 Link sospechoso (termina con /): {repr(full_url)}")
+
                     if relevante:
                         nuevos_urls.add(full_url)
                         resultados.append(
