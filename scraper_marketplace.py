@@ -172,7 +172,8 @@ async def buscar_autos_marketplace():
                         print(f"🚨 Link sospechoso (termina con /): {repr(full_url)}")
 
                     if relevante:
-                        nuevos_urls.add(full_url)
+                        full_url_limpio = full_url.strip().replace('\n', '').replace('\r', '').replace(' ', '')
+                        nuevos_urls.add(full_url_limpio)
                         resultados.append(
                             f"🚘 *{title}*\n"
                             f"• Año: {anio}\n"
@@ -180,7 +181,10 @@ async def buscar_autos_marketplace():
                             f"• Kilometraje: {km}\n"
                             f"• ROI: {roi:.1f}%\n"
                             f"• Score: {score}/10\n"
-                            f"🔗 {full_url.strip().replace('\n', '').replace('\r', '').replace(' ', '')}"
+                            f"🔗 {full_url_limpio}"
+                        )
+                    
+
 
 
                         )
