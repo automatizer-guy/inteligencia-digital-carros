@@ -177,7 +177,8 @@ async def buscar_autos_marketplace():
                             f"• Kilometraje: {km}\n"
                             f"• ROI: {roi:.1f}%\n"
                             f"• Score: {score}/10\n"
-                            f"🔗 {full_url.strip()}"
+                            f"🔗 {full_url.strip().replace('\n', '').replace('\r', '').replace(' ', '')}"
+
 
                         )
                     elif score >= 8:
