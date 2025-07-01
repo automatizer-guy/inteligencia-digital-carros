@@ -7,7 +7,7 @@ from urllib.parse import urlparse
 from playwright.async_api import async_playwright
 from utils_analisis import (
     limpiar_precio, contiene_negativos, puntuar_anuncio,
-    calcular_roi, coincide_modelo,
+    calcular_roi_real, coincide_modelo,
     existe_en_db, insertar_anuncio_db, inicializar_tabla_anuncios
 )
 
@@ -140,7 +140,7 @@ async def buscar_autos_marketplace():
                         continue
 
                     km = lines[3] if len(lines) > 3 else ""
-                    roi = calcular_roi(modelo, precio, anio)
+                    roi = calcular_roi_real(modelo, precio, anio)
                     score = puntuar_anuncio(title, precio, texto)
                     relevante = score >= 6 and roi >= -10
 
