@@ -27,7 +27,8 @@ MINIMO_NUEVOS  = 10
 MAX_INTENTOS   = 6
 
 def limpiar_url(link: str) -> str:
-    clean_link = link.strip().replace('\n', '').replace('\r', '').replace(' ', '')
+    """Limpia caracteres no imprimibles de una URL y devuelve solo el path de Facebook."""
+    clean_link = re.sub(r'[\x00-\x1F\x7F]', '', link).strip()
     path = urlparse(clean_link).path.rstrip('/')
     return f"https://www.facebook.com{path}"
 
@@ -168,7 +169,6 @@ async def buscar_autos_marketplace():
                     contador["guardado"] += 1
 
                     if relevante:
-                        full_url_limpio = full_url.strip().replace('\n', '').replace('\r', '').replace(' ', '')
                         mensaje = (
                             f"🚘 *{title}*\n"
                             f"• Año: {anio}\n"
@@ -176,9 +176,9 @@ async def buscar_autos_marketplace():
                             f"• Kilometraje: {km}\n"
                             f"• ROI: {roi:.1f}%\n"
                             f"• Score: {score}/10\n"
-                            f"🔗 {full_url_limpio}"
+                            f"🔗 {full_url}"
                         ).strip()
-                        nuevos_urls.add(full_url_limpio)
+                        nuevos_urls.add(full_url)
                         resultados.append(mensaje)
                     elif score >= 8:
                         print(f"🟡 Relevante pero ROI bajo. Score alto ({score}) pero ROI: {roi:.1f}% → {full_url}")
