@@ -100,7 +100,10 @@ async def buscar_autos_marketplace():
                     href = await a.get_attribute("href")
                     full_url = limpiar_url(href)
                     contador["total"] += 1
-
+                    # ✅ Verificación crítica del link limpio antes de continuar
+                    if not full_url.startswith("https://www.facebook.com/marketplace/item/"):
+                        print(f"🚨 Link inválido detectado → {repr(full_url)}")
+                        continue
                     if not texto or full_url in vistos or existe_en_db(full_url) or contiene_negativos(texto):
                         contador["duplicado"] += 1
                         continue
