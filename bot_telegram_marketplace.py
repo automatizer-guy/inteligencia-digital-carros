@@ -131,6 +131,7 @@ async def enviar_ofertas():
         link_match = re.search(r"https://www\.facebook\.com/marketplace/item/\d+", b)
         link_url = limpiar_link(link_match.group(0)) if link_match else None
         texto_sin_link = re.sub(r"\n?🔗 https://www\.facebook\.com/marketplace/item/\d+", "", b).strip()
+        texto_sin_link = ''.join(c for c in texto_sin_link if c.isprintable())
         if link_url:
             print(f"📤 Enviando mensaje con botón → {link_url}")
             await safe_send_with_button(texto_sin_link, link_url)
