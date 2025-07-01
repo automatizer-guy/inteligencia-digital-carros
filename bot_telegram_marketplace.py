@@ -5,7 +5,7 @@ import sqlite3
 import unicodedata
 from datetime import datetime
 from scraper_marketplace import buscar_autos_marketplace
-from telegram import Bot
+from telegram import Bot, InlineKeyboardButton, InlineKeyboardMarkup
 from telegram.helpers import escape_markdown
 from utils_analisis import inicializar_tabla_anuncios, calcular_roi_real, coincide_modelo
 
@@ -34,6 +34,24 @@ async def safe_send(text: str, parse_mode="MarkdownV2"):
             )
         except Exception as e:
             print(f"⚠️ Error al enviar mensaje: {e}")
+            await asyncio.sleep(1)
+
+async def safe_send_with_button(text: str, url: str):
+    escaped = escape_markdown(text.strip(), version=2)
+    button = InlineKeyboardMarkup([
+        [InlineKeyboardButton("🔗 Ver anuncio", url=url)]
+    ])
+    for _ in range(3):
+        try:
+            return await bot.send_message(
+                chat_id=CHAT_ID,
+                text=escaped,
+                parse_mode="MarkdownV2",
+                reply_markup=button,
+                disable_web_page_preview=True
+            )
+        except Exception as e:
+            print(f"⚠️ Error al enviar mensaje con botón: {e}")
             await asyncio.sleep(1)
 
 def limpiar_link(link: str) -> str:
@@ -109,16 +127,16 @@ async def enviar_ofertas():
         await safe_send(f"📡 Bot ejecutado a las {hora}, sin ofertas nuevas.")
         return
 
-    buenos.sort(key=lambda x: float(re.search(r"ROI:\s?([\d\.-]+)%", x).group(1)), reverse=True)
-    fecha = datetime.now().strftime("%Y-%m-%d %H:%M")
-    texto = f"🚘 *Ofertas nuevas ({fecha}):*\n\n" + "\n\n".join(b.strip() for b in buenos)
-    partes = [texto[i:i+3000] for i in range(0, len(texto), 3000)]
-
-    if not partes:
-        print("❌ No se generó texto para enviar a Telegram.")
-    for p in partes:
-        print("📤 Enviando mensaje a Telegram:\n", p[:200].replace("\n", " "))
-        await safe_send(p)
+    for b in buenos:
+        link_match = re.search(r"https://www\.facebook\.com/marketplace/item/\d+", b)
+        link_url = limpiar_link(link_match.group(0)) if link_match else None
+        texto_sin_link = re.sub(r"\n?🔗 https://www\.facebook\.com/marketplace/item/\d+", "", b).strip()
+        if link_url:
+            print(f"📤 Enviando mensaje con botón → {link_url}")
+            await safe_send_with_button(texto_sin_link, link_url)
+        else:
+            print(f"⚠️ Mensaje sin link válido:\n{b}")
+            await safe_send(b)
         await asyncio.sleep(1)
 
     if pendientes:
