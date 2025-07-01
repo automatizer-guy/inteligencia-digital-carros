@@ -31,7 +31,8 @@ async def safe_send(text: str, parse_mode="MarkdownV2"):
                 parse_mode=parse_mode,
                 disable_web_page_preview=True
             )
-        except Exception:
+        except Exception as e:
+            print(f"⚠️ Error al enviar mensaje: {e}")
             await asyncio.sleep(1)
 
 def extraer_info(txt: str):
@@ -102,7 +103,10 @@ async def enviar_ofertas():
     texto = f"🚘 *Ofertas nuevas ({fecha}):*\n\n" + "\n\n".join(buenos)
     partes = [texto[i:i+3000] for i in range(0, len(texto), 3000)]
 
+    if not partes:
+        print("❌ No se generó texto para enviar a Telegram.")
     for p in partes:
+        print("📤 Enviando mensaje a Telegram:\n", p[:200].replace("\n", " "))
         await safe_send(p)
         await asyncio.sleep(1)
 
