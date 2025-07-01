@@ -36,16 +36,20 @@ async def safe_send(text: str, parse_mode="MarkdownV2"):
             await asyncio.sleep(1)
 
 def extraer_info(txt: str):
-    link = re.search(r"https://www\.facebook\.com/marketplace/item/\d+", txt)
+    link_match = re.search(r"https://www\.facebook\.com/marketplace/item/\d+", txt)
+    link_url = link_match.group(0).strip().replace('\n', '').replace('\r', '').replace(' ', '') if link_match else ""
+
     año = re.search(r"Año: (\d{4})", txt)
     precio = re.search(r"Precio: Q([\d,]+)", txt)
     modelo = re.search(r"🚘 \*(.+?)\*", txt)
+
     return (
-        link.group(0) if link else "",
+        link_url,
         int(año.group(1)) if año else None,
         int(precio.group(1).replace(",", "")) if precio else None,
         modelo.group(1).lower() if modelo else ""
     )
+
 
 def mensaje_valido(txt: str):
     link, año, precio, modelo_txt = extraer_info(txt)
