@@ -167,15 +167,9 @@ async def buscar_autos_marketplace():
                     )
                     contador["guardado"] += 1
 
-                    if not full_url.endswith("/"):
-                        print(f"🔗 Link limpio confirmado: {repr(full_url)}")
-                    else:
-                        print(f"🚨 Link sospechoso (termina con /): {repr(full_url)}")
-
                     if relevante:
                         full_url_limpio = full_url.strip().replace('\n', '').replace('\r', '').replace(' ', '')
-                        nuevos_urls.add(full_url_limpio)
-                        resultados.append(
+                        mensaje = (
                             f"🚘 *{title}*\n"
                             f"• Año: {anio}\n"
                             f"• Precio: Q{precio:,}\n"
@@ -183,7 +177,9 @@ async def buscar_autos_marketplace():
                             f"• ROI: {roi:.1f}%\n"
                             f"• Score: {score}/10\n"
                             f"🔗 {full_url_limpio}"
-                        )
+                        ).strip()
+                        nuevos_urls.add(full_url_limpio)
+                        resultados.append(mensaje)
                     elif score >= 8:
                         print(f"🟡 Relevante pero ROI bajo. Score alto ({score}) pero ROI: {roi:.1f}% → {full_url}")
                     else:
