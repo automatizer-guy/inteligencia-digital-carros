@@ -2,6 +2,7 @@ import asyncio
 import re
 import os
 import sqlite3
+import unicodedata
 from datetime import datetime
 from scraper_marketplace import buscar_autos_marketplace
 from telegram import Bot
@@ -35,9 +36,13 @@ async def safe_send(text: str, parse_mode="MarkdownV2"):
             print(f"⚠️ Error al enviar mensaje: {e}")
             await asyncio.sleep(1)
 
+def limpiar_link(link: str) -> str:
+    normalized = unicodedata.normalize("NFKD", link)
+    return ''.join(c for c in normalized if c.isprintable() and c not in ['\n', '\r', '\t', '\u2028', '\u2029', '\u00A0', ' '])
+
 def extraer_info(txt: str):
     link_match = re.search(r"https://www\.facebook\.com/marketplace/item/\d+", txt)
-    link_url = link_match.group(0).strip().replace('\n', '').replace('\r', '').replace(' ', '') if link_match else ""
+    link_url = limpiar_link(link_match.group(0)) if link_match else ""
 
     año = re.search(r"Año: (\d{4})", txt)
     precio = re.search(r"Precio: Q([\d,]+)", txt)
