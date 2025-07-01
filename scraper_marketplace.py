@@ -27,7 +27,7 @@ MINIMO_NUEVOS  = 10
 MAX_INTENTOS   = 6
 
 def limpiar_url(link: str) -> str:
-    path = urlparse(link).path
+    path = urlparse(link.strip()).path
     return f"https://www.facebook.com{path}"
 
 async def cargar_contexto_con_cookies(browser):
