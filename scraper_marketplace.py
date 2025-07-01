@@ -27,8 +27,8 @@ MINIMO_NUEVOS  = 10
 MAX_INTENTOS   = 6
 
 def limpiar_url(link: str) -> str:
-    clean_link = link.strip().replace('\n', '').replace('\r', '')
-    path = urlparse(clean_link).path
+    clean_link = link.strip().replace('\n', '').replace('\r', '').replace(' ', '')
+    path = urlparse(clean_link).path.rstrip('/')
     return f"https://www.facebook.com{path}"
 
 async def cargar_contexto_con_cookies(browser):
@@ -100,7 +100,7 @@ async def buscar_autos_marketplace():
                     href = await a.get_attribute("href")
                     full_url = limpiar_url(href)
                     contador["total"] += 1
-                    # ✅ Verificación crítica del link limpio antes de continuar
+
                     if not full_url.startswith("https://www.facebook.com/marketplace/item/"):
                         print(f"🚨 Link inválido detectado → {repr(full_url)}")
                         continue
@@ -166,6 +166,7 @@ async def buscar_autos_marketplace():
                         relevante=relevante
                     )
                     contador["guardado"] += 1
+
                     if not full_url.endswith("/"):
                         print(f"🔗 Link limpio confirmado: {repr(full_url)}")
                     else:
@@ -183,7 +184,6 @@ async def buscar_autos_marketplace():
                             f"• Score: {score}/10\n"
                             f"🔗 {full_url_limpio}"
                         )
-                    
                     elif score >= 8:
                         print(f"🟡 Relevante pero ROI bajo. Score alto ({score}) pero ROI: {roi:.1f}% → {full_url}")
                     else:
