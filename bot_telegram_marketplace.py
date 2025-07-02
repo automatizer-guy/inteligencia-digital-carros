@@ -4,25 +4,29 @@ import os
 import sqlite3
 import unicodedata
 from datetime import datetime
+from zoneinfo import ZoneInfo
 from scraper_marketplace import buscar_autos_marketplace
 from telegram import Bot, InlineKeyboardButton, InlineKeyboardMarkup
 from telegram.helpers import escape_markdown
-from utils_analisis import inicializar_tabla_anuncios, calcular_roi_real, coincide_modelo, limpiar_link
+from utils_analisis import (
+    inicializar_tabla_anuncios,
+    calcular_roi_real,
+    coincide_modelo,
+    limpiar_link
+)
 
 # 🌱 Inicializar tabla si no existe
 inicializar_tabla_anuncios()
 
-# 🔐 Leer variables desde entorno
-# Después, eliminando espacios y saltos de línea
+# 🔐 Leer variables desde entorno, eliminando espacios y saltos de línea
 BOT_TOKEN = os.environ["BOT_TOKEN"].strip()
 CHAT_ID   = int(os.environ["CHAT_ID"].strip())
-
 
 bot = Bot(token=BOT_TOKEN)
 
 # 🛣️ Ruta base de la base de datos
-DB_PATH = os.path.abspath("upload-artifact/anuncios.db")
-os.makedirs(os.path.dirname(DB_PATH), exist_ok=True)
+db_path = os.environ.get("DB_PATH", "upload-artifact/anuncios.db")
+os.makedirs(os.path.dirname(db_path), exist_ok=True)
 
 # 📨 Envío seguro de texto plano
 async def safe_send(text: str, parse_mode="MarkdownV2"):
@@ -39,10 +43,10 @@ async def safe_send(text: str, parse_mode="MarkdownV2"):
             print(f"⚠️ Error al enviar mensaje: {e}")
             await asyncio.sleep(1)
 
-# 📨 Envío seguro con botón (corregido)
+# 📨 Envío seguro con botón (corrige URL)
 async def safe_send_with_button(text: str, url: str):
-    url = limpiar_link(url)  # ✅ Limpieza definitiva de URL
-    print(f"🔗 Enviando botón con URL: {repr(url)}")  # Para depuración
+    url = limpiar_link(url)
+    print(f"🔗 Enviando botón con URL: {repr(url)}")
     escaped = escape_markdown(text.strip(), version=2)
     button = InlineKeyboardMarkup([
         [InlineKeyboardButton("🔗 Ver anuncio", url=url)]
@@ -69,36 +73,35 @@ def extraer_info(txt: str):
     link_match = re.search(r"https://www\.facebook\.com/marketplace/item/\d+", txt)
     link_url = limpiar_link(link_match.group(0)) if link_match else ""
 
-    año = re.search(r"Año: (\d{4})", txt)
-    precio = re.search(r"Precio: Q([\d,]+)", txt)
-    modelo = re.search(r"🚘 \*(.+?)\*", txt)
+    año_match = re.search(r"Año: (\d{4})", txt)
+    precio_match = re.search(r"Precio: Q([\d,]+)", txt)
+    modelo_match = re.search(r"🚘 \*(.+?)\*", txt)
 
-    return (
-        link_url,
-        int(año.group(1)) if año else None,
-        int(precio.group(1).replace(",", "")) if precio else None,
-        modelo.group(1).lower() if modelo else ""
-    )
+    año = int(año_match.group(1)) if año_match else None
+    precio = int(precio_match.group(1).replace(",", "")) if precio_match else None
+    modelo_txt = modelo_match.group(1).lower() if modelo_match else ""
+
+    return link_url, año, precio, modelo_txt
 
 # 🧪 Extraer score del texto (modular para testing)
 def extraer_score(texto: str) -> int:
     match = re.search(r"Score:\s?(\d+)/10", texto)
     return int(match.group(1)) if match else 0
 
-# ✅ Verifica si el mensaje contiene información válida y calcula ROI, devuelve también modelo_detectado
+# ✅ Verifica si el mensaje es válido y calcula ROI, devuelve también modelo_detectado
 def mensaje_valido(txt: str):
     link, año, precio, modelo_txt = extraer_info(txt)
     if not all([link, año, precio, modelo_txt]):
         print(f"🚫 Datos incompletos → {repr((link, año, precio, modelo_txt))}")
         return False, 0.0, None
 
-    modelo_detectado = next((m for m in [
+    modelos_conocidos = [
         "yaris", "civic", "corolla", "sentra", "cr-v", "rav4", "tucson",
         "kia picanto", "chevrolet spark", "nissan march", "suzuki alto",
         "suzuki swift", "suzuki grand vitara", "hyundai accent", "hyundai i10",
         "kia rio", "mitsubishi mirage", "toyota", "honda"
-    ] if coincide_modelo(modelo_txt, m)), None)
-
+    ]
+    modelo_detectado = next((m for m in modelos_conocidos if coincide_modelo(modelo_txt, m)), None)
     if not modelo_detectado:
         print(f"❓ Modelo no detectado: {modelo_txt}")
         return False, 0.0, None
@@ -106,20 +109,15 @@ def mensaje_valido(txt: str):
     roi = calcular_roi_real(modelo_detectado, precio, año)
     return roi >= 10, roi, modelo_detectado
 
-# 🧠 Función principal
-async def enviar_ofertas():
+# 🧠 Función principal para enviar ofertas\async def enviar_ofertas():
     print("📡 Buscando autos...")
     brutos, pendientes = await buscar_autos_marketplace()
 
-    buenos = []
-    potenciales = []
-    descartados = []
-
+    buenos, potenciales, descartados = [], [], []
     for txt in brutos:
         txt = txt.strip()
         valido, roi, modelo = mensaje_valido(txt)
         score = extraer_score(txt)
-
         print(f"🔎 ROI: {roi:.1f}% | Score: {score} | Modelo: {modelo}")
 
         if valido and score >= 6:
@@ -134,11 +132,17 @@ async def enviar_ofertas():
     await safe_send(f"📊 Procesados: {total} | Relevantes: {len(buenos)} | Potenciales: {len(potenciales)}")
 
     if not buenos and not potenciales:
-        hora = datetime.now().strftime("%H:%M")
-        await safe_send(f"📡 Bot ejecutado a las {hora}, sin ofertas nuevas.")
+        # Solo enviar una vez al final del día (18:00 hora local Guatemala)
+        from datetime import datetime
+        from zoneinfo import ZoneInfo
+        hora_local = datetime.now(ZoneInfo("America/Guatemala")).hour
+        FINAL_HOUR = 18
+        if hora_local == FINAL_HOUR:
+            await safe_send(f"📡 Bot ejecutado a las {datetime.now(ZoneInfo('America/Guatemala')).strftime('%H:%M')}, sin ofertas en todo el día.")
+        # Salir sin enviar nada en otras ejecuciones
         return
 
-    # 🚘 Enviar buenos resultados
+    # 🚘 Enviar anuncios relevantes
     for b in buenos:
         link_match = re.search(r"https://www\.facebook\.com/marketplace/item/\d+", b)
         link_url = limpiar_link(link_match.group(0)) if link_match else None
@@ -153,22 +157,20 @@ async def enviar_ofertas():
             await safe_send_with_button(texto_sin_link, link_url)
         await asyncio.sleep(1)
 
-    # 📌 Mostrar pendientes si existen
+    # 📌 Mostrar pendientes manuales
     if pendientes:
         pm = "📌 *Pendientes de revisión manual:*\n\n" + "\n\n".join(p.strip() for p in pendientes)
         for i in range(0, len(pm), 3000):
             await safe_send(pm[i:i+3000])
             await asyncio.sleep(1)
 
-    # 📦 Mostrar cantidad acumulada
-    conn = sqlite3.connect(DB_PATH)
-    cur = conn.cursor()
-    cur.execute("SELECT COUNT(*) FROM anuncios")
-    total = cur.fetchone()[0]
-    conn.close()
-
-    print(f"📦 Total acumulado en base: {total}")
-    await safe_send(f"📦 Total acumulado en base: {total} anuncios")
+    # 📦 Mostrar total acumulado en base de datos
+    with sqlite3.connect(db_path) as conn:
+        cur = conn.cursor()
+        cur.execute("SELECT COUNT(*) FROM anuncios")
+        total_db = cur.fetchone()[0]
+    print(f"📦 Total acumulado en base: {total_db}")
+    await safe_send(f"📦 Total acumulado en base: {total_db} anuncios")
 
 # 🚀 Ejecutar
 if __name__ == "__main__":
