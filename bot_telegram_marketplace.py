@@ -13,8 +13,10 @@ from utils_analisis import inicializar_tabla_anuncios, calcular_roi_real, coinci
 inicializar_tabla_anuncios()
 
 # 🔐 Leer variables desde entorno
-BOT_TOKEN = os.environ["BOT_TOKEN"]
-CHAT_ID = int(os.environ["CHAT_ID"])
+# Después, eliminando espacios y saltos de línea
+BOT_TOKEN = os.environ["BOT_TOKEN"].strip()
+CHAT_ID   = int(os.environ["CHAT_ID"].strip())
+
 
 bot = Bot(token=BOT_TOKEN)
 
