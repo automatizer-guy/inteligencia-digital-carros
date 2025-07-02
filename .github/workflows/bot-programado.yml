@@ -51,10 +51,9 @@ jobs:
       - name: Instalar navegadores Playwright
         run: npx playwright install --with-deps
 
-      - name: Ejecutar bot con Telegram y capturar logs
-        run: |
-          mkdir -p logs
-          python bot_telegram_marketplace.py 2>&1 | tee logs/salida_bot.log
+      - name: Ejecutar bot con Telegram
+        run: python bot_telegram_marketplace.py
+
 
       - name: Subir base actualizada
         uses: actions/upload-artifact@v4.1.0
@@ -62,13 +61,11 @@ jobs:
           name: anuncios-db
           path: "${{ env.DB_PATH }}"
 
-      - name: Subir logs de ejecución
-        uses: actions/upload-artifact@v4.1.0
-        with:
-          name: logs-bot
-          path: logs/salida_bot.log
 
       - name: Resumen final del run
         run: |
           echo "✅ Bot ejecutado con éxito"
+          echo "📦 Total de anuncios registrados:"
           sqlite3 "${{ env.DB_PATH }}" "SELECT COUNT(*) FROM anuncios;"
+          echo "🔍 Última entrada:"
+          sqlite3 "${{ env.DB_PATH }}" "SELECT link, fecha_scrape FROM anuncios ORDER BY id DESC LIMIT 1;"
