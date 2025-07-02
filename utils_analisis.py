@@ -94,7 +94,7 @@ def get_precio_referencia(modelo: str, año: int, tolerancia: int = 2) -> int:
     conn.close()
     return result[0] if result and result[0] else PRECIOS_POR_DEFECTO.get(modelo, 0)
 
-def calcular_roi_real(modelo: str, precio_compra: int, año: int, costo_extra: int = 1500) -> float:
+def calcular_roi_real(modelo: str, precio_compra: int, año: int, costo_extra: int = 5000) -> float:
     precio_obj = get_precio_referencia(modelo, año)
     if not precio_obj or precio_compra <= 0:
         return 0.0
@@ -106,7 +106,7 @@ def calcular_roi_real(modelo: str, precio_compra: int, año: int, costo_extra: i
     roi = (ganancia / inversion) * 100 if inversion > 0 else 0.0
     return round(roi, 1)
 
-def calcular_roi(modelo: str, precio_compra: int, año: int, costo_extra: int = 1500) -> float:
+def calcular_roi(modelo: str, precio_compra: int, año: int, costo_extra: int = 5000) -> float:
     precio_obj = PRECIOS_POR_DEFECTO.get(modelo, 0)
     if not precio_obj or precio_compra <= 0:
         return 0.0
