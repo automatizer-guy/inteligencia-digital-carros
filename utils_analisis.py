@@ -2,13 +2,16 @@ import re
 import sqlite3
 from datetime import datetime, date
 import os
+import statistics
 
 # 🚩 Ruta centralizada a la base de datos
 DB_PATH = os.path.abspath("upload-artifact/anuncios.db")
 os.makedirs(os.path.dirname(DB_PATH), exist_ok=True)
 
 ROI_MINIMO = 10.0
+COSTO_EXTRA_FIJO = 1500
 
+# 💰 Valores por defecto si no hay datos suficientes
 PRECIOS_POR_DEFECTO = {
     "yaris": 50000, "civic": 60000, "corolla": 45000, "sentra": 40000,
     "rav4": 120000, "cr-v": 90000, "tucson": 65000, "kia picanto": 39000,
@@ -49,13 +52,12 @@ def inicializar_tabla_anuncios():
     """)
     try:
         cur.execute("ALTER TABLE anuncios ADD COLUMN relevante BOOLEAN DEFAULT 0;")
-        print("🧱 Se agregó columna 'relevante' a la tabla.")
     except sqlite3.OperationalError:
         pass
     conn.commit()
     conn.close()
 
-# 🧽 Limpieza robusta de enlaces
+# 🔗 Limpieza robusta de enlaces
 def limpiar_link(link: str) -> str:
     if not link:
         return ""
@@ -64,16 +66,19 @@ def limpiar_link(link: str) -> str:
         if c.isascii() and c.isprintable() and c not in ['\n', '\r', '\t', '\u2028', '\u2029', '\u00A0', ' ']
     )
 
-# 🔧 UTILIDADES DE TEXTO
+# 🧹 Limpieza y normalización de texto
 def normalizar_texto(texto: str) -> str:
     return re.sub(r"[^a-z0-9]", "", texto.lower())
 
 def coincide_modelo(titulo: str, modelo: str) -> bool:
-    return normalizar_texto(modelo) in normalizar_texto(titulo)
+    titulo_norm = normalizar_texto(titulo)
+    return all(normalizar_texto(p) in titulo_norm for p in modelo.split())
 
 def limpiar_precio(texto: str) -> int:
-    texto = re.sub(r"[^\d]", "", texto)
-    return int(texto) if texto.isdigit() else 0
+    s = texto.lower().replace("q", "").replace("$", "").replace("mx", "") \
+                   .replace(".", "").replace(",", "").strip()
+    m = re.search(r"\b\d{3,6}\b", s)
+    return int(m.group()) if m else 0
 
 def contiene_negativos(texto: str) -> bool:
     low = texto.lower()
@@ -82,53 +87,50 @@ def contiene_negativos(texto: str) -> bool:
 def es_extranjero(texto: str) -> bool:
     return any(p in texto.lower() for p in LUGARES_EXTRANJEROS)
 
-# 💰 ROI basado en base de datos o valores por defecto
-def get_precio_referencia(modelo: str, año: int, tolerancia: int = 2) -> int:
+# 📊 Función mejorada para obtener estadísticas históricas
+def get_estadisticas_precio(modelo: str, año: int, tolerancia: int = 2):
     conn = sqlite3.connect(DB_PATH)
     cur = conn.cursor()
     cur.execute("""
-        SELECT MIN(precio) FROM anuncios
-        WHERE modelo = ? AND ABS(anio - ?) <= ?
+        SELECT precio FROM anuncios
+        WHERE modelo = ? AND ABS(anio - ?) <= ? AND precio > 3000
     """, (modelo, año, tolerancia))
-    result = cur.fetchone()
+    precios = [r[0] for r in cur.fetchall() if r[0] is not None]
     conn.close()
-    return result[0] if result and result[0] else PRECIOS_POR_DEFECTO.get(modelo, 0)
+    if len(precios) >= 3:
+        return {
+            "min": min(precios),
+            "max": max(precios),
+            "avg": round(statistics.mean(precios)),
+            "mediana": round(statistics.median(precios)),
+            "p25": round(statistics.quantiles(precios, n=4)[0]),
+            "p75": round(statistics.quantiles(precios, n=4)[2])
+        }
+    else:
+        default = PRECIOS_POR_DEFECTO.get(modelo, 0)
+        return {"min": default, "max": default, "avg": default, "mediana": default, "p25": default, "p75": default}
 
-def calcular_roi_real(modelo: str, precio_compra: int, año: int, costo_extra: int = 5000) -> float:
-    precio_obj = get_precio_referencia(modelo, año)
-    if not precio_obj or precio_compra <= 0:
-        return 0.0
+# 💰 Cálculo mejorado de ROI
+def calcular_roi_real(modelo: str, precio_compra: int, año: int, costo_extra: int = COSTO_EXTRA_FIJO) -> float:
+    stats = get_estadisticas_precio(modelo, año)
+    precio_obj = stats["avg"]
     antiguedad = max(0, datetime.now().year - año)
-    penal = max(0, antiguedad - 10) * 0.02
-    precio_dep = precio_obj * (1 - penal)
+    penal = max(0, antiguedad - 10) * 0.015
+    precio_ajustado = precio_obj * (1 - penal)
     inversion = precio_compra + costo_extra
-    ganancia = precio_dep - inversion
+    ganancia = precio_ajustado - inversion
     roi = (ganancia / inversion) * 100 if inversion > 0 else 0.0
     return round(roi, 1)
 
-def calcular_roi(modelo: str, precio_compra: int, año: int, costo_extra: int = 5000) -> float:
-    precio_obj = PRECIOS_POR_DEFECTO.get(modelo, 0)
-    if not precio_obj or precio_compra <= 0:
-        return 0.0
-    antiguedad = max(0, datetime.now().year - año)
-    penal = max(0, antiguedad - 10) * 0.02
-    precio_dep = precio_obj * (1 - penal)
-    inversion = precio_compra + costo_extra
-    ganancia = precio_dep - inversion
-    roi = (ganancia / inversion) * 100 if inversion > 0 else 0.0
-    return round(roi, 1)
-
-# ⭐️ Score entre 0 y 10
-def puntuar_anuncio(titulo: str, precio: int, texto: str = None, año: int = None) -> int:
+def puntuar_anuncio(titulo: str, precio: int, texto: str = None) -> int:
     tl = titulo.lower()
     txt = (texto or tl).lower()
     pts = 0
     modelo = next((m for m in PRECIOS_POR_DEFECTO if coincide_modelo(titulo, m)), None)
     if modelo:
         pts += 3
-        if not año:
-            match = re.search(r"\b(19|20)\d{2}\b", txt)
-            año = int(match.group()) if match else None
+        match = re.search(r"\b(19|20)\d{2}\b", txt)
+        año = int(match.group()) if match else None
         if año:
             r = calcular_roi_real(modelo, precio, año)
             pts += 4 if r >= ROI_MINIMO else 2 if r >= 7 else -2
@@ -139,7 +141,7 @@ def puntuar_anuncio(titulo: str, precio: int, texto: str = None, año: int = Non
         pts += 1
     return max(0, min(pts, 10))
 
-# 📊 BASE DE DATOS
+# 📦 FUNCIONES BASE DE DATOS
 def existe_en_db(link: str) -> bool:
     link = limpiar_link(link)
     conn = sqlite3.connect(DB_PATH)
@@ -183,20 +185,3 @@ def insertar_anuncio_db(
         print(f"⚠️ Error al insertar anuncio: {e}")
     finally:
         conn.close()
-
-# 📈 Extra: estadísticas básicas por modelo
-def estadisticas_modelo(modelo: str):
-    conn = sqlite3.connect(DB_PATH)
-    cur = conn.cursor()
-    cur.execute("""
-        SELECT COUNT(*), MIN(precio), AVG(precio) FROM anuncios
-        WHERE modelo = ?
-    """, (modelo,))
-    count, minimo, promedio = cur.fetchone()
-    conn.close()
-    return {
-        "modelo": modelo,
-        "total": count or 0,
-        "min": int(minimo) if minimo else None,
-        "avg": round(promedio, 1) if promedio else None
-    }
