@@ -67,5 +67,5 @@ jobs:
           echo "✅ Bot ejecutado con éxito"
           echo "📦 Total de anuncios registrados:"
           sqlite3 "${{ env.DB_PATH }}" "SELECT COUNT(*) FROM anuncios;"
-          echo "🔍 Última entrada:"
-          sqlite3 "${{ env.DB_PATH }}" "SELECT link, fecha_scrape FROM anuncios ORDER BY id DESC LIMIT 1;"
+          echo "🔍 Último anuncio registrado:"
+          sqlite3 "${{ env.DB_PATH }}" "SELECT link, fecha_scrape FROM anuncios ORDER BY fecha_scrape DESC LIMIT 1;"
