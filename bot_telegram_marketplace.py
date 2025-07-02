@@ -58,6 +58,10 @@ async def safe_send_with_button(text: str, url: str):
             print(f"⚠️ Error al enviar mensaje con botón: {e}")
             await asyncio.sleep(1)
 
+# 📦 Validación consolidada de URL
+def link_valido(url: str) -> bool:
+    return bool(url and url.startswith("https://") and '\n' not in url and '\r' not in url)
+
 # 📦 Extraer datos útiles del mensaje para validar
 def extraer_info(txt: str):
     link_match = re.search(r"https://www\.facebook\.com/marketplace/item/\d+", txt)
@@ -74,12 +78,17 @@ def extraer_info(txt: str):
         modelo.group(1).lower() if modelo else ""
     )
 
-# ✅ Verifica si el mensaje contiene información válida y calcula ROI
+# 🧪 Extraer score del texto (modular para testing)
+def extraer_score(texto: str) -> int:
+    match = re.search(r"Score:\s?(\d+)/10", texto)
+    return int(match.group(1)) if match else 0
+
+# ✅ Verifica si el mensaje contiene información válida y calcula ROI, devuelve también modelo_detectado
 def mensaje_valido(txt: str):
     link, año, precio, modelo_txt = extraer_info(txt)
     if not all([link, año, precio, modelo_txt]):
         print(f"🚫 Datos incompletos → {repr((link, año, precio, modelo_txt))}")
-        return False, 0.0
+        return False, 0.0, None
 
     modelo_detectado = next((m for m in [
         "yaris", "civic", "corolla", "sentra", "cr-v", "rav4", "tucson",
@@ -90,10 +99,10 @@ def mensaje_valido(txt: str):
 
     if not modelo_detectado:
         print(f"❓ Modelo no detectado: {modelo_txt}")
-        return False, 0.0
+        return False, 0.0, None
 
     roi = calcular_roi_real(modelo_detectado, precio, año)
-    return roi >= 10, roi
+    return roi >= 10, roi, modelo_detectado
 
 # 🧠 Función principal
 async def enviar_ofertas():
@@ -106,11 +115,10 @@ async def enviar_ofertas():
 
     for txt in brutos:
         txt = txt.strip()
-        valido, roi = mensaje_valido(txt)
-        score_match = re.search(r"Score:\s?(\d+)/10", txt)
-        score = int(score_match.group(1)) if score_match else 0
+        valido, roi, modelo = mensaje_valido(txt)
+        score = extraer_score(txt)
 
-        print(f"🔎 ROI: {roi:.1f}% | Score: {score}")
+        print(f"🔎 ROI: {roi:.1f}% | Score: {score} | Modelo: {modelo}")
 
         if valido and score >= 6:
             buenos.append(txt)
@@ -135,7 +143,7 @@ async def enviar_ofertas():
         texto_sin_link = re.sub(r"\n?🔗 https://www\.facebook\.com/marketplace/item/\d+", "", b).strip()
         texto_sin_link = ''.join(c for c in texto_sin_link if c.isprintable())
 
-        if not link_url or '\n' in link_url or '\r' in link_url or not link_url.startswith("https://"):
+        if not link_valido(link_url):
             print(f"🧨 Link inválido o sucio → {repr(link_url)}")
             await safe_send(b)
         else:
