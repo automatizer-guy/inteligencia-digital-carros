@@ -15,18 +15,18 @@ from utils_analisis import (
     limpiar_link
 )
 
-# 🌱 Inicializar tabla si no existe
+# 🌱 Inicializar tabla si no exista
 inicializar_tabla_anuncios()
 
 # 🔐 Leer variables desde entorno, eliminando espacios y saltos de línea
 BOT_TOKEN = os.environ["BOT_TOKEN"].strip()
-CHAT_ID   = int(os.environ["CHAT_ID"].strip())
+CHAT_ID = int(os.environ["CHAT_ID"].strip())
 
 bot = Bot(token=BOT_TOKEN)
 
 # 🛣️ Ruta base de la base de datos
-db_path = os.environ.get("DB_PATH", "upload-artifact/anuncios.db")
-os.makedirs(os.path.dirname(db_path), exist_ok=True)
+DB_PATH = os.environ.get("DB_PATH", "upload-artifact/anuncios.db")
+os.makedirs(os.path.dirname(DB_PATH), exist_ok=True)
 
 # 📨 Envío seguro de texto plano
 async def safe_send(text: str, parse_mode="MarkdownV2"):
@@ -43,7 +43,7 @@ async def safe_send(text: str, parse_mode="MarkdownV2"):
             print(f"⚠️ Error al enviar mensaje: {e}")
             await asyncio.sleep(1)
 
-# 📨 Envío seguro con botón (corrige URL)
+# 📨 Envío seguro con botón
 async def safe_send_with_button(text: str, url: str):
     url = limpiar_link(url)
     print(f"🔗 Enviando botón con URL: {repr(url)}")
@@ -64,11 +64,11 @@ async def safe_send_with_button(text: str, url: str):
             print(f"⚠️ Error al enviar mensaje con botón: {e}")
             await asyncio.sleep(1)
 
-# 📦 Validación consolidada de URL
+# 📦 Validación de URL
 def link_valido(url: str) -> bool:
     return bool(url and url.startswith("https://") and '\n' not in url and '\r' not in url)
 
-# 📦 Extraer datos útiles del mensaje para validar
+# 📦 Extraer datos útiles del mensaje
 def extraer_info(txt: str):
     link_match = re.search(r"https://www\.facebook\.com/marketplace/item/\d+", txt)
     link_url = limpiar_link(link_match.group(0)) if link_match else ""
@@ -83,12 +83,12 @@ def extraer_info(txt: str):
 
     return link_url, año, precio, modelo_txt
 
-# 🧪 Extraer score del texto (modular para testing)
+# 🧪 Extraer score
 def extraer_score(texto: str) -> int:
     match = re.search(r"Score:\s?(\d+)/10", texto)
     return int(match.group(1)) if match else 0
 
-# ✅ Verifica si el mensaje es válido y calcula ROI, devuelve también modelo_detectado
+# ✅ Validar mensaje y ROI, devuelve modelo_detectado
 def mensaje_valido(txt: str):
     link, año, precio, modelo_txt = extraer_info(txt)
     if not all([link, año, precio, modelo_txt]):
@@ -109,7 +109,8 @@ def mensaje_valido(txt: str):
     roi = calcular_roi_real(modelo_detectado, precio, año)
     return roi >= 10, roi, modelo_detectado
 
-# 🧠 Función principal para enviar ofertas\async def enviar_ofertas():
+# 🧠 Función principal para enviar ofertas
+async def enviar_ofertas():
     print("📡 Buscando autos...")
     brutos, pendientes = await buscar_autos_marketplace()
 
@@ -133,13 +134,11 @@ def mensaje_valido(txt: str):
 
     if not buenos and not potenciales:
         # Solo enviar una vez al final del día (18:00 hora local Guatemala)
-        from datetime import datetime
-        from zoneinfo import ZoneInfo
         hora_local = datetime.now(ZoneInfo("America/Guatemala")).hour
         FINAL_HOUR = 18
         if hora_local == FINAL_HOUR:
-            await safe_send(f"📡 Bot ejecutado a las {datetime.now(ZoneInfo('America/Guatemala')).strftime('%H:%M')}, sin ofertas en todo el día.")
-        # Salir sin enviar nada en otras ejecuciones
+            hora_str = datetime.now(ZoneInfo("America/Guatemala")).strftime("%H:%M")
+            await safe_send(f"📡 Bot ejecutado a las {hora_str}, sin ofertas en todo el día.")
         return
 
     # 🚘 Enviar anuncios relevantes
@@ -165,7 +164,7 @@ def mensaje_valido(txt: str):
             await asyncio.sleep(1)
 
     # 📦 Mostrar total acumulado en base de datos
-    with sqlite3.connect(db_path) as conn:
+    with sqlite3.connect(DB_PATH) as conn:
         cur = conn.cursor()
         cur.execute("SELECT COUNT(*) FROM anuncios")
         total_db = cur.fetchone()[0]
