@@ -10,7 +10,6 @@ jobs:
   run-bot:
     runs-on: ubuntu-latest
 
-    # Configuración de entorno y rutas
     env:
       BOT_TOKEN: ${{ secrets.BOT_TOKEN }}
       CHAT_ID: ${{ secrets.CHAT_ID }}
@@ -21,25 +20,26 @@ jobs:
       - name: Clonar el repo
         uses: actions/checkout@v3.5.3
 
-      - name: Restaurar base anterior (si existe)
-        uses: actions/download-artifact@v4.1.0
-        continue-on-error: true
+      - name: Restaurar cache de la base de datos
+        uses: actions/cache@v3
         with:
-          name: anuncios-db
-          path: upload-artifact
+          path: upload-artifact/anuncios.db
+          key: ${{ runner.os }}-anuncios-db
+          # Si quieres invalidar manualmente, cambia este key cada mes
+          restore-keys: |
+            ${{ runner.os }}-anuncios-db
 
       - name: Verificar existencia de base persistente
         run: |
           if [ ! -f "${{ env.DB_PATH }}" ]; then
-            echo "❌ La base de datos anuncios.db no fue encontrada."
-            echo "💡 Se requiere una base persistente con histórico para calcular ROI con precisión."
-            echo "➡️ Subí una base con el workflow: 'Subir Base Inicial'"
-            exit 1
+            echo "❌ No se encontró anuncios.db en cache. ¿Primer run? Se creará desde cero."
+            mkdir -p "$(dirname "${{ env.DB_PATH }}")"
+            touch "${{ env.DB_PATH }}"
           fi
 
       - name: Mostrar cantidad actual de registros en DB
         run: |
-          echo "📊 Volumen de anuncios en la base actual:"          
+          echo "📊 Volumen de anuncios en la base actual:"
           sudo apt-get update && sudo apt-get install -y sqlite3
           sqlite3 "${{ env.DB_PATH }}" "SELECT modelo, COUNT(*) FROM anuncios GROUP BY modelo ORDER BY COUNT(*) DESC;"
 
@@ -51,21 +51,24 @@ jobs:
       - name: Instalar navegadores Playwright
         run: npx playwright install --with-deps
 
-      - name: Ejecutar bot con Telegram
-        run: python bot_telegram_marketplace.py
+      - name: Ejecutar bot con Telegram y capturar logs
+        run: |
+          mkdir -p logs
+          python bot_telegram_marketplace.py 2>&1 | tee logs/salida_bot.log
 
+      - name: Guardar cache actualizado de la base de datos
+        uses: actions/cache@v3
+        with:
+          path: upload-artifact/anuncios.db
+          key: ${{ runner.os }}-anuncios-db
 
-      - name: Subir base actualizada
+      - name: Subir logs de ejecución
         uses: actions/upload-artifact@v4.1.0
         with:
-          name: anuncios-db
-          path: "${{ env.DB_PATH }}"
-
+          name: logs-bot
+          path: logs/salida_bot.log
 
       - name: Resumen final del run
         run: |
           echo "✅ Bot ejecutado con éxito"
-          echo "📦 Total de anuncios registrados:"
           sqlite3 "${{ env.DB_PATH }}" "SELECT COUNT(*) FROM anuncios;"
-          echo "🔍 Último anuncio registrado:"
-          sqlite3 "${{ env.DB_PATH }}" "SELECT link, fecha_scrape FROM anuncios ORDER BY fecha_scrape DESC LIMIT 1;"
