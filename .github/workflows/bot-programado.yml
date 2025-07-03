@@ -17,22 +17,22 @@ jobs:
       DB_PATH:          upload-artifact/anuncios.db
 
     steps:
-      # 1️⃣ Checkout del código principal
+      # 1️⃣ Clonar main
       - name: Checkout main
         uses: actions/checkout@v3
         with:
           fetch-depth: 0
 
-      # 2️⃣ Checkout del branch donde vive la base histórica
+      # 2️⃣ Clonar el branch 'data'
       - name: Checkout branch de datos
         uses: actions/checkout@v3
         with:
           repository: ${{ github.repository }}
-          token: ${{ secrets.GITHUB_TOKEN }}
           ref: data
+          token: ${{ secrets.PAT_PUSH }}
           path: data
 
-      # 3️⃣ Cargar la base histórica o crearla si no existe
+      # 3️⃣ Restaurar o iniciar base
       - name: Preparar DB histórica
         run: |
           mkdir -p upload-artifact
@@ -40,51 +40,51 @@ jobs:
             cp data/anuncios.db "${{ env.DB_PATH }}"
             echo "✅ Base histórica cargada"
           else
-            echo "⚠️ No hay base previa, se inicia una nueva"
+            echo "⚠️ No hay base previa. Se inicia nueva"
             touch "${{ env.DB_PATH }}"
           fi
-          
+
+      # 4️⃣ Crear tabla si no existe
       - name: Inicializar estructura de la base
         run: |
-          sudo apt-get install -y sqlite3
+          sudo apt-get update && sudo apt-get install -y sqlite3
           sqlite3 "${{ env.DB_PATH }}" "
-          CREATE TABLE IF NOT EXISTS anuncios (
-            link TEXT PRIMARY KEY,
-            modelo TEXT,
-            anio INTEGER,
-            precio INTEGER,
-            km TEXT,
-            fecha_scrape DATE,
-            roi REAL,
-            score INTEGER
-          );
+            CREATE TABLE IF NOT EXISTS anuncios (
+              link TEXT PRIMARY KEY,
+              modelo TEXT,
+              anio INTEGER,
+              precio INTEGER,
+              km TEXT,
+              fecha_scrape DATE,
+              roi REAL,
+              score INTEGER
+            );
           "
 
-      # 4️⃣ Mostrar contenido actual de la DB antes de correr el bot
+      # 5️⃣ Ver estado previo de DB
       - name: Volumen previo en DB
         run: |
-          sudo apt-get update && sudo apt-get install -y sqlite3
           echo "📊 Anuncios por modelo:"
           sqlite3 "${{ env.DB_PATH }}" \
             "SELECT modelo, COUNT(*) FROM anuncios GROUP BY modelo ORDER BY COUNT(*) DESC;"
 
-      # 5️⃣ Instalar dependencias
+      # 6️⃣ Instalar dependencias
       - name: Instalar dependencias Python y Playwright
         run: |
           python -m pip install --upgrade pip
           pip install -r requirements.txt
           npx playwright install --with-deps
 
-      # 6️⃣ Ejecutar el bot principal
+      # 7️⃣ Ejecutar el bot
       - name: Ejecutar bot con Telegram
         run: python bot_telegram_marketplace.py
 
-      # 7️⃣ Copiar DB resultante al branch de datos
-      - name: Guardar DB actualizada
+      # 8️⃣ Guardar nueva versión de la DB
+      - name: Copiar DB al branch data
         run: cp "${{ env.DB_PATH }}" data/anuncios.db
 
-      # 8️⃣ Commit + push si la DB fue modificada
-      - name: Commit & push DB al branch data
+      # 9️⃣ Commit & push con token
+      - name: Commit & push DB actualizada
         env:
           PAT_PUSH: ${{ secrets.PAT_PUSH }}
         run: |
@@ -97,11 +97,10 @@ jobs:
             git commit -m "🔄 Actualiza DB (run #${{ github.run_number }})"
             git push origin data
           else
-            echo "📁 Sin cambios detectados en la base, se omite el push"
+            echo "📁 Sin cambios detectados en la base, se omite push"
           fi
 
-
-      # 9️⃣ Resumen final del run
+      # 🔟 Resumen final
       - name: Resumen final del run
         run: |
           sudo apt-get update && sudo apt-get install -y sqlite3
