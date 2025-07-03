@@ -85,10 +85,13 @@ jobs:
 
       # 8️⃣ Commit + push si la DB fue modificada
       - name: Commit & push DB al branch data
+        env:
+          PAT_PUSH: ${{ secrets.PAT_PUSH }}
         run: |
           cd data
           git config user.name  "github-actions[bot]"
           git config user.email "github-actions[bot]@users.noreply.github.com"
+          git remote set-url origin https://x-access-token:${PAT_PUSH}@github.com/${{ github.repository }}
           git add anuncios.db
           if ! git diff --cached --quiet; then
             git commit -m "🔄 Actualiza DB (run #${{ github.run_number }})"
@@ -96,6 +99,7 @@ jobs:
           else
             echo "📁 Sin cambios detectados en la base, se omite el push"
           fi
+
 
       # 9️⃣ Resumen final del run
       - name: Resumen final del run
