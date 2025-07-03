@@ -2,7 +2,7 @@ name: Ejecutar Bot Automáticamente
 
 on:
   schedule:
-    # Corre cada 2 horas entre las 8 AM y 6 PM (UTC-6 para Guatemala)
+    # Corre cada 2 horas entre las 8 AM y 6 PM (UTC-6 Guatemala)
     - cron: '0 14-23/2 * * *'
   workflow_dispatch:
 
@@ -11,64 +11,87 @@ jobs:
     runs-on: ubuntu-latest
 
     env:
-      BOT_TOKEN: ${{ secrets.BOT_TOKEN }}
-      CHAT_ID: ${{ secrets.CHAT_ID }}
-      FB_COOKIES_JSON: ${{ secrets.FB_COOKIES_JSON }}
-      DB_PATH: upload-artifact/anuncios.db
+      BOT_TOKEN:        ${{ secrets.BOT_TOKEN }}
+      CHAT_ID:          ${{ secrets.CHAT_ID }}
+      FB_COOKIES_JSON:  ${{ secrets.FB_COOKIES_JSON }}
+      DB_PATH:          upload-artifact/anuncios.db
 
     steps:
-      - name: Clonar el repo
-        uses: actions/checkout@v3.5.3
-
-      - name: Restaurar cache de la base de datos
-        uses: actions/cache@v3
+      # 1) Checkout del código principal (módulo scraper, utils, etc.)
+      - name: Checkout main
+        uses: actions/checkout@v3
         with:
-          path: upload-artifact/anuncios.db
-          key: ${{ runner.os }}-anuncios-db
-          # Si quieres invalidar manualmente, cambia este key cada mes
-          restore-keys: |
-            ${{ runner.os }}-anuncios-db
+          fetch-depth: 0
 
-      - name: Verificar existencia de base persistente
+      # 2) Checkout del branch 'data' que contiene la DB histórica
+      - name: Checkout branch de datos
+        uses: actions/checkout@v3
+        with:
+          repository: ${{ github.repository }}
+          token:      ${{ secrets.GITHUB_TOKEN }}
+          ref:        data
+          path:       data
+
+      # 3) Traer la DB histórica a upload-artifact/
+      - name: Preparar DB histórica
         run: |
-          if [ ! -f "${{ env.DB_PATH }}" ]; then
-            echo "❌ No se encontró anuncios.db en cache. ¿Primer run? Se creará desde cero."
-            mkdir -p "$(dirname "${{ env.DB_PATH }}")"
+          mkdir -p upload-artifact
+          if [ -f data/anuncios.db ]; then
+            cp data/anuncios.db "${{ env.DB_PATH }}"
+            echo "✅ Base histórica cargada: data/anuncios.db"
+          else
+            echo "⚠️ No se encontró base histórica. Se inicializará una nueva."
             touch "${{ env.DB_PATH }}"
           fi
 
-      - name: Mostrar cantidad actual de registros en DB
+      # 4) Mostrar conteo previo (opcional)
+      - name: Volumen previo en DB
         run: |
-          echo "📊 Volumen de anuncios en la base actual:"
           sudo apt-get update && sudo apt-get install -y sqlite3
-          sqlite3 "${{ env.DB_PATH }}" "SELECT modelo, COUNT(*) FROM anuncios GROUP BY modelo ORDER BY COUNT(*) DESC;"
+          echo "📊 Anuncios por modelo (previo):"
+          sqlite3 "${{ env.DB_PATH }}" \
+            "SELECT modelo, COUNT(*) FROM anuncios GROUP BY modelo ORDER BY COUNT(*) DESC;"
 
-      - name: Instalar dependencias Python
+      # 5) Instalar dependencias y navegadores
+      - name: Instalar dependencias Python y Playwright
         run: |
           python -m pip install --upgrade pip
           pip install -r requirements.txt
+          npx playwright install --with-deps
 
-      - name: Instalar navegadores Playwright
-        run: npx playwright install --with-deps
+      # 6) Ejecutar el bot
+      - name: Ejecutar bot con Telegram
+        run: python bot_telegram_marketplace.py
 
-      - name: Ejecutar bot con Telegram y capturar logs
+      # 7) Copiar DB actualizada al branch data
+      - name: Guardar DB actualizada en data/
         run: |
-          mkdir -p logs
-          python bot_telegram_marketplace.py 2>&1 | tee logs/salida_bot.log
+          cp "${{ env.DB_PATH }}" data/anuncios.db
 
-      - name: Guardar cache actualizado de la base de datos
-        uses: actions/cache@v3
-        with:
-          path: upload-artifact/anuncios.db
-          key: ${{ runner.os }}-anuncios-db
+      # 8) Commit & push de la DB al branch data
+      - name: Commit & push DB actualizada
+        run: |
+          cd data
+          git config user.name  "github-actions[bot]"
+          git config user.email "github-actions[bot]@users.noreply.github.com"
+          git add anuncios.db
+          if ! git diff --cached --quiet; then
+            git commit -m "🔄 Actualiza DB (run #${{ github.run_number }})"
+            git push origin data
+          else
+            echo "👀 Sin cambios en la DB, nada que commitear."
+          fi
 
-      - name: Subir logs de ejecución
-        uses: actions/upload-artifact@v4.1.0
-        with:
-          name: logs-bot
-          path: logs/salida_bot.log
-
+      # 9) Resumen final del run
       - name: Resumen final del run
         run: |
+          sudo apt-get update && sudo apt-get install -y sqlite3
           echo "✅ Bot ejecutado con éxito"
+          echo "📦 Total de anuncios registrados:"
           sqlite3 "${{ env.DB_PATH }}" "SELECT COUNT(*) FROM anuncios;"
+          echo "🔍 Último anuncio registrado:"
+          sqlite3 "${{ env.DB_PATH }}" \
+            "SELECT link, fecha_scrape \
+             FROM anuncios \
+             ORDER BY fecha_scrape DESC, rowid DESC \
+             LIMIT 1;"
