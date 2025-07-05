@@ -166,9 +166,15 @@ async def procesar_modelo(page: Page, modelo: str, resultados: List[str], pendie
             if not full_url.startswith("https://www.facebook.com/marketplace/item/"):
                 logger.warning(f"🚨 Link inválido detectado → {repr(full_url)}")
                 continue
-            if not texto or full_url in vistos or existe_en_db(full_url) or contiene_negativos(texto):
+            if not texto or full_url in vistos or existe_en_db(full_url):
                 contador["duplicado"] += 1
                 continue
+            vistos.add(full_url)
+
+            if contiene_negativos(texto):
+                contador["negativo"] += 1
+                continue
+
             vistos.add(full_url)
 
             match_precio = re.search(r"[Qq\$]\s?[\d\.,]+", texto)
