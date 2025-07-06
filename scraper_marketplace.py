@@ -13,7 +13,7 @@ from utils_analisis import (
     existe_en_db, insertar_anuncio_db, inicializar_tabla_anuncios, limpiar_link
 )
 
-# Configuración Logging
+# 🔧 Configuración de logging
 logging.basicConfig(
     level=logging.INFO,
     format='%(asctime)s [%(levelname)s] %(message)s',
@@ -21,63 +21,50 @@ logging.basicConfig(
 )
 logger = logging.getLogger(__name__)
 
-# Constantes configurables
+# 📌 Parámetros principales
 MODELOS_INTERES = [
     "yaris", "civic", "corolla", "sentra", "cr-v", "rav4", "tucson",
     "kia picanto", "chevrolet spark", "honda", "nissan march",
     "suzuki alto", "suzuki swift", "suzuki grand vitara",
     "hyundai accent", "hyundai i10", "kia rio"
 ]
-
 COOKIES_PATH = "fb_cookies.json"
-MIN_RESULTADOS = 20
-MAX_RESULTADOS = 30
-MINIMO_NUEVOS = 10
-MAX_INTENTOS = 12
 MIN_PRECIO_VALIDO = 3000
+MAX_INTENTOS = 12
 
-# Inicializar tabla base datos
+# 🏁 Inicializa la base de datos
 inicializar_tabla_anuncios()
 
 def limpiar_url(link: Optional[str]) -> str:
     if not link:
         return ""
-    clean_link = link.strip().replace('\n', '').replace('\r', '').replace(' ', '')
-    path = urlparse(clean_link).path.rstrip('/')
+    path = urlparse(link.strip().replace('\n', '').replace('\r', '').replace(' ', '')).path.rstrip('/')
     return f"https://www.facebook.com{path}"
 
 async def cargar_contexto_con_cookies(browser: Browser) -> BrowserContext:
-    logger.info("🔐 Cargando cookies desde GitHub Secret…")
-    cookies_json = os.environ.get("FB_COOKIES_JSON", "")
-    if not cookies_json:
-        logger.warning("⚠️ FB_COOKIES_JSON no encontrado. Sesión anónima.")
+    logger.info("🔐 Cargando cookies desde entorno…")
+    cj = os.environ.get("FB_COOKIES_JSON", "")
+    if not cj:
+        logger.warning("⚠️ Sin cookies encontradas. Usando sesión anónima.")
         return await browser.new_context(locale="es-ES")
-    try:
-        with open(COOKIES_PATH, "w", encoding="utf-8") as f:
-            f.write(cookies_json)
-        context = await browser.new_context(
-            storage_state=COOKIES_PATH,
-            locale="es-ES",
-            user_agent="Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 Chrome/124.0.0.0 Safari/537.36"
-        )
-        logger.info("✅ Cookies restauradas desde storage_state.")
-        return context
-    except Exception as e:
-        logger.error(f"Error al cargar cookies: {e}")
-        return await browser.new_context(locale="es-ES")
+    with open(COOKIES_PATH, "w", encoding="utf-8") as f:
+        f.write(cj)
+    return await browser.new_context(
+        storage_state=COOKIES_PATH,
+        locale="es-ES",
+        user_agent="Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 Chrome/124.0.0.0 Safari/537.36"
+    )
 
 async def extraer_items_pagina(page: Page) -> List[Dict[str, str]]:
-    items_data = []
     try:
         items = await page.query_selector_all("a[href*='/marketplace/item']")
-        for a in items:
-            texto = (await a.inner_text()).strip()
-            href = await a.get_attribute("href")
-            url = limpiar_url(href)
-            items_data.append({"texto": texto, "url": url})
+        return [{
+            "texto": (await a.inner_text()).strip(),
+            "url": limpiar_url(await a.get_attribute("href"))
+        } for a in items]
     except Exception as e:
-        logger.error(f"Error extrayendo items de la página: {e}")
-    return items_data
+        logger.error(f"❌ Error al extraer items: {e}")
+        return []
 
 def extraer_anio_y_titulo(texto: str, modelo: str) -> Tuple[Optional[int], str]:
     lines = [l.strip() for l in texto.splitlines() if l.strip()]
@@ -85,9 +72,9 @@ def extraer_anio_y_titulo(texto: str, modelo: str) -> Tuple[Optional[int], str]:
     titulo = modelo.title()
     if len(lines) > 1:
         try:
-            posible_anio = int(lines[1].split()[0])
-            if 1990 <= posible_anio <= 2030:
-                anio = posible_anio
+            posible = int(lines[1].split()[0])
+            if 1990 <= posible <= 2030:
+                anio = posible
                 titulo = " ".join(lines[1].split()[1:]).title() or titulo
         except (ValueError, IndexError):
             pass
@@ -97,34 +84,28 @@ def extraer_anio_y_titulo(texto: str, modelo: str) -> Tuple[Optional[int], str]:
             anio = int(match.group())
     return anio, titulo
 
-async def hacer_scroll_pagina(page: Page, veces: int = 5, min_delay=0.8, max_delay=1.5):
+async def hacer_scroll_pagina(page: Page, veces=5, min_delay=0.8, max_delay=1.5):
     for _ in range(veces):
         await page.mouse.wheel(0, 400)
         await asyncio.sleep(random.uniform(min_delay, max_delay))
 
-async def procesar_modelo(page: Page, modelo: str, resultados: List[str], pendientes_manual: List[str]) -> int:
-    nuevos_urls = set()
-    vistos = set()
-    contador = {
-        "total": 0, "duplicado": 0, "sin_precio": 0, "negativo": 0,
-        "sin_anio": 0, "guardado": 0, "filtro_modelo": 0
-    }
+async def procesar_modelo(page: Page, modelo: str, resultados: List[str], pendientes: List[str]) -> int:
+    vistos, nuevos = set(), set()
+    contador = {k: 0 for k in ["total", "duplicado", "negativo", "sin_precio", "sin_anio", "filtro_modelo", "guardado"]}
     url_busqueda = (
         f"https://www.facebook.com/marketplace/guatemala/search/"
-        f"?query={modelo.replace(' ', '%20')}"
-        f"&minPrice=1000&maxPrice=60000"
+        f"?query={modelo.replace(' ', '%20')}&minPrice=1000&maxPrice=60000"
         f"&sortBy=best_match&conditions=used_good_condition"
     )
     await page.goto(url_busqueda)
     await asyncio.sleep(random.uniform(4, 7))
-    for intento in range(MAX_INTENTOS):
+    for _ in range(MAX_INTENTOS):
         items = await extraer_items_pagina(page)
         if not items:
             await hacer_scroll_pagina(page)
             continue
         for item in items:
-            texto = item["texto"]
-            full_url = limpiar_link(item["url"])
+            texto, full_url = item["texto"], limpiar_link(item["url"])
             contador["total"] += 1
             if not full_url.startswith("https://www.facebook.com/marketplace/item/"):
                 continue
@@ -135,24 +116,26 @@ async def procesar_modelo(page: Page, modelo: str, resultados: List[str], pendie
             if contiene_negativos(texto):
                 contador["negativo"] += 1
                 continue
-            match_precio = re.search(r"[Qq\$]\s?[\d\.,]+", texto)
-            if not match_precio:
+            m = re.search(r"[Qq\$]\s?[\d\.,]+", texto)
+            if not m:
                 contador["sin_precio"] += 1
-                pendientes_manual.append(f"🔍 {modelo.title()}\n📝 {texto}\n📎 {full_url}")
+                pendientes.append(f"🔍 {modelo.title()}\n📝 {texto}\n📎 {full_url}")
                 continue
-            precio = limpiar_precio(match_precio.group())
+            precio = limpiar_precio(m.group())
             if precio < MIN_PRECIO_VALIDO:
                 continue
             anio, titulo = extraer_anio_y_titulo(texto, modelo)
-            km = ""
-            lines = [l.strip() for l in texto.splitlines() if l.strip()]
-            if len(lines) > 3:
-                km = lines[3]
-            roi = calcular_roi_real(modelo, precio, anio or 0)
-            score = puntuar_anuncio(titulo, precio, texto)
-            if not coincide_modelo(texto, modelo) and score < 7:
-                contador["filtro_modelo"] += 1
+            if not anio:
+                contador["sin_anio"] += 1
                 continue
+            if not coincide_modelo(texto, modelo):
+                score_test = puntuar_anuncio(titulo, precio, texto)
+                if score_test < 7:
+                    contador["filtro_modelo"] += 1
+                    continue
+            km = texto.splitlines()[3].strip() if len(texto.splitlines()) > 3 else ""
+            roi = calcular_roi_real(modelo, precio, anio)
+            score = puntuar_anuncio(titulo, precio, texto)
             insertar_anuncio_db(
                 url=full_url,
                 modelo=modelo,
@@ -162,43 +145,45 @@ async def procesar_modelo(page: Page, modelo: str, resultados: List[str], pendie
                 roi=roi,
                 score=score,
                 relevante=(score >= 6 and roi >= -10),
-                completo=1 if anio else 0
+                completo=1
             )
             contador["guardado"] += 1
             if score >= 6 and roi >= -10:
                 mensaje = (
-                    f"🚘 *{titulo}*\n• Año: {anio or '—'}\n• Precio: Q{precio:,}\n• Kilometraje: {km}\n"
-                    f"• ROI: {roi:.1f}%\n• Score: {score}/10\n🔗 {full_url}"
+                    f"🚘 *{titulo}*\n"
+                    f"• Año: {anio}\n"
+                    f"• Precio: Q{precio:,}\n"
+                    f"• Kilometraje: {km}\n"
+                    f"• ROI: {roi:.1f}%\n"
+                    f"• Score: {score}/10\n"
+                    f"🔗 {full_url}"
                 )
-                nuevos_urls.add(full_url)
                 resultados.append(mensaje)
+                nuevos.add(full_url)
         await hacer_scroll_pagina(page)
-    logger.info(f"📊 Fin modelo {modelo.upper()} → {contador}")
-    return len(nuevos_urls)
+    logger.info(f"📊 {modelo.upper()} → {contador}")
+    return len(nuevos)
 
 async def buscar_autos_marketplace() -> Tuple[List[str], List[str]]:
     logger.info("\n🔎 Iniciando búsqueda en Marketplace…")
-    resultados = []
-    pendientes_manual = []
+    resultados, pendientes = [], []
     async with async_playwright() as p:
         browser = await p.chromium.launch(headless=True)
         ctx = await cargar_contexto_con_cookies(browser)
         page = await ctx.new_page()
-        modelos = MODELOS_INTERES.copy()
-        random.shuffle(modelos)
-        for modelo in modelos:
-            logger.info(f"\n🔍 Buscando modelo: {modelo.upper()}")
-            await procesar_modelo(page, modelo, resultados, pendientes_manual)
+        for modelo in random.sample(MODELOS_INTERES, len(MODELOS_INTERES)):
+            logger.info(f"\n🔍 Procesando modelo: {modelo.upper()}")
+            await procesar_modelo(page, modelo, resultados, pendientes)
         await browser.close()
-    return resultados, pendientes_manual
+    return resultados, pendientes
 
 if __name__ == "__main__":
     async def main():
         brutos, pendientes = await buscar_autos_marketplace()
-        for msg in brutos:
-            print(msg + "\n")
+        for r in brutos:
+            print(r + "\n")
         if pendientes:
-            print("📌 Pendientes de revisión manual:")
+            print("📌 Pendientes para revisión manual:\n")
             for p in pendientes:
                 print(p + "\n")
     asyncio.run(main())
