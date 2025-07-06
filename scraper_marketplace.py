@@ -163,7 +163,7 @@ async def procesar_modelo(page: Page, modelo: str, resultados: List[str], pendie
             full_url = limpiar_link(item["url"])
             contador["total"] += 1
 
-           if not full_url.startswith("https://www.facebook.com/marketplace/item/"):
+            if not full_url.startswith("https://www.facebook.com/marketplace/item/"):
                 logger.warning(f"🚨 Link inválido detectado → {repr(full_url)}")
                 continue
 
