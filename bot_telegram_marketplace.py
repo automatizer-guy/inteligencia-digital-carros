@@ -1,8 +1,7 @@
 import asyncio
-import re
 import os
+import re
 import sqlite3
-import unicodedata
 from datetime import datetime
 from zoneinfo import ZoneInfo
 from scraper_marketplace import buscar_autos_marketplace
@@ -15,20 +14,18 @@ from utils_analisis import (
     limpiar_link
 )
 
-# 🌱 Inicializar tabla si no exista
+# 🌱 Inicializar base de datos
 inicializar_tabla_anuncios()
 
-# 🔐 Leer variables desde entorno, eliminando espacios y saltos de línea
+# 🔐 Variables desde entorno
 BOT_TOKEN = os.environ["BOT_TOKEN"].strip()
 CHAT_ID = int(os.environ["CHAT_ID"].strip())
-
-bot = Bot(token=BOT_TOKEN)
-
-# 🛣️ Ruta base de la base de datos
 DB_PATH = os.environ.get("DB_PATH", "upload-artifact/anuncios.db")
 os.makedirs(os.path.dirname(DB_PATH), exist_ok=True)
 
-# 📨 Envío seguro de texto plano
+bot = Bot(token=BOT_TOKEN)
+
+# 📨 Envío seguro sin botón
 async def safe_send(text: str, parse_mode="MarkdownV2"):
     escaped = escape_markdown(text.strip(), version=2)
     for _ in range(3):
@@ -43,14 +40,12 @@ async def safe_send(text: str, parse_mode="MarkdownV2"):
             print(f"⚠️ Error al enviar mensaje: {e}")
             await asyncio.sleep(1)
 
-# 📨 Envío seguro con botón
+# 📨 Envío con botón
 async def safe_send_with_button(text: str, url: str):
     url = limpiar_link(url)
     print(f"🔗 Enviando botón con URL: {repr(url)}")
     escaped = escape_markdown(text.strip(), version=2)
-    button = InlineKeyboardMarkup([
-        [InlineKeyboardButton("🔗 Ver anuncio", url=url)]
-    ])
+    button = InlineKeyboardMarkup([[InlineKeyboardButton("🔗 Ver anuncio", url=url)]])
     for _ in range(3):
         try:
             return await bot.send_message(
@@ -64,57 +59,53 @@ async def safe_send_with_button(text: str, url: str):
             print(f"⚠️ Error al enviar mensaje con botón: {e}")
             await asyncio.sleep(1)
 
-# 📦 Validación de URL
+# 🧪 Utilidades de análisis
 def link_valido(url: str) -> bool:
     return bool(url and url.startswith("https://") and '\n' not in url and '\r' not in url)
 
-# 📦 Extraer datos útiles del mensaje
 def extraer_info(txt: str):
-    link_match = re.search(r"https://www\.facebook\.com/marketplace/item/\d+", txt)
-    link_url = limpiar_link(link_match.group(0)) if link_match else ""
-
-    año_match = re.search(r"Año: (\d{4})", txt)
+    url_match = re.search(r"https://www\.facebook\.com/marketplace/item/\d+", txt)
+    anio_match = re.search(r"Año: (\d{4})", txt)
     precio_match = re.search(r"Precio: Q([\d,]+)", txt)
     modelo_match = re.search(r"🚘 \*(.+?)\*", txt)
 
-    año = int(año_match.group(1)) if año_match else None
+    url = limpiar_link(url_match.group()) if url_match else ""
+    anio = int(anio_match.group(1)) if anio_match else None
     precio = int(precio_match.group(1).replace(",", "")) if precio_match else None
     modelo_txt = modelo_match.group(1).lower() if modelo_match else ""
 
-    return link_url, año, precio, modelo_txt
+    return url, anio, precio, modelo_txt
 
-# 🧪 Extraer score
-def extraer_score(texto: str) -> int:
-    match = re.search(r"Score:\s?(\d+)/10", texto)
+def extraer_score(txt: str) -> int:
+    match = re.search(r"Score:\s?(\d+)/10", txt)
     return int(match.group(1)) if match else 0
 
-# ✅ Validar mensaje y ROI, devuelve modelo_detectado
 def mensaje_valido(txt: str):
-    link, año, precio, modelo_txt = extraer_info(txt)
-    if not all([link, año, precio, modelo_txt]):
-        print(f"🚫 Datos incompletos → {repr((link, año, precio, modelo_txt))}")
+    url, anio, precio, modelo_txt = extraer_info(txt)
+    if not all([url, anio, precio, modelo_txt]):
+        print(f"🚫 Incompleto → {repr((url, anio, precio, modelo_txt))}")
         return False, 0.0, None
 
-    modelos_conocidos = [
+    modelos = [
         "yaris", "civic", "corolla", "sentra", "cr-v", "rav4", "tucson",
         "kia picanto", "chevrolet spark", "nissan march", "suzuki alto",
         "suzuki swift", "suzuki grand vitara", "hyundai accent", "hyundai i10",
         "kia rio", "mitsubishi mirage", "toyota", "honda"
     ]
-    modelo_detectado = next((m for m in modelos_conocidos if coincide_modelo(modelo_txt, m)), None)
-    if not modelo_detectado:
+    detectado = next((m for m in modelos if coincide_modelo(modelo_txt, m)), None)
+    if not detectado:
         print(f"❓ Modelo no detectado: {modelo_txt}")
         return False, 0.0, None
 
-    roi = calcular_roi_real(modelo_detectado, precio, año)
-    return roi >= 10, roi, modelo_detectado
+    roi = calcular_roi_real(detectado, precio, anio)
+    return roi >= 10, roi, detectado
 
-# 🧠 Función principal para enviar ofertas
+# 🚘 Envío principal
 async def enviar_ofertas():
     print("📡 Buscando autos...")
     brutos, pendientes = await buscar_autos_marketplace()
 
-    buenos, potenciales, descartados = [], [], []
+    buenos, potenciales = [], []
     for txt in brutos:
         txt = txt.strip()
         valido, roi, modelo = mensaje_valido(txt)
@@ -125,52 +116,41 @@ async def enviar_ofertas():
             buenos.append(txt)
         elif roi >= 7 and score >= 4:
             potenciales.append(txt)
-        else:
-            descartados.append(txt)
 
-    total = len(buenos) + len(potenciales) + len(descartados)
-    print(f"📊 Procesados: {total} | Relevantes: {len(buenos)} | Potenciales: {len(potenciales)}")
-    await safe_send(f"📊 Procesados: {total} | Relevantes: {len(buenos)} | Potenciales: {len(potenciales)}")
+    # 🪄 Formato unificado por bloques
+    def unir_mensajes(lista: list) -> str:
+        return "\n\n".join(m.strip() for m in lista)
 
+    total = len(brutos)
+    resumen = f"📊 Procesados: {total} | Relevantes: {len(buenos)} | Potenciales: {len(potenciales)}"
+    await safe_send(resumen)
+
+    # 🔇 Si no hay mensajes relevantes, solo resumen
     if not buenos and not potenciales:
-        # Solo enviar una vez al final del día (18:00 hora local Guatemala)
-        hora_local = datetime.now(ZoneInfo("America/Guatemala")).hour
-        FINAL_HOUR = 18
-        if hora_local == FINAL_HOUR:
+        if datetime.now(ZoneInfo("America/Guatemala")).hour == 18:
             hora_str = datetime.now(ZoneInfo("America/Guatemala")).strftime("%H:%M")
-            await safe_send(f"📡 Bot ejecutado a las {hora_str}, sin ofertas en todo el día.")
+            await safe_send(f"📡 Bot ejecutado a las {hora_str}, sin ofertas nuevas.")
         return
 
-    # 🚘 Enviar anuncios relevantes
-    for b in buenos:
-        link_match = re.search(r"https://www\.facebook\.com/marketplace/item/\d+", b)
-        link_url = limpiar_link(link_match.group(0)) if link_match else None
-        texto_sin_link = re.sub(r"\n?🔗 https://www\.facebook\.com/marketplace/item/\d+", "", b).strip()
-        texto_sin_link = ''.join(c for c in texto_sin_link if c.isprintable())
+    # 📨 Enviar todos los relevantes como un solo mensaje
+    if buenos:
+        mensajes_unificados = unir_mensajes(buenos)
+        await safe_send(mensajes_unificados)
 
-        if not link_valido(link_url):
-            print(f"🧨 Link inválido o sucio → {repr(link_url)}")
-            await safe_send(b)
-        else:
-            print(f"📤 Enviando con botón → {link_url}")
-            await safe_send_with_button(texto_sin_link, link_url)
-        await asyncio.sleep(1)
-
-    # 📌 Mostrar pendientes manuales
+    # 📎 Pendientes de revisión
     if pendientes:
-        pm = "📌 *Pendientes de revisión manual:*\n\n" + "\n\n".join(p.strip() for p in pendientes)
-        for i in range(0, len(pm), 3000):
-            await safe_send(pm[i:i+3000])
+        texto = "📌 *Pendientes de revisión manual:*\n\n" + "\n\n".join(p.strip() for p in pendientes)
+        for i in range(0, len(texto), 3000):
+            await safe_send(texto[i:i+3000])
             await asyncio.sleep(1)
 
-    # 📦 Mostrar total acumulado en base de datos
+    # 📦 Mostrar acumulado
     with sqlite3.connect(DB_PATH) as conn:
         cur = conn.cursor()
         cur.execute("SELECT COUNT(*) FROM anuncios")
         total_db = cur.fetchone()[0]
-    print(f"📦 Total acumulado en base: {total_db}")
     await safe_send(f"📦 Total acumulado en base: {total_db} anuncios")
 
-# 🚀 Ejecutar
+# 🚀 Lanzar
 if __name__ == "__main__":
     asyncio.run(enviar_ofertas())
