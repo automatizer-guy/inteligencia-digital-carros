@@ -33,7 +33,7 @@ COOKIES_PATH = "fb_cookies.json"
 MIN_RESULTADOS = 20
 MAX_RESULTADOS = 30
 MINIMO_NUEVOS = 10
-MAX_INTENTOS = 6
+MAX_INTENTOS = 12
 MIN_PRECIO_VALIDO = 3000
 
 # Inicializar tabla base datos
@@ -70,7 +70,6 @@ async def extraer_items_pagina(page: Page) -> List[Dict[str, str]]:
     items_data = []
     try:
         items = await page.query_selector_all("a[href*='/marketplace/item']")
-        logger.debug(f"Se encontraron {len(items)} items en la página")
         for a in items:
             texto = (await a.inner_text()).strip()
             href = await a.get_attribute("href")
@@ -106,8 +105,10 @@ async def hacer_scroll_pagina(page: Page, veces: int = 5, min_delay=0.8, max_del
 async def procesar_modelo(page: Page, modelo: str, resultados: List[str], pendientes_manual: List[str]) -> int:
     nuevos_urls = set()
     vistos = set()
-    contador = {"total": 0, "duplicado": 0, "sin_precio": 0, "negativo": 0, "sin_anio": 0, "guardado": 0}
-
+    contador = {
+        "total": 0, "duplicado": 0, "sin_precio": 0, "negativo": 0,
+        "sin_anio": 0, "guardado": 0, "filtro_modelo": 0
+    }
     url_busqueda = (
         f"https://www.facebook.com/marketplace/guatemala/search/"
         f"?query={modelo.replace(' ', '%20')}"
@@ -116,56 +117,42 @@ async def procesar_modelo(page: Page, modelo: str, resultados: List[str], pendie
     )
     await page.goto(url_busqueda)
     await asyncio.sleep(random.uniform(4, 7))
-
     for intento in range(MAX_INTENTOS):
-        logger.info(f"🔄 Intento {intento+1}/{MAX_INTENTOS}: {modelo.upper()}")
         items = await extraer_items_pagina(page)
         if not items:
             await hacer_scroll_pagina(page)
             continue
-
         for item in items:
             texto = item["texto"]
             full_url = limpiar_link(item["url"])
             contador["total"] += 1
-
             if not full_url.startswith("https://www.facebook.com/marketplace/item/"):
                 continue
             if not texto or full_url in vistos or existe_en_db(full_url):
                 contador["duplicado"] += 1
                 continue
             vistos.add(full_url)
-
             if contiene_negativos(texto):
                 contador["negativo"] += 1
                 continue
-
             match_precio = re.search(r"[Qq\$]\s?[\d\.,]+", texto)
             if not match_precio:
                 contador["sin_precio"] += 1
                 pendientes_manual.append(f"🔍 {modelo.title()}\n📝 {texto}\n📎 {full_url}")
                 continue
-
             precio = limpiar_precio(match_precio.group())
             if precio < MIN_PRECIO_VALIDO:
                 continue
-            if not coincide_modelo(texto, modelo):
-                continue
-
             anio, titulo = extraer_anio_y_titulo(texto, modelo)
-            if not anio or precio == 0:
-                contador["sin_anio"] += 1
-                continue
-
             km = ""
             lines = [l.strip() for l in texto.splitlines() if l.strip()]
             if len(lines) > 3:
                 km = lines[3]
-
-            roi = calcular_roi_real(modelo, precio, anio)
+            roi = calcular_roi_real(modelo, precio, anio or 0)
             score = puntuar_anuncio(titulo, precio, texto)
-            relevante = score >= 6 and roi >= -10
-
+            if not coincide_modelo(texto, modelo) and score < 7:
+                contador["filtro_modelo"] += 1
+                continue
             insertar_anuncio_db(
                 url=full_url,
                 modelo=modelo,
@@ -174,54 +161,35 @@ async def procesar_modelo(page: Page, modelo: str, resultados: List[str], pendie
                 kilometraje=km,
                 roi=roi,
                 score=score,
-                relevante=relevante
+                relevante=(score >= 6 and roi >= -10),
+                completo=1 if anio else 0
             )
             contador["guardado"] += 1
-
-            if relevante:
+            if score >= 6 and roi >= -10:
                 mensaje = (
-                    f"🚘 *{titulo}*\n"
-                    f"• Año: {anio}\n"
-                    f"• Precio: Q{precio:,}\n"
-                    f"• Kilometraje: {km}\n"
-                    f"• ROI: {roi:.1f}%\n"
-                    f"• Score: {score}/10\n"
-                    f"🔗 {full_url}"
-                ).strip()
+                    f"🚘 *{titulo}*\n• Año: {anio or '—'}\n• Precio: Q{precio:,}\n• Kilometraje: {km}\n"
+                    f"• ROI: {roi:.1f}%\n• Score: {score}/10\n🔗 {full_url}"
+                )
                 nuevos_urls.add(full_url)
                 resultados.append(mensaje)
-
-        if len(nuevos_urls) >= MINIMO_NUEVOS:
-            break
-
         await hacer_scroll_pagina(page)
-
-    logger.info(f"📊 Fin modelo {modelo.upper()} → Guardados: {contador['guardado']}, Relevantes: {len(nuevos_urls)}")
+    logger.info(f"📊 Fin modelo {modelo.upper()} → {contador}")
     return len(nuevos_urls)
 
 async def buscar_autos_marketplace() -> Tuple[List[str], List[str]]:
     logger.info("\n🔎 Iniciando búsqueda en Marketplace…")
     resultados = []
     pendientes_manual = []
-
     async with async_playwright() as p:
         browser = await p.chromium.launch(headless=True)
         ctx = await cargar_contexto_con_cookies(browser)
         page = await ctx.new_page()
-
         modelos = MODELOS_INTERES.copy()
         random.shuffle(modelos)
-
         for modelo in modelos:
-            if len(resultados) >= MIN_RESULTADOS:
-                break
             logger.info(f"\n🔍 Buscando modelo: {modelo.upper()}")
-            nuevos = await procesar_modelo(page, modelo, resultados, pendientes_manual)
-            if nuevos >= MINIMO_NUEVOS and len(resultados) >= MIN_RESULTADOS:
-                break
-
+            await procesar_modelo(page, modelo, resultados, pendientes_manual)
         await browser.close()
-
     return resultados, pendientes_manual
 
 if __name__ == "__main__":
@@ -233,5 +201,4 @@ if __name__ == "__main__":
             print("📌 Pendientes de revisión manual:")
             for p in pendientes:
                 print(p + "\n")
-
     asyncio.run(main())
