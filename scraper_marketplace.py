@@ -13,7 +13,6 @@ from utils_analisis import (
     existe_en_db, insertar_anuncio_db, inicializar_tabla_anuncios, limpiar_link
 )
 
-# 🔧 Configuración de logging
 logging.basicConfig(
     level=logging.INFO,
     format='%(asctime)s [%(levelname)s] %(message)s',
@@ -21,7 +20,6 @@ logging.basicConfig(
 )
 logger = logging.getLogger(__name__)
 
-# 📌 Parámetros principales
 MODELOS_INTERES = [
     "yaris", "civic", "corolla", "sentra", "cr-v", "rav4", "tucson",
     "kia picanto", "chevrolet spark", "honda", "nissan march",
@@ -32,7 +30,6 @@ COOKIES_PATH = "fb_cookies.json"
 MIN_PRECIO_VALIDO = 3000
 MAX_INTENTOS = 12
 
-# 🏁 Inicializa la base de datos
 inicializar_tabla_anuncios()
 
 def limpiar_url(link: Optional[str]) -> str:
@@ -70,6 +67,7 @@ def extraer_anio_y_titulo(texto: str, modelo: str) -> Tuple[Optional[int], str]:
     lines = [l.strip() for l in texto.splitlines() if l.strip()]
     anio = None
     titulo = modelo.title()
+
     if len(lines) > 1:
         try:
             posible = int(lines[1].split()[0])
@@ -78,10 +76,16 @@ def extraer_anio_y_titulo(texto: str, modelo: str) -> Tuple[Optional[int], str]:
                 titulo = " ".join(lines[1].split()[1:]).title() or titulo
         except (ValueError, IndexError):
             pass
+
     if not anio:
-        match = re.search(r"\b(19[9]\d|20[0-2]\d|2030)\b", texto)
-        if match:
-            anio = int(match.group())
+        m1 = re.search(r"(19\d{2}|20[0-2]\d|2030)", texto)
+        if m1:
+            anio = int(m1.group())
+    if not anio:
+        m2 = re.search(r"(año|modelo)\D{0,4}(19\d{2}|20[0-2]\d|2030)", texto.lower())
+        if m2:
+            anio = int(m2.group(2))
+
     return anio, titulo
 
 async def hacer_scroll_pagina(page: Page, veces=5, min_delay=0.8, max_delay=1.5):
@@ -91,7 +95,10 @@ async def hacer_scroll_pagina(page: Page, veces=5, min_delay=0.8, max_delay=1.5)
 
 async def procesar_modelo(page: Page, modelo: str, resultados: List[str], pendientes: List[str]) -> int:
     vistos, nuevos = set(), set()
-    contador = {k: 0 for k in ["total", "duplicado", "negativo", "sin_precio", "sin_anio", "filtro_modelo", "guardado"]}
+    contador = {k: 0 for k in [
+        "total", "duplicado", "negativo", "sin_precio", "sin_anio",
+        "filtro_modelo", "guardado", "guardado_incompleto"
+    ]}
     url_busqueda = (
         f"https://www.facebook.com/marketplace/guatemala/search/"
         f"?query={modelo.replace(' ', '%20')}&minPrice=1000&maxPrice=60000"
@@ -125,17 +132,35 @@ async def procesar_modelo(page: Page, modelo: str, resultados: List[str], pendie
             if precio < MIN_PRECIO_VALIDO:
                 continue
             anio, titulo = extraer_anio_y_titulo(texto, modelo)
+
             if not anio:
                 contador["sin_anio"] += 1
+                km = ""
+                roi = 0.0
+                score = puntuar_anuncio(titulo, precio, texto)
+                insertar_anuncio_db(
+                    url=full_url,
+                    modelo=modelo,
+                    año=None,
+                    precio=precio,
+                    kilometraje=km,
+                    roi=roi,
+                    score=score,
+                    relevante=(score >= 6),
+                )
+                contador["guardado_incompleto"] += 1
                 continue
+
             if not coincide_modelo(texto, modelo):
                 score_test = puntuar_anuncio(titulo, precio, texto)
                 if score_test < 7:
                     contador["filtro_modelo"] += 1
                     continue
+
             km = texto.splitlines()[3].strip() if len(texto.splitlines()) > 3 else ""
             roi = calcular_roi_real(modelo, precio, anio)
             score = puntuar_anuncio(titulo, precio, texto)
+
             insertar_anuncio_db(
                 url=full_url,
                 modelo=modelo,
