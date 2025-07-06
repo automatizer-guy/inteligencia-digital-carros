@@ -135,21 +135,8 @@ async def procesar_modelo(page: Page, modelo: str, resultados: List[str], pendie
 
             if not anio:
                 contador["sin_anio"] += 1
-                km = ""
-                roi = 0.0
-                score = puntuar_anuncio(titulo, precio, texto)
-                insertar_anuncio_db(
-                    url=full_url,
-                    modelo=modelo,
-                    año=None,
-                    precio=precio,
-                    kilometraje=km,
-                    roi=roi,
-                    score=score,
-                    relevante=(score >= 6),
-                )
-                contador["guardado_incompleto"] += 1
                 continue
+
 
             if not coincide_modelo(texto, modelo):
                 score_test = puntuar_anuncio(titulo, precio, texto)
