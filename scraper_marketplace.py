@@ -145,7 +145,6 @@ async def procesar_modelo(page: Page, modelo: str, resultados: List[str], pendie
                 roi=roi,
                 score=score,
                 relevante=(score >= 6 and roi >= -10),
-                completo=1
             )
             contador["guardado"] += 1
             if score >= 6 and roi >= -10:
