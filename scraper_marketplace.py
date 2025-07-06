@@ -163,11 +163,11 @@ async def procesar_modelo(page: Page, modelo: str, resultados: List[str], pendie
             full_url = limpiar_link(item["url"])
             contador["total"] += 1
 
-            if not full_url.startswith("https://www.facebook.com/marketplace/item/"):
+           if not full_url.startswith("https://www.facebook.com/marketplace/item/"):
                 logger.warning(f"🚨 Link inválido detectado → {repr(full_url)}")
                 continue
-                
-           if not texto or full_url in vistos or existe_en_db(full_url):
+
+            if not texto or full_url in vistos or existe_en_db(full_url):
                 contador["duplicado"] += 1
                 continue
             vistos.add(full_url)
@@ -175,8 +175,6 @@ async def procesar_modelo(page: Page, modelo: str, resultados: List[str], pendie
             if contiene_negativos(texto):
                 contador["negativo"] += 1
                 continue
-
-            vistos.add(full_url)
 
             match_precio = re.search(r"[Qq\$]\s?[\d\.,]+", texto)
             if not match_precio:
