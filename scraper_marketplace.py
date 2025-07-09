@@ -120,7 +120,7 @@ async def procesar_modelo(page: Page, modelo: str, resultados: List[str], pendie
                         continue
                 roi = calcular_roi_real(modelo, precio, anio)
                 score = puntuar_anuncio(texto)
-                insertar_anuncio_db(url, modelo, anio, precio, "", roi, score, relevante=(score >= SCORE_MIN_DB and roi >= -10))
+                insertar_anuncio_db(url, modelo, anio, precio, "", roi, score, relevante=False)
                 contador["guardado"] += 1
                 if score >= SCORE_MIN_TELEGRAM and roi >= ROI_MINIMO:
                     resultados.append(
