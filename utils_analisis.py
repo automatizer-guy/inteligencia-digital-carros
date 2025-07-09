@@ -244,7 +244,7 @@ def puntuar_anuncio(texto: str) -> int:
 # ---- Inserción en BD ----
 @timeit
 def insertar_anuncio_db(
-    url: str, modelo: str, año: int, precio: int, km: str, roi: float, score: int
+    url: str, modelo: str, año: int, precio: int, km: str, roi: float, score: int, relevante: bool
 ) -> None:
     conn = get_conn(); cur = conn.cursor()
     cur.execute(
