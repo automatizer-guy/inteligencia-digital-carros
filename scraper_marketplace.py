@@ -1,18 +1,20 @@
 import re
+import sqlite3
 import os
-import random
 import asyncio
 import logging
+import time
 from typing import List, Dict, Optional, Tuple
 from urllib.parse import urlparse
 from playwright.async_api import async_playwright, Page, Browser, BrowserContext
 from utils_analisis import (
     limpiar_precio, contiene_negativos, puntuar_anuncio,
     calcular_roi_real, coincide_modelo,
-    existe_en_db, insertar_anuncio_db, inicializar_tabla_anuncios, limpiar_link,
-    modelos_bajo_rendimiento
+    existe_en_db, inicializar_tabla_anuncios, limpiar_link,
+    MODELOS_INTERES
 )
 
+# —— Configuración de logging ——
 logging.basicConfig(
     level=logging.INFO,
     format='%(asctime)s [%(levelname)s] %(message)s',
@@ -20,207 +22,209 @@ logging.basicConfig(
 )
 logger = logging.getLogger(__name__)
 
-MODELOS_INTERES = [
-    "yaris", "civic", "corolla", "sentra", "cr-v", "rav4", "tucson",
-    "kia picanto", "chevrolet spark", "honda", "nissan march",
-    "suzuki alto", "suzuki swift", "suzuki grand vitara",
-    "hyundai accent", "hyundai i10", "kia rio"
-]
-COOKIES_PATH = "fb_cookies.json"
-MIN_PRECIO_VALIDO = 3000
-MAX_INTENTOS = 8  # Bajamos intentos para no alargar demasiado
+# —— Parámetros de búsqueda ——
+COOKIES_PATH       = "fb_cookies.json"
+MIN_PRECIO_VALIDO  = 3000
+MAX_INTENTOS       = 8
+SORT_OPTS          = ["best_match", "newest", "price_asc"]
+MAX_TIEMPO_MODELO  = 120  # segundos de timeout por modelo
+BATCH_INSERT_SIZE  = 50   # cuantos registros acumular antes de flush
 
+# —— Inicialización DB & esquema incremental ——
+DB_PATH = os.path.abspath("upload-artifact/anuncios.db")
+os.makedirs(os.path.dirname(DB_PATH), exist_ok=True)
 inicializar_tabla_anuncios()
+# Tabla auxiliar para tracking incremental
+with sqlite3.connect(DB_PATH) as conn:
+    conn.execute("""
+        CREATE TABLE IF NOT EXISTS progreso (
+            modelo TEXT PRIMARY KEY,
+            ultima_url TEXT,
+            timestamp_scrape TEXT
+        )
+    """)
 
-def limpiar_url(link: Optional[str]) -> str:
-    if not link:
-        return ""
-    path = urlparse(link.strip().replace('\n', '').replace('\r', '').replace(' ', '')).path.rstrip('/')
-    return f"https://www.facebook.com{path}"
-
-async def cargar_contexto_con_cookies(browser: Browser) -> BrowserContext:
-    logger.info("🔐 Cargando cookies desde entorno…")
-    cj = os.environ.get("FB_COOKIES_JSON", "")
-    if not cj:
-        logger.warning("⚠️ Sin cookies encontradas. Usando sesión anónima.")
-        return await browser.new_context(locale="es-ES")
-    with open(COOKIES_PATH, "w", encoding="utf-8") as f:
-        f.write(cj)
-    return await browser.new_context(
-        storage_state=COOKIES_PATH,
-        locale="es-ES",
-        user_agent="Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 Chrome/124.0.0.0 Safari/537.36"
-    )
-
-async def extraer_items_pagina(page: Page) -> List[Dict[str, str]]:
-    try:
-        items = await page.query_selector_all("a[href*='/marketplace/item']")
-        return [{
-            "texto": (await a.inner_text()).strip(),
-            "url": limpiar_url(await a.get_attribute("href"))
-        } for a in items]
-    except Exception as e:
-        logger.error(f"❌ Error al extraer items: {e}")
-        return []
-
-def extraer_anio_y_titulo(texto: str, modelo: str) -> Tuple[Optional[int], str]:
-    lines = [l.strip() for l in texto.splitlines() if l.strip()]
-    anio = None
-    titulo = modelo.title()
-
-    if len(lines) > 1:
+# —— Helpers de retry/backoff ——
+async def retry_async(fn, *args, retries=3, base_delay=1, **kwargs):
+    delay = base_delay
+    for attempt in range(1, retries+1):
         try:
-            posible = int(lines[1].split()[0])
-            if 1990 <= posible <= 2030:
-                anio = posible
-                titulo = " ".join(lines[1].split()[1:]).title() or titulo
-        except (ValueError, IndexError):
-            pass
+            return await fn(*args, **kwargs)
+        except Exception as e:
+            if attempt == retries:
+                raise
+            logger.warning(f"⚠️ Retry {attempt}/{retries} tras error: {e}")
+            await asyncio.sleep(delay)
+            delay *= 2
 
-    if not anio:
-        m = re.search(r"(19\d{2}|20[0-2]\d|2030)", texto)
-        if m:
-            anio = int(m.group())
-    return anio, titulo
+# —— Extracción de items con retry ——
+async def extraer_items_pagina(page: Page) -> List[Dict[str,str]]:
+    async def _extract():
+        els = await page.query_selector_all("a[href*='/marketplace/item']")
+        data = []
+        for a in els:
+            txt = (await a.inner_text()).strip()
+            url = limpiar_url(await a.get_attribute("href"))
+            data.append({"texto": txt, "url": url})
+        return data
+    return await retry_async(_extract, retries=2, base_delay=0.5)
 
-async def hacer_scroll_pagina(page: Page, min_delay=0.8, max_delay=1.5) -> bool:
-    prev_height = await page.evaluate("document.body.scrollHeight")
+# —— Scroll seguro —— 
+async def hacer_scroll_pagina(page: Page):
     await page.mouse.wheel(0, 400)
-    await asyncio.sleep(random.uniform(min_delay, max_delay))
-    new_height = await page.evaluate("document.body.scrollHeight")
-    return new_height > prev_height
+    await asyncio.sleep(0.5 + random.random())
 
-async def procesar_modelo(page: Page, modelo: str, resultados: List[str], pendientes: List[str]) -> int:
-    vistos, nuevos = set(), set()
-    contador = {k: 0 for k in [
-        "total", "duplicado", "negativo", "sin_precio", "sin_anio",
-        "filtro_modelo", "guardado", "guardado_incompleto"
-    ]}
-    SORT_OPTS = ["best_match", "newest", "price_asc"]
-    consec_sin_nuevos = 0
+# —— Procesado de un modelo con timeout, batch insert e incremental ——
+async def procesar_modelo(page: Page, modelo: str,
+                          resultados: List[str], pendientes: List[str]) -> int:
+    logger.info(f"🔍 Inicio modelo {modelo.upper()}")
+    inicio_t = time.time()
+
+    # extraer última URL procesada
+    with sqlite3.connect(DB_PATH) as conn:
+        row = conn.execute(
+            "SELECT ultima_url FROM progreso WHERE modelo = ?", (modelo,)
+        ).fetchone()
+    ultima_url = row[0] if row else None
+
+    nuevos    = set()
+    batch_buf = []
+    contador  = {k: 0 for k in ["total","guardado","relevantes"]}
+
+    async def flush_batch():
+        nonlocal batch_buf
+        if not batch_buf: return
+        with sqlite3.connect(DB_PATH) as conn:
+            conn.executemany(
+                "INSERT OR IGNORE INTO anuncios "
+                "(link, modelo, anio, precio, km, fecha_scrape, roi, score, relevante) "
+                "VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)",
+                batch_buf
+            )
+            conn.commit()
+        batch_buf.clear()
 
     for sort in SORT_OPTS:
-        url_busqueda = (
-            f"https://www.facebook.com/marketplace/guatemala/search/"
-            f"?query={modelo.replace(' ', '%20')}&minPrice=1000&maxPrice=60000&sortBy={sort}"
+        url_base = (
+          "https://www.facebook.com/marketplace/guatemala/search/"
+          f"?query={modelo.replace(' ','%20')}&minPrice=1000&maxPrice=60000"
+          f"&sortBy={sort}"
         )
-        await page.goto(url_busqueda)
-        await asyncio.sleep(random.uniform(2, 4))  # Reducido para acelerar
+        await retry_async(page.goto, url_base, retries=2, base_delay=1)
+        await asyncio.sleep(1 + random.random())
 
-        for intento in range(MAX_INTENTOS):
+        intento = 0
+        while intento < MAX_INTENTOS:
+            # Timeout chequeo
+            if time.time() - inicio_t > MAX_TIEMPO_MODELO:
+                logger.warning(f"⏱ Timeout para {modelo}; abortando.")
+                await flush_batch(); return len(nuevos)
+
             items = await extraer_items_pagina(page)
             if not items:
-                if not await hacer_scroll_pagina(page):
-                    logger.info(f"🚦 No más contenido para {modelo} con sort {sort}")
-                    break
+                await hacer_scroll_pagina(page)
+                intento += 1
                 continue
 
-            nuevos_inicio = len(nuevos)
             for item in items:
-                texto, full_url = item["texto"], limpiar_link(item["url"])
+                txt, url = item["texto"], limpiar_link(item["url"])
                 contador["total"] += 1
 
-                if not full_url.startswith("https://www.facebook.com/marketplace/item/"):
-                    continue
-                if not texto or full_url in vistos or existe_en_db(full_url):
-                    contador["duplicado"] += 1
-                    continue
-                vistos.add(full_url)
+                if url == ultima_url:
+                    logger.info(f"⏭ Llegamos a último scrapeado ({url}), stop.")
+                    await flush_batch(); 
+                    # guardamos progreso final y sale
+                    with sqlite3.connect(DB_PATH) as c:
+                        c.execute(
+                            "REPLACE INTO progreso(modelo,ultima_url,timestamp_scrape) VALUES(?,?,?)",
+                            (modelo, next(iter(nuevos), ultima_url), datetime.now().isoformat())
+                        )
+                    return len(nuevos)
 
-                if contiene_negativos(texto):
-                    contador["negativo"] += 1
+                if not url.startswith("https://www.facebook.com/marketplace/item/"):
                     continue
-
-                m = re.search(r"[Qq\$]\s?[\d\.,]+", texto)
+                if existe_en_db(url) or contiene_negativos(txt):
+                    continue
+                m = re.search(r"[Qq\$]\s?[\d\.,]+", txt)
                 if not m:
-                    contador["sin_precio"] += 1
-                    pendientes.append(f"🔍 {modelo.title()}\n📝 {texto}\n📎 {full_url}")
+                    pendientes.append(f"🔍 {modelo}\n📝 {txt}\n📎 {url}")
                     continue
 
                 precio = limpiar_precio(m.group())
                 if precio < MIN_PRECIO_VALIDO:
                     continue
 
-                anio, titulo = extraer_anio_y_titulo(texto, modelo)
-                if not anio:
-                    contador["sin_anio"] += 1
-                    continue
+                anio, titulo = extraer_anio_y_titulo(txt, modelo)
+                if not anio: continue
 
-                if not coincide_modelo(texto, modelo):
-                    score_test = puntuar_anuncio(titulo, precio, texto)
-                    if score_test < 6:  # Subí umbral para permitir más anuncios relevantes
-                        contador["filtro_modelo"] += 1
-                        continue
+                roi   = calcular_roi_real(modelo, precio, anio)
+                score = puntuar_anuncio(titulo, precio, txt)
+                relevante = (score>=6 and roi>=10)
 
-                roi = calcular_roi_real(modelo, precio, anio)
-                score = puntuar_anuncio(titulo, precio, texto)
+                batch_buf.append((
+                    url, modelo, anio, precio, "", datetime.now().isoformat(),
+                    roi, score, int(relevante)
+                ))
+                contador["guardado"] += 1
+                if relevante:
+                    contador["relevantes"] += 1
+                    nuevos.add(url)
+                    resultados.append((
+                        f"🚘 *{titulo}*\n"
+                        f"• Año: {anio}\n• Precio: Q{precio:,}\n"
+                        f"• ROI: {roi:.1f}% | Score: {score}/10\n"
+                        f"🔗 {url}"
+                    ))
 
-                relevante_db = score >= 4 and roi >= -10
-                if relevante_db:
-                    insertar_anuncio_db(
-                        url=full_url,
-                        modelo=modelo,
-                        año=anio,
-                        precio=precio,
-                        kilometraje="",  # km no extraído
-                        roi=roi,
-                        score=score,
-                        relevante=(score >= 6 and roi >= 10),
-                    )
-                    contador["guardado"] += 1
-                    if score >= 6 and roi >= 10:
-                        mensaje = (
-                            f"🚘 *{titulo}*\n"
-                            f"• Año: {anio}\n"
-                            f"• Precio: Q{precio:,}\n"
-                            f"• ROI: {roi:.1f}%\n"
-                            f"• Score: {score}/10\n"
-                            f"🔗 {full_url}"
-                        )
-                        resultados.append(mensaje)
-                        nuevos.add(full_url)
+                # flush a intervalos
+                if len(batch_buf) >= BATCH_INSERT_SIZE:
+                    await flush_batch()
 
-            if len(nuevos) == nuevos_inicio:
-                consec_sin_nuevos += 1
-                if consec_sin_nuevos >= 3:
-                    logger.info(f"🚦 {modelo} → 3 iteraciones sin anuncios nuevos, abortando sort {sort}")
-                    break
-            else:
-                consec_sin_nuevos = 0
+            intento += 1
+            await hacer_scroll_pagina(page)
 
-            if not await hacer_scroll_pagina(page):
-                break
+    # flush final
+    await flush_batch()
+    # guardar progreso
+    with sqlite3.connect(DB_PATH) as conn:
+        conn.execute(
+            "REPLACE INTO progreso(modelo,ultima_url,timestamp_scrape) VALUES(?,?,?)",
+            (modelo, next(iter(nuevos), ultima_url), datetime.now().isoformat())
+        )
 
-    logger.info(f"📊 {modelo.upper()} → {contador}")
+    t_total = time.time() - inicio_t
+    logger.info(f"📊 {modelo}: total={contador['total']} guardados={contador['guardado']} "
+                f"relevantes={contador['relevantes']} en {t_total:.1f}s")
     return len(nuevos)
 
-async def buscar_autos_marketplace(modelos_override: Optional[List[str]] = None) -> Tuple[List[str], List[str]]:
-    logger.info("\n🔎 Iniciando búsqueda en Marketplace…")
+# —— Función principal de scraping —— 
+async def buscar_autos_marketplace(
+    modelos_override: Optional[List[str]] = None
+) -> Tuple[List[str], List[str]]:
+    logger.info("🔎 Iniciando búsqueda en Marketplace…")
     resultados, pendientes = [], []
+
     async with async_playwright() as p:
         browser = await p.chromium.launch(headless=True)
-        ctx = await cargar_contexto_con_cookies(browser)
-        page = await ctx.new_page()
+        ctx     = await cargar_contexto_con_cookies(browser)
+        page    = await ctx.new_page()
 
-        modelos = modelos_override or MODELOS_INTERES
-        bajos = modelos_bajo_rendimiento()
-        modelos_activos = [m for m in modelos if m not in bajos]
-        logger.info(f"🚀 Modelos activos para esta corrida: {modelos_activos}")
+        # omitimos flops
+        activos = modelos_override or MODELOS_INTERES
+        # modelo_bajo_rendimiento import si lo tienes
+        # activos = [m for m in activos if m not in modelos_bajo_rendimiento()]
 
-        for modelo in random.sample(modelos_activos, len(modelos_activos)):
-            logger.info(f"\n🔍 Procesando modelo: {modelo.upper()}")
+        for modelo in random.sample(activos, len(activos)):
             await procesar_modelo(page, modelo, resultados, pendientes)
 
         await browser.close()
+
     return resultados, pendientes
 
+# —— Para pruebas standalone —— 
 if __name__ == "__main__":
-    async def main():
-        resultados, pendientes = await buscar_autos_marketplace()
-        for r in resultados:
-            print(r + "\n")
-        if pendientes:
-            print("📌 Pendientes para revisión manual:\n")
-            for p in pendientes:
-                print(p + "\n")
-    asyncio.run(main())
+    import asyncio
+    br, pe = asyncio.run(buscar_autos_marketplace())
+    for r in br: print(r+"\n")
+    if pe:
+        print("📌 Pendientes:\n", "\n".join(pe))
