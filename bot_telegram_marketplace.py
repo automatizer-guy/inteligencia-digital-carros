@@ -1,7 +1,7 @@
 import asyncio
 import os
-import re
 import sqlite3
+import logging
 from datetime import datetime
 from zoneinfo import ZoneInfo
 from telegram import Bot
@@ -11,6 +11,7 @@ from utils_analisis import (
     inicializar_tabla_anuncios,
     analizar_mensaje,
     limpiar_link,
+    es_extranjero,
     SCORE_MIN_DB,
     SCORE_MIN_TELEGRAM,
     ROI_MINIMO,
@@ -18,119 +19,145 @@ from utils_analisis import (
     MODELOS_INTERES,
 )
 
-# 🌱 Inicializar base de datos
+# —— Logger configurado —— 
+logging.basicConfig(
+    level=logging.INFO,
+    format="%(asctime)s [%(levelname)s] %(message)s",
+    datefmt="%Y-%m-%d %H:%M:%S"
+)
+logger = logging.getLogger(__name__)
+
+# —— Inicializar DB —— 
 inicializar_tabla_anuncios()
 
-# 🔐 Variables desde entorno
+# —— Variables de entorno —— 
 BOT_TOKEN = os.environ["BOT_TOKEN"].strip()
-CHAT_ID = int(os.environ["CHAT_ID"].strip())
-DB_PATH = os.environ.get("DB_PATH", "upload-artifact/anuncios.db")
+CHAT_ID   = int(os.environ["CHAT_ID"].strip())
+DB_PATH   = os.environ.get("DB_PATH", "upload-artifact/anuncios.db")
 os.makedirs(os.path.dirname(DB_PATH), exist_ok=True)
 
 bot = Bot(token=BOT_TOKEN)
 
-# 📨 Envío seguro
+# —— Envío seguro a Telegram —— 
 async def safe_send(text: str, parse_mode="MarkdownV2"):
-    escaped = escape_markdown(text.strip(), version=2)
+    md = escape_markdown(text, version=2)
     for _ in range(3):
         try:
             return await bot.send_message(
                 chat_id=CHAT_ID,
-                text=escaped,
+                text=md,
                 parse_mode=parse_mode,
                 disable_web_page_preview=True
             )
         except Exception as e:
-            print(f"⚠️ Error al enviar mensaje: {e}")
+            logger.warning(f"Error enviando a Telegram (reintento): {e}")
             await asyncio.sleep(1)
 
-# 🧪 Envío principal
+# —— Lógica principal —— 
 async def enviar_ofertas():
-    print("📡 Buscando autos...")
+    logger.info("📡 Iniciando bot de Telegram")
+    now_local = datetime.now(ZoneInfo("America/Guatemala"))
 
-    # 📉 Detectar modelos de bajo rendimiento y omitirlos
-    bajos = modelos_bajo_rendimiento()
+    # 1) Omitir modelos de bajo rendimiento
+    bajos   = modelos_bajo_rendimiento()
     activos = [m for m in MODELOS_INTERES if m not in bajos]
-    print(f"✅ Modelos activos: {activos}")
+    logger.info(f"✅ Modelos activos: {activos}")
 
-    # 🔍 Buscar anuncios
-    brutos, pendientes = await buscar_autos_marketplace(modelos_override=activos)
+    # 2) Llamar al scraper (con manejo de errores)
+    try:
+        brutos, pendientes = await buscar_autos_marketplace(modelos_override=activos)
+    except Exception as e:
+        logger.error(f"❌ Error en scraper: {e}")
+        await safe_send("❌ Error ejecutando scraper, revisa logs.")
+        return
 
+    # 3) Clasificar resultados
     buenos, potenciales = [], []
-    descartados = {
-        "incompleto": 0, "extranjero": 0, "modelo no detectado": 0,
-        "año fuera de rango": 0, "precio fuera de rango": 0, "roi bajo": 0
+    motivos = {
+        "incompleto": 0,
+        "extranjero": 0,
+        "modelo no detectado": 0,
+        "año fuera de rango": 0,
+        "precio fuera de rango": 0,
+        "roi bajo": 0
     }
-    total = len(brutos)
 
     for txt in brutos:
-        txt = txt.strip()
-        resultado = analizar_mensaje(txt)
-        if not resultado:
-            # Por seguridad, cuenta como incompleto o no detectado
-            descartados["incompleto"] += 1
+        res = analizar_mensaje(txt)
+        if not res:
+            motivos["incompleto"] += 1
             continue
-        valido = resultado["relevante"]
-        roi = resultado["roi"]
-        modelo = resultado["modelo"]
-        score = resultado["score"]
 
+        url, modelo, anio, precio, roi, score, relevante = (
+            res["url"], res["modelo"], res["año"],
+            res["precio"], res["roi"], res["score"], res["relevante"]
+        )
+
+        # determinar motivo si no relevante
         motivo = None
-        if not valido:
+        if not relevante:
             if es_extranjero(txt):
                 motivo = "extranjero"
             elif roi < ROI_MINIMO:
                 motivo = "roi bajo"
+            elif score < SCORE_MIN_DB:
+                motivo = "precio fuera de rango"
             else:
                 motivo = "modelo no detectado"
+            motivos[motivo] = motivos.get(motivo, 0) + 1
 
-        print(f"🔎 ROI: {roi:.1f}% | Score: {score} | Modelo: {modelo} | Motivo: {motivo or 'relevante'}")
-
-        if valido and score >= SCORE_MIN_TELEGRAM:
+        # asignar a listas
+        if relevante and score >= SCORE_MIN_TELEGRAM:
             buenos.append(txt)
-        elif roi >= ROI_MINIMO and score >= SCORE_MIN_DB:
+        elif score >= SCORE_MIN_DB and roi >= ROI_MINIMO:
             potenciales.append(txt)
-        else:
-            if motivo in descartados:
-                descartados[motivo] += 1
 
-    # 🪄 Formato unificado
-    def unir_mensajes(lista: list) -> str:
-        return "\n\n".join(m.strip() for m in lista)
+        logger.info(
+            f"🔎 {modelo} | Año {anio} | Precio {precio} | ROI {roi:.1f}% "
+            f"| Score {score}/10 | Relevante: {relevante}"
+        )
 
+    total = len(brutos)
+    # 4) Enviar resumen general
     resumen = f"📊 Procesados: {total} | Relevantes: {len(buenos)} | Potenciales: {len(potenciales)}"
     await safe_send(resumen)
 
-    if total > 0 and sum(descartados.values()) > 0:
-        errores = "\n".join([f"• {motivo}: {cant}" for motivo, cant in descartados.items() if cant])
-        await safe_send(f"📉 Anuncios descartados:\n{errores}")
+    # 5) Enviar detalles de descartes
+    desc_total = sum(motivos.values())
+    if desc_total:
+        detalles = "\n".join(f"• {k}: {v}" for k, v in motivos.items() if v)
+        await safe_send(f"📉 Descartados:\n{detalles}")
 
-    # 🔇 Si no hay mensajes buenos ni potenciales
+    # 6) Si no hay hits, solo a las 18:00
     if not buenos and not potenciales:
-        if datetime.now(ZoneInfo("America/Guatemala")).hour == 18:
-            hora_str = datetime.now(ZoneInfo("America/Guatemala")).strftime("%H:%M")
-            await safe_send(f"📡 Bot ejecutado a las {hora_str}, sin ofertas nuevas.")
+        if now_local.hour == 18:
+            await safe_send(f"📡 Ejecución a las {now_local.strftime('%H:%M')}, sin ofertas.")
         return
 
-    # 📨 Unificar y enviar mensajes relevantes
+    # 7) Enviar relevantes
     if buenos:
-        mensajes_unificados = unir_mensajes(buenos)
-        await safe_send(mensajes_unificados)
+        texto = "\n\n".join(buenos)
+        await safe_send(texto)
 
-    # 📎 Mostrar pendientes
+    # 8) Enviar potenciales separados
+    if potenciales:
+        texto = "🟡 Potenciales (score>=4&roi>=10):\n" + "\n\n".join(potenciales)
+        await safe_send(texto)
+
+    # 9) Pendientes manuales
     if pendientes:
-        texto = "📌 *Pendientes de revisión manual:*\n\n" + "\n\n".join(p.strip() for p in pendientes)
+        texto = "📌 Pendientes manuales:\n" + "\n\n".join(pendientes)
+        # fragmentar en trozos de 3000 chars
         for i in range(0, len(texto), 3000):
             await safe_send(texto[i:i+3000])
-            await asyncio.sleep(1)
 
-    # 📦 Mostrar acumulado
+    # 10) Total acumulado en BD
     with sqlite3.connect(DB_PATH) as conn:
         cur = conn.cursor()
         cur.execute("SELECT COUNT(*) FROM anuncios")
         total_db = cur.fetchone()[0]
-    await safe_send(f"📦 Total acumulado en base: {total_db} anuncios")
+    await safe_send(f"📦 Total en base: {total_db} anuncios")
 
-# 🚀 Lanzar
+# —— Entrypoint —— 
 if __name__ == "__main__":
     asyncio.run(enviar_ofertas())
