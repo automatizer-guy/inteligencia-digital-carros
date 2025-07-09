@@ -4,6 +4,7 @@ import random
 import asyncio
 import logging
 from urllib.parse import urlparse
+from datetime import datetime
 from typing import List, Dict, Optional, Tuple
 from playwright.async_api import async_playwright, Browser, BrowserContext, Page
 from utils_analisis import (
