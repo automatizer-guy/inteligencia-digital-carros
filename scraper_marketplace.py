@@ -85,6 +85,14 @@ def extraer_anio_y_titulo(texto: str, modelo: str) -> Tuple[Optional[int], str]:
         m2 = re.search(r"(año|modelo)\D{0,4}(19\d{2}|20[0-2]\d|2030)", texto.lower())
         if m2:
             anio = int(m2.group(2))
+    if not anio:
+        m3 = re.search(r"[-•]\s*(19\d{2}|20[0-2]\d)\s*[-•]", texto)
+        if m3:
+            anio = int(m3.group(1))
+    if not anio:
+        m4 = re.search(r"(19\d{2}|20[0-2]\d)[,\.]", texto)
+        if m4:
+            anio = int(m4.group(1))
 
     return anio, titulo
 
@@ -99,79 +107,88 @@ async def procesar_modelo(page: Page, modelo: str, resultados: List[str], pendie
         "total", "duplicado", "negativo", "sin_precio", "sin_anio",
         "filtro_modelo", "guardado", "guardado_incompleto"
     ]}
-    url_busqueda = (
+    SORT_OPTS = ["best_match", "newest", "price_asc"]
+    url_busquedas = [
         f"https://www.facebook.com/marketplace/guatemala/search/"
         f"?query={modelo.replace(' ', '%20')}&minPrice=1000&maxPrice=60000"
-        f"&sortBy=best_match&conditions=used_good_condition"
-    )
-    await page.goto(url_busqueda)
-    await asyncio.sleep(random.uniform(4, 7))
-    for _ in range(MAX_INTENTOS):
-        items = await extraer_items_pagina(page)
-        if not items:
-            await hacer_scroll_pagina(page)
-            continue
-        for item in items:
-            texto, full_url = item["texto"], limpiar_link(item["url"])
-            contador["total"] += 1
-            if not full_url.startswith("https://www.facebook.com/marketplace/item/"):
-                continue
-            if not texto or full_url in vistos or existe_en_db(full_url):
-                contador["duplicado"] += 1
-                continue
-            vistos.add(full_url)
-            if contiene_negativos(texto):
-                contador["negativo"] += 1
-                continue
-            m = re.search(r"[Qq\$]\s?[\d\.,]+", texto)
-            if not m:
-                contador["sin_precio"] += 1
-                pendientes.append(f"🔍 {modelo.title()}\n📝 {texto}\n📎 {full_url}")
-                continue
-            precio = limpiar_precio(m.group())
-            if precio < MIN_PRECIO_VALIDO:
-                continue
-            anio, titulo = extraer_anio_y_titulo(texto, modelo)
+        f"&sortBy={sort}"
+        for sort in SORT_OPTS
+    ]
+    consec_sin_nuevos = 0
 
-            if not anio:
-                contador["sin_anio"] += 1
+    for url_busqueda in url_busquedas:
+        await page.goto(url_busqueda)
+        await asyncio.sleep(random.uniform(4, 7))
+        for intento in range(MAX_INTENTOS):
+            nuevos_inicio = len(nuevos)
+            items = await extraer_items_pagina(page)
+            if not items:
+                await hacer_scroll_pagina(page)
                 continue
-
-
-            if not coincide_modelo(texto, modelo):
-                score_test = puntuar_anuncio(titulo, precio, texto)
-                if score_test < 7:
-                    contador["filtro_modelo"] += 1
+            for item in items:
+                texto, full_url = item["texto"], limpiar_link(item["url"])
+                contador["total"] += 1
+                if not full_url.startswith("https://www.facebook.com/marketplace/item/"):
                     continue
-
-            km = texto.splitlines()[3].strip() if len(texto.splitlines()) > 3 else ""
-            roi = calcular_roi_real(modelo, precio, anio)
-            score = puntuar_anuncio(titulo, precio, texto)
-
-            insertar_anuncio_db(
-                url=full_url,
-                modelo=modelo,
-                año=anio,
-                precio=precio,
-                kilometraje=km,
-                roi=roi,
-                score=score,
-                relevante=(score >= 6 and roi >= -10),
-            )
-            contador["guardado"] += 1
-            if score >= 6 and roi >= -10:
-                mensaje = (
-                    f"🚘 *{titulo}*\n"
-                    f"• Año: {anio}\n"
-                    f"• Precio: Q{precio:,}\n"
-                    f"• Kilometraje: {km}\n"
-                    f"• ROI: {roi:.1f}%\n"
-                    f"• Score: {score}/10\n"
-                    f"🔗 {full_url}"
-                )
-                resultados.append(mensaje)
-                nuevos.add(full_url)
-        await hacer_scroll_pagina(page)
+                if not texto or full_url in vistos or existe_en_db(full_url):
+                    contador["duplicado"] += 1
+                    continue
+                vistos.add(full_url)
+                if contiene_negativos(texto):
+                    contador["negativo"] += 1
+                    continue
+                m = re.search(r"[Qq\$]\s?[\d\.,]+", texto)
+                if not m:
+                    contador["sin_precio"] += 1
+                    pendientes.append(f"🔍 {modelo.title()}\n📝 {texto}\n📎 {full_url}")
+                    continue
+                precio = limpiar_precio(m.group())
+                if precio < MIN_PRECIO_VALIDO:
+                    continue
+                anio, titulo = extraer_anio_y_titulo(texto, modelo)
+                if not anio:
+                    contador["sin_anio"] += 1
+                    continue
+                if not coincide_modelo(texto, modelo):
+                    score_test = puntuar_anuncio(titulo, precio, texto)
+                    if score_test < 7:
+                        contador["filtro_modelo"] += 1
+                        continue
+                km = texto.splitlines()[3].strip() if len(texto.splitlines()) > 3 else ""
+                roi = calcular_roi_real(modelo, precio, anio)
+                score = puntuar_anuncio(titulo, precio, texto)
+                if score >= 4:
+                    insertar_anuncio_db(
+                        url=full_url,
+                        modelo=modelo,
+                        año=anio,
+                        precio=precio,
+                        kilometraje=km,
+                        roi=roi,
+                        score=score,
+                        relevante=(score >= 4 and roi >= -10),
+                    )
+                    contador["guardado"] += 1
+                    if score >= 6 and roi >= -10:
+                        mensaje = (
+                            f"🚘 *{titulo}*\n"
+                            f"• Año: {anio}\n"
+                            f"• Precio: Q{precio:,}\n"
+                            f"• Kilometraje: {km}\n"
+                            f"• ROI: {roi:.1f}%\n"
+                            f"• Score: {score}/10\n"
+                            f"🔗 {full_url}"
+                        )
+                        resultados.append(mensaje)
+                        nuevos.add(full_url)
+            if len(nuevos) == nuevos_inicio:
+                consec_sin_nuevos += 1
+                if consec_sin_nuevos >= 3:
+                    logger.info(f"🚦 {modelo} → 3 scrolls sin hallazgos, abortando.")
+                    break
+            else:
+                consec_sin_nuevos = 0
+            await hacer_scroll_pagina(page)
     logger.info(f"📊 {modelo.upper()} → {contador}")
     return len(nuevos)
 
