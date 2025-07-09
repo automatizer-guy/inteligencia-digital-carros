@@ -2,12 +2,17 @@ import re
 import sqlite3
 from datetime import datetime, date
 import os
+from typing import List  # ✅ Usado para métricas históricas
 
 # 🚩 Ruta centralizada a la base de datos
 DB_PATH = os.path.abspath("upload-artifact/anuncios.db")
 os.makedirs(os.path.dirname(DB_PATH), exist_ok=True)
 
+# 🔧 Umbrales configurables
+SCORE_MIN_DB = 4
+SCORE_MIN_TELEGRAM = 6
 ROI_MINIMO = 10.0
+TOLERANCIA_PRECIO_REF = 2
 
 PRECIOS_POR_DEFECTO = {
     "yaris": 50000, "civic": 60000, "corolla": 45000, "sentra": 40000,
@@ -29,7 +34,6 @@ LUGARES_EXTRANJEROS = [
     "honduras", "el salvador", "panamá", "costa rica", "colombia", "ecuador"
 ]
 
-# Modo debug para loggear descartados por negativos
 MODO_DEBUG = False
 
 # 🔧 Crear tabla si no existe
@@ -58,7 +62,7 @@ def inicializar_tabla_anuncios():
     conn.commit()
     conn.close()
 
-# 🧽 Limpieza robusta de enlaces para prevenir errores
+# 🧽 Limpieza robusta de enlaces
 def limpiar_link(link: str) -> str:
     if not link:
         return ""
@@ -88,14 +92,15 @@ def contiene_negativos(texto: str) -> bool:
     low = texto.lower()
     resultado = any(p in low for p in PALABRAS_NEGATIVAS)
     if MODO_DEBUG and resultado:
-        print(f"⚠️ DESCARTADO por palabra negativa en descripción: {repr(texto[:100])}...")
+        print(f"⚠️ DESCARTADO por palabra negativa: {repr(texto[:100])}...")
     return resultado
 
 def es_extranjero(texto: str) -> bool:
     return any(p in texto.lower() for p in LUGARES_EXTRANJEROS)
 
 # 💰 ROI por año y modelo
-def get_precio_referencia(modelo: str, año: int, tolerancia: int = 2) -> int:
+def get_precio_referencia(modelo: str, año: int, tolerancia: int = None) -> int:
+    tolerancia = tolerancia or TOLERANCIA_PRECIO_REF
     conn = sqlite3.connect(DB_PATH)
     cur = conn.cursor()
     cur.execute("""
@@ -108,18 +113,6 @@ def get_precio_referencia(modelo: str, año: int, tolerancia: int = 2) -> int:
 
 def calcular_roi_real(modelo: str, precio_compra: int, año: int, costo_extra: int = 1500) -> float:
     precio_obj = get_precio_referencia(modelo, año)
-    if not precio_obj or precio_compra <= 0:
-        return 0.0
-    antiguedad = max(0, datetime.now().year - año)
-    penal = max(0, antiguedad - 10) * 0.02
-    precio_dep = precio_obj * (1 - penal)
-    inversion = precio_compra + costo_extra
-    ganancia = precio_dep - inversion
-    roi = (ganancia / inversion) * 100 if inversion > 0 else 0.0
-    return round(roi, 1)
-
-def calcular_roi(modelo: str, precio_compra: int, año: int, costo_extra: int = 1500) -> float:
-    precio_obj = PRECIOS_POR_DEFECTO.get(modelo, 0)
     if not precio_obj or precio_compra <= 0:
         return 0.0
     antiguedad = max(0, datetime.now().year - año)
@@ -149,7 +142,7 @@ def puntuar_anuncio(titulo: str, precio: int, texto: str = None) -> int:
         pts += 1
     return max(0, min(pts, 10))
 
-# 📊 FUNCIONES DE BASE DE DATOS
+# 📊 BASE DE DATOS
 def existe_en_db(link: str) -> bool:
     link = limpiar_link(link)
     conn = sqlite3.connect(DB_PATH)
@@ -194,7 +187,6 @@ def insertar_anuncio_db(
     finally:
         conn.close()
 
-# 📈 Función para generar resumen mensual por modelo
 def resumen_mensual():
     conn = sqlite3.connect(DB_PATH)
     cur = conn.cursor()
@@ -202,12 +194,12 @@ def resumen_mensual():
         SELECT modelo,
                COUNT(*) as total_anuncios,
                AVG(roi) as roi_promedio,
-               SUM(CASE WHEN relevante=1 THEN 1 ELSE 0 END) as anuncios_relevantes
+               SUM(CASE WHEN score >= ? THEN 1 ELSE 0 END) as anuncios_relevantes
         FROM anuncios
         WHERE fecha_scrape >= date('now', '-30 days')
         GROUP BY modelo
         ORDER BY anuncios_relevantes DESC, roi_promedio DESC
-    """)
+    """, (SCORE_MIN_DB,))
     resumen = cur.fetchall()
     conn.close()
 
@@ -217,6 +209,28 @@ def resumen_mensual():
             f"🚘 {modelo.title()}:\n"
             f"• Total anuncios: {total}\n"
             f"• ROI promedio últimos 30 días: {roi_prom:.1f}%\n"
-            f"• Anuncios relevantes: {relevantes}\n"
+            f"• Relevantes: {relevantes}\n"
         )
     return "\n".join(reporte)
+
+# 📈 MÉTRICAS DE RENDIMIENTO POR MODELO
+def get_rendimiento_modelo(modelo: str, dias: int = 7) -> float:
+    conn = sqlite3.connect(DB_PATH)
+    cur  = conn.cursor()
+    cur.execute("""
+        SELECT 
+          SUM(CASE WHEN score >= ? THEN 1 ELSE 0 END)*1.0/COUNT(*) 
+        FROM anuncios 
+        WHERE modelo = ? 
+          AND fecha_scrape >= date('now', ?)
+    """, (SCORE_MIN_DB, modelo, f"-{dias} days"))
+    ratio = cur.fetchone()[0] or 0.0
+    conn.close()
+    return round(ratio, 3)
+
+def modelos_bajo_rendimiento(threshold: float = 0.005, dias: int = 7) -> List[str]:
+    bajos = []
+    for m in PRECIOS_POR_DEFECTO:
+        if get_rendimiento_modelo(m, dias) < threshold:
+            bajos.append(m)
+    return bajos
