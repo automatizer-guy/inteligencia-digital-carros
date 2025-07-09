@@ -2,18 +2,19 @@ import re
 import sqlite3
 import os
 from datetime import datetime, date
-from typing import List
+from typing import List, Optional
 
-# 🚩 Ruta a la base de datos
+# 🚩 Ruta absoluta a la base de datos (asegura crear la carpeta)
 DB_PATH = os.path.abspath("upload-artifact/anuncios.db")
 os.makedirs(os.path.dirname(DB_PATH), exist_ok=True)
 
-# 🔧 Parámetros globales y configuración
+# 🔧 Parámetros globales configurables
 SCORE_MIN_DB = 4
 SCORE_MIN_TELEGRAM = 6
 ROI_MINIMO = 10.0
 TOLERANCIA_PRECIO_REF = 2
 
+# Precio de referencia base para ROI, ajustable por modelo
 PRECIOS_POR_DEFECTO = {
     "yaris": 50000, "civic": 60000, "corolla": 45000, "sentra": 40000,
     "rav4": 120000, "cr-v": 90000, "tucson": 65000, "kia picanto": 39000,
@@ -36,8 +37,10 @@ LUGARES_EXTRANJEROS = [
     "honduras", "el salvador", "panamá", "costa rica", "colombia", "ecuador"
 ]
 
-# 🧱 Crear tabla SQLite si no existe
+# ---- Funciones ----
+
 def inicializar_tabla_anuncios():
+    """Crea la tabla anuncios con esquema si no existe, maneja columna 'relevante'."""
     conn = sqlite3.connect(DB_PATH)
     cur = conn.cursor()
     cur.execute("""
@@ -54,15 +57,17 @@ def inicializar_tabla_anuncios():
             relevante BOOLEAN DEFAULT 0
         )
     """)
+    # Intentar agregar columna 'relevante' si no existe (SQLite no soporta IF NOT EXISTS en ALTER)
     try:
         cur.execute("ALTER TABLE anuncios ADD COLUMN relevante BOOLEAN DEFAULT 0;")
     except sqlite3.OperationalError:
+        # La columna ya existe
         pass
     conn.commit()
     conn.close()
 
-# 🧽 Limpieza de enlaces
-def limpiar_link(link: str) -> str:
+def limpiar_link(link: Optional[str]) -> str:
+    """Quita caracteres invisibles, espacios y normaliza el link."""
     if not link:
         return ""
     return ''.join(
@@ -70,37 +75,43 @@ def limpiar_link(link: str) -> str:
         if c.isascii() and c.isprintable() and c not in ['\n', '\r', '\t', '\u2028', '\u2029', '\u00A0', ' ']
     )
 
-# 📌 Normalización de texto
 def normalizar_texto(texto: str) -> str:
+    """Convierte a minúsculas y elimina todo excepto letras y números para comparación."""
     return re.sub(r"[^a-z0-9]", "", texto.lower())
 
 def coincide_modelo(titulo: str, modelo: str) -> bool:
+    """Verifica que todas las palabras del modelo estén en el título."""
     titulo_norm = normalizar_texto(titulo)
     for palabra in modelo.split():
         if normalizar_texto(palabra) not in titulo_norm:
             return False
     return True
 
-# 🔍 Extracción y validación
 def limpiar_precio(texto: str) -> int:
+    """Extrae un entero válido de precio de un string."""
     s = texto.lower().replace("q", "").replace("$", "").replace("mx", "") \
                      .replace(".", "").replace(",", "").strip()
     m = re.search(r"\b\d{3,6}\b", s)
     return int(m.group()) if m else 0
 
 def contiene_negativos(texto: str) -> bool:
-    return any(p in texto.lower() for p in PALABRAS_NEGATIVAS)
+    """Detecta si el texto contiene alguna palabra negativa."""
+    texto = texto.lower()
+    return any(p in texto for p in PALABRAS_NEGATIVAS)
 
 def es_extranjero(texto: str) -> bool:
-    return any(p in texto.lower() for p in LUGARES_EXTRANJEROS)
+    """Detecta si el texto menciona lugares extranjeros."""
+    texto = texto.lower()
+    return any(p in texto for p in LUGARES_EXTRANJEROS)
 
-def extraer_anio(texto: str) -> int | None:
+def extraer_anio(texto: str) -> Optional[int]:
+    """Extrae un año válido entre 1990 y 2030 del texto."""
     m = re.search(r"(19|20)\d{2}", texto)
     anio = int(m.group()) if m else None
     return anio if 1990 <= (anio or 0) <= 2030 else None
 
-# 💰 ROI conservador
 def get_precio_referencia(modelo: str, año: int, tolerancia: int = None) -> int:
+    """Obtiene el precio mínimo histórico para modelo y año ± tolerancia."""
     conn = sqlite3.connect(DB_PATH)
     cur = conn.cursor()
     cur.execute("""
@@ -112,6 +123,9 @@ def get_precio_referencia(modelo: str, año: int, tolerancia: int = None) -> int
     return result[0] if result and result[0] else PRECIOS_POR_DEFECTO.get(modelo, 0)
 
 def calcular_roi_real(modelo: str, precio_compra: int, año: int, costo_extra: int = 1500) -> float:
+    """
+    Calcula ROI % conservador, penalizando antigüedad > 10 años.
+    """
     precio_obj = get_precio_referencia(modelo, año)
     if not precio_obj or precio_compra <= 0:
         return 0.0
@@ -123,27 +137,38 @@ def calcular_roi_real(modelo: str, precio_compra: int, año: int, costo_extra: i
     roi = (ganancia / inversion) * 100 if inversion > 0 else 0.0
     return round(roi, 1)
 
-# 🧠 Score
-def puntuar_anuncio(titulo: str, precio: int, texto: str = None) -> int:
-    tl = titulo.lower()
-    txt = (texto or tl).lower()
+def puntuar_anuncio(titulo: str, precio: int, texto: Optional[str] = None) -> int:
+    """
+    Score simple basado en presencia de modelo, ROI, palabras negativas y características básicas.
+    """
+    texto = (texto or titulo).lower()
     pts = 0
     modelo = next((m for m in MODELOS_INTERES if coincide_modelo(titulo, m)), None)
     if modelo:
         pts += 3
-        anio = extraer_anio(txt)
+        anio = extraer_anio(texto)
         if anio:
             r = calcular_roi_real(modelo, precio, anio)
-            pts += 4 if r >= ROI_MINIMO else 2 if r >= 7 else -2
-    if contiene_negativos(txt):
+            if r >= ROI_MINIMO:
+                pts += 4
+            elif r >= 7:
+                pts += 2
+            else:
+                pts -= 2
+    if contiene_negativos(texto):
         pts -= 3
-    pts += 2 if 0 < precio <= 30000 else -1
-    if len(tl.split()) >= 5:
+    if 0 < precio <= 30000:
+        pts += 2
+    else:
+        pts -= 1
+    if len(titulo.split()) >= 5:
         pts += 1
     return max(0, min(pts, 10))
 
-# 📥 Base de datos
-def insertar_anuncio_db(url: str, modelo: str, año: int, precio: int, km: str, roi: float, score: int, relevante: bool):
+def insertar_anuncio_db(
+    url: str, modelo: str, año: int, precio: int, km: str, roi: float, score: int, relevante: bool
+):
+    """Inserta anuncio en DB ignorando duplicados y maneja errores."""
     url = limpiar_link(url)
     try:
         conn = sqlite3.connect(DB_PATH)
@@ -170,6 +195,7 @@ def insertar_anuncio_db(url: str, modelo: str, año: int, precio: int, km: str, 
         conn.close()
 
 def existe_en_db(link: str) -> bool:
+    """Verifica si un link ya existe en la DB."""
     link = limpiar_link(link)
     conn = sqlite3.connect(DB_PATH)
     cur = conn.cursor()
@@ -178,8 +204,11 @@ def existe_en_db(link: str) -> bool:
     conn.close()
     return found
 
-# 🧪 Analizador completo de mensajes
-def analizar_mensaje(texto: str):
+def analizar_mensaje(texto: str) -> Optional[dict]:
+    """
+    Extrae datos de un mensaje de Telegram en formato esperado,
+    devuelve dict con info si es válido, None si no.
+    """
     url_match = re.search(r"https://www\.facebook\.com/marketplace/item/\d+", texto)
     precio_match = re.search(r"Precio: Q([\d,\.]+)", texto)
     modelo_match = re.search(r"🚘 \*(.+?)\*", texto)
@@ -191,7 +220,6 @@ def analizar_mensaje(texto: str):
 
     if not all([url, precio, anio, modelo_txt]):
         return None
-
     if es_extranjero(texto) or contiene_negativos(texto):
         return None
 
@@ -212,8 +240,10 @@ def analizar_mensaje(texto: str):
         "relevante": score >= SCORE_MIN_TELEGRAM
     }
 
-# 📈 Métricas históricas
 def get_rendimiento_modelo(modelo: str, dias: int = 7) -> float:
+    """
+    Porcentaje de anuncios con score >= SCORE_MIN_DB para un modelo en últimos 'dias' días.
+    """
     conn = sqlite3.connect(DB_PATH)
     cur = conn.cursor()
     cur.execute("""
@@ -228,14 +258,15 @@ def get_rendimiento_modelo(modelo: str, dias: int = 7) -> float:
     return round(ratio, 3)
 
 def modelos_bajo_rendimiento(threshold: float = 0.005, dias: int = 7) -> List[str]:
-    bajos = []
-    for modelo in MODELOS_INTERES:
-        if get_rendimiento_modelo(modelo, dias) < threshold:
-            bajos.append(modelo)
-    return bajos
+    """
+    Retorna lista de modelos con rendimiento bajo en últimos 'dias' días según threshold.
+    """
+    return [m for m in MODELOS_INTERES if get_rendimiento_modelo(m, dias) < threshold]
 
-# 📊 Resumen mensual
-def resumen_mensual():
+def resumen_mensual() -> str:
+    """
+    Retorna reporte con conteo, ROI promedio y anuncios relevantes en últimos 30 días por modelo.
+    """
     conn = sqlite3.connect(DB_PATH)
     cur = conn.cursor()
     cur.execute("""
