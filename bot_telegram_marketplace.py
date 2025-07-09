@@ -10,7 +10,6 @@ from scraper_marketplace import buscar_autos_marketplace
 from utils_analisis import (
     inicializar_tabla_anuncios,
     analizar_mensaje,
-    extraer_score,
     limpiar_link,
     SCORE_MIN_DB,
     SCORE_MIN_TELEGRAM,
@@ -58,15 +57,34 @@ async def enviar_ofertas():
     brutos, pendientes = await buscar_autos_marketplace(modelos_override=activos)
 
     buenos, potenciales = [], []
-    descartados = {"incompleto": 0, "extranjero": 0, "modelo no detectado": 0,
-                   "año fuera de rango": 0, "precio fuera de rango": 0, "roi bajo": 0}
+    descartados = {
+        "incompleto": 0, "extranjero": 0, "modelo no detectado": 0,
+        "año fuera de rango": 0, "precio fuera de rango": 0, "roi bajo": 0
+    }
     total = len(brutos)
 
     for txt in brutos:
         txt = txt.strip()
-        valido, roi, modelo, motivo = analizar_mensaje(txt)
-        score = extraer_score(txt)
-        print(f"🔎 ROI: {roi:.1f}% | Score: {score} | Modelo: {modelo} | Motivo: {motivo}")
+        resultado = analizar_mensaje(txt)
+        if not resultado:
+            # Por seguridad, cuenta como incompleto o no detectado
+            descartados["incompleto"] += 1
+            continue
+        valido = resultado["relevante"]
+        roi = resultado["roi"]
+        modelo = resultado["modelo"]
+        score = resultado["score"]
+
+        motivo = None
+        if not valido:
+            if es_extranjero(txt):
+                motivo = "extranjero"
+            elif roi < ROI_MINIMO:
+                motivo = "roi bajo"
+            else:
+                motivo = "modelo no detectado"
+
+        print(f"🔎 ROI: {roi:.1f}% | Score: {score} | Modelo: {modelo} | Motivo: {motivo or 'relevante'}")
 
         if valido and score >= SCORE_MIN_TELEGRAM:
             buenos.append(txt)
