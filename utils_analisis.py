@@ -1,20 +1,32 @@
 import re
 import sqlite3
 import os
+import time
+import atexit
 from datetime import datetime, date
-from typing import List, Optional
+from typing import List, Optional, Callable, Any, Tuple
 
-# 🚩 Ruta absoluta a la base de datos (asegura crear la carpeta)
+# 🚩 Ruta a la base de datos
 DB_PATH = os.path.abspath("upload-artifact/anuncios.db")
 os.makedirs(os.path.dirname(DB_PATH), exist_ok=True)
 
-# 🔧 Parámetros globales configurables
+# 🔧 Parámetros globales
+DEBUG = os.getenv("DEBUG", "False").lower() in ("1", "true", "yes")
+
 SCORE_MIN_DB = 4
 SCORE_MIN_TELEGRAM = 6
 ROI_MINIMO = 10.0
 TOLERANCIA_PRECIO_REF = 2
 
-# Precio de referencia base para ROI, ajustable por modelo
+# Penalización por antigüedad (años sobre PENAL_ANIOS) * PENAL_POR_ANIO
+PENAL_ANIOS = 10
+PENAL_POR_ANIO = 0.02
+# Penalización personalizada por modelo (opcional)
+PENAL_POR_MODEL = {
+    # "rav4": 0.015, "kia picanto": 0.03, ...
+}
+
+# Referencias de precio por modelo
 PRECIOS_POR_DEFECTO = {
     "yaris": 50000, "civic": 60000, "corolla": 45000, "sentra": 40000,
     "rav4": 120000, "cr-v": 90000, "tucson": 65000, "kia picanto": 39000,
@@ -23,7 +35,6 @@ PRECIOS_POR_DEFECTO = {
     "suzuki grand vitara": 49000, "hyundai i10": 36000, "kia rio": 42000,
     "toyota": 45000, "honda": 47000
 }
-
 MODELOS_INTERES = list(PRECIOS_POR_DEFECTO.keys())
 
 PALABRAS_NEGATIVAS = [
@@ -37,11 +48,39 @@ LUGARES_EXTRANJEROS = [
     "honduras", "el salvador", "panamá", "costa rica", "colombia", "ecuador"
 ]
 
-# ---- Funciones ----
+# ---- Utilidades de performance ----
+def timeit(func: Callable) -> Callable:
+    """Decorator para medir tiempo de ejecución (solo si DEBUG=True)."""
+    def wrapper(*args, **kwargs) -> Any:
+        if not DEBUG:
+            return func(*args, **kwargs)
+        start = time.perf_counter()
+        result = func(*args, **kwargs)
+        elapsed = time.perf_counter() - start
+        print(f"⌛ {func.__name__} took {elapsed:.3f}s")
+        return result
+    return wrapper
 
-def inicializar_tabla_anuncios():
-    """Crea la tabla anuncios con esquema si no existe, maneja columna 'relevante'."""
-    conn = sqlite3.connect(DB_PATH)
+# ---- Conexión SQLite compartida ----
+_conn: Optional[sqlite3.Connection] = None
+
+def get_conn() -> sqlite3.Connection:
+    global _conn
+    if _conn is None:
+        _conn = sqlite3.connect(DB_PATH, isolation_level=None)  # autocommit off
+    return _conn
+
+@atexit.register
+def _close_conn():
+    global _conn
+    if _conn:
+        _conn.close()
+        _conn = None
+
+# ---- Inicialización de la tabla ----
+@timeit
+def inicializar_tabla_anuncios() -> None:
+    conn = get_conn()
     cur = conn.cursor()
     cur.execute("""
         CREATE TABLE IF NOT EXISTS anuncios (
@@ -55,239 +94,188 @@ def inicializar_tabla_anuncios():
             roi REAL,
             score INTEGER,
             relevante BOOLEAN DEFAULT 0
-        )
+        );
     """)
-    # Intentar agregar columna 'relevante' si no existe (SQLite no soporta IF NOT EXISTS en ALTER)
     try:
         cur.execute("ALTER TABLE anuncios ADD COLUMN relevante BOOLEAN DEFAULT 0;")
     except sqlite3.OperationalError:
-        # La columna ya existe
         pass
-    conn.commit()
-    conn.close()
 
+# ---- Validación de enlaces ----
+def link_valido(url: str) -> bool:
+    return bool(url and url.startswith("https://www.facebook.com/marketplace/item/"))
+
+# ---- Limpieza y parsing ----
 def limpiar_link(link: Optional[str]) -> str:
-    """Quita caracteres invisibles, espacios y normaliza el link."""
     if not link:
         return ""
-    return ''.join(
-        c for c in link.strip()
-        if c.isascii() and c.isprintable() and c not in ['\n', '\r', '\t', '\u2028', '\u2029', '\u00A0', ' ']
-    )
+    return ''.join(c for c in link.strip()
+                   if c.isascii() and c.isprintable()
+                   and c not in ['\n','\r','\t','\u2028','\u2029','\u00A0',' '])
 
 def normalizar_texto(texto: str) -> str:
-    """Convierte a minúsculas y elimina todo excepto letras y números para comparación."""
     return re.sub(r"[^a-z0-9]", "", texto.lower())
 
 def coincide_modelo(titulo: str, modelo: str) -> bool:
-    """Verifica que todas las palabras del modelo estén en el título."""
-    titulo_norm = normalizar_texto(titulo)
-    for palabra in modelo.split():
-        if normalizar_texto(palabra) not in titulo_norm:
-            return False
-    return True
+    norm = normalizar_texto(titulo)
+    return all(normalizar_texto(p) in norm for p in modelo.split())
+
+# ---- Extracción de año ----
+def extraer_anio(texto: str) -> Optional[int]:
+    # Primero patrones globales
+    for pat in [r"\b(19\d{2}|20[0-2]\d|2030)\b",
+                r"[-•]\s*(19\d{2}|20[0-2]\d)\s*[-•]",
+                r"(19\d{2}|20[0-2]\d)[,\.]"]:
+        m = re.search(pat, texto)
+        if m:
+            an = int(m.group(1))
+            if 1990 <= an <= 2030:
+                return an
+    # Fallback línea a línea
+    for line in texto.splitlines():
+        m = re.match(r"^(19\d{2}|20[0-2]\d|2030)\b", line.strip())
+        if m:
+            an = int(m.group(1))
+            if 1990 <= an <= 2030:
+                return an
+    return None
 
 def limpiar_precio(texto: str) -> int:
-    """Extrae un entero válido de precio de un string."""
-    s = texto.lower().replace("q", "").replace("$", "").replace("mx", "") \
-                     .replace(".", "").replace(",", "").strip()
-    m = re.search(r"\b\d{3,6}\b", s)
+    s = re.sub(r"[Qq\$\.,]", "", texto.lower())
+    m = re.search(r"\b\d{3,7}\b", s)
     return int(m.group()) if m else 0
 
+# ---- Filtros primarios ----
 def contiene_negativos(texto: str) -> bool:
-    """Detecta si el texto contiene alguna palabra negativa."""
-    texto = texto.lower()
-    return any(p in texto for p in PALABRAS_NEGATIVAS)
+    low = texto.lower()
+    return any(p in low for p in PALABRAS_NEGATIVAS)
 
 def es_extranjero(texto: str) -> bool:
-    """Detecta si el texto menciona lugares extranjeros."""
-    texto = texto.lower()
-    return any(p in texto for p in LUGARES_EXTRANJEROS)
+    low = texto.lower()
+    return any(p in low for p in LUGARES_EXTRANJEROS)
 
-def extraer_anio(texto: str) -> Optional[int]:
-    """Extrae un año válido entre 1990 y 2030 del texto."""
-    m = re.search(r"(19|20)\d{2}", texto)
-    anio = int(m.group()) if m else None
-    return anio if 1990 <= (anio or 0) <= 2030 else None
-
-def get_precio_referencia(modelo: str, año: int, tolerancia: int = None) -> int:
-    """Obtiene el precio mínimo histórico para modelo y año ± tolerancia."""
-    conn = sqlite3.connect(DB_PATH)
-    cur = conn.cursor()
-    cur.execute("""
-        SELECT MIN(precio) FROM anuncios
-        WHERE modelo = ? AND ABS(anio - ?) <= ?
-    """, (modelo, año, tolerancia or TOLERANCIA_PRECIO_REF))
-    result = cur.fetchone()
-    conn.close()
-    return result[0] if result and result[0] else PRECIOS_POR_DEFECTO.get(modelo, 0)
-
-def calcular_roi_real(modelo: str, precio_compra: int, año: int, costo_extra: int = 1500) -> float:
+# ---- Parsing completo ----
+@timeit
+def parsear_anuncio(texto: str) -> Optional[Tuple[str, str, int, int, str]]:
     """
-    Calcula ROI % conservador, penalizando antigüedad > 10 años.
+    Extrae (url, modelo, año, precio, km) o None si inválido.
     """
-    precio_obj = get_precio_referencia(modelo, año)
-    if not precio_obj or precio_compra <= 0:
-        return 0.0
-    antiguedad = max(0, datetime.now().year - año)
-    penal = max(0, antiguedad - 10) * 0.02
-    precio_dep = precio_obj * (1 - penal)
-    inversion = precio_compra + costo_extra
-    ganancia = precio_dep - inversion
-    roi = (ganancia / inversion) * 100 if inversion > 0 else 0.0
-    return round(roi, 1)
-
-def puntuar_anuncio(titulo: str, precio: int, texto: Optional[str] = None) -> int:
-    """
-    Score simple basado en presencia de modelo, ROI, palabras negativas y características básicas.
-    """
-    texto = (texto or titulo).lower()
-    pts = 0
-    modelo = next((m for m in MODELOS_INTERES if coincide_modelo(titulo, m)), None)
-    if modelo:
-        pts += 3
-        anio = extraer_anio(texto)
-        if anio:
-            r = calcular_roi_real(modelo, precio, anio)
-            if r >= ROI_MINIMO:
-                pts += 4
-            elif r >= 7:
-                pts += 2
-            else:
-                pts -= 2
-    if contiene_negativos(texto):
-        pts -= 3
-    if 0 < precio <= 30000:
-        pts += 2
-    else:
-        pts -= 1
-    if len(titulo.split()) >= 5:
-        pts += 1
-    return max(0, min(pts, 10))
-
-def insertar_anuncio_db(
-    url: str, modelo: str, año: int, precio: int, km: str, roi: float, score: int, relevante: bool
-):
-    """Inserta anuncio en DB ignorando duplicados y maneja errores."""
-    url = limpiar_link(url)
-    try:
-        conn = sqlite3.connect(DB_PATH)
-        cur = conn.cursor()
-        cur.execute("""
-            INSERT OR IGNORE INTO anuncios
-            (link, modelo, anio, precio, km, fecha_scrape, roi, score, relevante)
-            VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)
-        """, (
-            url,
-            modelo,
-            año,
-            precio,
-            km,
-            date.today().isoformat(),
-            roi,
-            score,
-            int(relevante)
-        ))
-        conn.commit()
-    except sqlite3.Error as e:
-        print(f"⚠️ Error SQLite al insertar anuncio: {e}")
-    finally:
-        conn.close()
-
-def existe_en_db(link: str) -> bool:
-    """Verifica si un link ya existe en la DB."""
-    link = limpiar_link(link)
-    conn = sqlite3.connect(DB_PATH)
-    cur = conn.cursor()
-    cur.execute("SELECT 1 FROM anuncios WHERE link = ?", (link,))
-    found = cur.fetchone() is not None
-    conn.close()
-    return found
-
-def analizar_mensaje(texto: str) -> Optional[dict]:
-    """
-    Extrae datos de un mensaje de Telegram en formato esperado,
-    devuelve dict con info si es válido, None si no.
-    """
-    url_match = re.search(r"https://www\.facebook\.com/marketplace/item/\d+", texto)
-    precio_match = re.search(r"Precio: Q([\d,\.]+)", texto)
-    modelo_match = re.search(r"🚘 \*(.+?)\*", texto)
-    anio = extraer_anio(texto)
-
-    url = limpiar_link(url_match.group()) if url_match else ""
-    precio = limpiar_precio(precio_match.group(1)) if precio_match else 0
-    modelo_txt = modelo_match.group(1).lower() if modelo_match else ""
-
-    if not all([url, precio, anio, modelo_txt]):
-        return None
     if es_extranjero(texto) or contiene_negativos(texto):
         return None
 
-    detectado = next((m for m in MODELOS_INTERES if coincide_modelo(modelo_txt, m)), None)
-    if not detectado:
+    m_url = re.search(r"https://www\.facebook\.com/marketplace/item/\d+", texto)
+    url = limpiar_link(m_url.group()) if m_url else ""
+    if not link_valido(url):
         return None
 
-    roi = calcular_roi_real(detectado, precio, anio)
-    score = puntuar_anuncio(modelo_txt, precio, texto)
+    m_pr = re.search(r"[Qq\$]\s?([\d.,]+)", texto)
+    precio = limpiar_precio(m_pr.group(1)) if m_pr else 0
+    if precio <= 0:
+        return None
 
-    return {
-        "url": url,
-        "modelo": detectado,
-        "año": anio,
-        "precio": precio,
-        "roi": roi,
-        "score": score,
-        "relevante": score >= SCORE_MIN_TELEGRAM
-    }
+    anio = extraer_anio(texto)
+    if not anio:
+        return None
 
+    modelo = next((m for m in MODELOS_INTERES if coincide_modelo(texto, m)), None)
+    if not modelo:
+        return None
+
+    lines = [l.strip() for l in texto.splitlines() if l.strip()]
+    km = lines[3] if len(lines) > 3 else ""
+    return url, modelo, anio, precio, km
+
+# ---- Cálculo de ROI ----
+@timeit
+def get_precio_referencia(modelo: str, año: int, tolerancia: Optional[int] = None) -> int:
+    conn = get_conn(); cur = conn.cursor()
+    cur.execute(
+        "SELECT MIN(precio) FROM anuncios WHERE modelo=? AND ABS(anio-?)<=?",
+        (modelo, año, tolerancia or TOLERANCIA_PRECIO_REF)
+    )
+    base = cur.fetchone()[0] or 0
+    return base or PRECIOS_POR_DEFECTO.get(modelo, 0)
+
+@timeit
+def calcular_roi_real(modelo: str, precio_compra: int, año: int, costo_extra: int = 1500) -> float:
+    precio_obj = get_precio_referencia(modelo, año)
+    antig = max(0, datetime.now().year - año)
+    penal_por_ano = PENAL_POR_MODEL.get(modelo, PENAL_POR_ANIO)
+    penal = max(0, antig - PENAL_ANIOS) * penal_por_ano
+    precio_dep = precio_obj * (1 - penal)
+    inversion = precio_compra + costo_extra
+    roi = ((precio_dep - inversion) / inversion) * 100 if inversion > 0 else 0
+    return round(roi, 1)
+
+# ---- Scoring ----
+@timeit
+def puntuar_anuncio(texto: str) -> int:
+    parsed = parsear_anuncio(texto)
+    if not parsed:
+        return 0
+    url, modelo, anio, precio, km = parsed
+    pts = 3  # bonus por modelo detectado
+    r = calcular_roi_real(modelo, precio, anio)
+    if r >= ROI_MINIMO:
+        pts += 4
+    elif r >= 7:
+        pts += 2
+    else:
+        pts -= 2
+    if precio <= 30000:
+        pts += 2
+    else:
+        pts -= 1
+    if len(texto.split()) >= 5:
+        pts += 1
+    return max(0, min(pts, 10))
+
+# ---- Inserción en DB ----
+@timeit
+def insertar_anuncios_batch(anuncios: List[Tuple[str,str,int,int,str,int,int]]):
+    """
+    Inserta lote de anuncios: cada tupla = (url, modelo, año, precio, km, roi, score)
+    """
+    conn = get_conn(); cur = conn.cursor()
+    cur.executemany(
+        "INSERT OR IGNORE INTO anuncios "
+        "(link, modelo, anio, precio, km, fecha_scrape, roi, score, relevante) "
+        "VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)",
+        [
+            (url, modelo, anio, precio, km, date.today().isoformat(),
+             roi, score, int(score >= SCORE_MIN_DB))
+            for url, modelo, anio, precio, km, roi, score in anuncios
+        ]
+    )
+    conn.commit()
+
+# ---- Rendimiento histórico ----
+@timeit
 def get_rendimiento_modelo(modelo: str, dias: int = 7) -> float:
-    """
-    Porcentaje de anuncios con score >= SCORE_MIN_DB para un modelo en últimos 'dias' días.
-    """
-    conn = sqlite3.connect(DB_PATH)
-    cur = conn.cursor()
-    cur.execute("""
-        SELECT
-            SUM(CASE WHEN score >= ? THEN 1 ELSE 0 END)*1.0 / COUNT(*)
-        FROM anuncios
-        WHERE modelo = ?
-          AND fecha_scrape >= date('now', ?)
-    """, (SCORE_MIN_DB, modelo, f"-{dias} days"))
-    ratio = cur.fetchone()[0] or 0.0
-    conn.close()
-    return round(ratio, 3)
+    conn = get_conn(); cur = conn.cursor()
+    cur.execute(
+        "SELECT SUM(CASE WHEN score>=? THEN 1 ELSE 0 END)*1.0/COUNT(*) "
+        "FROM anuncios WHERE modelo=? AND fecha_scrape>=date('now',?)",
+        (SCORE_MIN_DB, modelo, f"-{dias} days")
+    )
+    return round(cur.fetchone()[0] or 0.0, 3)
 
+@timeit
 def modelos_bajo_rendimiento(threshold: float = 0.005, dias: int = 7) -> List[str]:
-    """
-    Retorna lista de modelos con rendimiento bajo en últimos 'dias' días según threshold.
-    """
     return [m for m in MODELOS_INTERES if get_rendimiento_modelo(m, dias) < threshold]
 
+# ---- Resumen mensual ----
+@timeit
 def resumen_mensual() -> str:
-    """
-    Retorna reporte con conteo, ROI promedio y anuncios relevantes en últimos 30 días por modelo.
-    """
-    conn = sqlite3.connect(DB_PATH)
-    cur = conn.cursor()
-    cur.execute("""
-        SELECT modelo,
-               COUNT(*) as total_anuncios,
-               AVG(roi) as roi_promedio,
-               SUM(CASE WHEN score >= ? THEN 1 ELSE 0 END) as anuncios_relevantes
-        FROM anuncios
-        WHERE fecha_scrape >= date('now', '-30 days')
-        GROUP BY modelo
-        ORDER BY anuncios_relevantes DESC, roi_promedio DESC
-    """, (SCORE_MIN_DB,))
-    resumen = cur.fetchall()
-    conn.close()
-
-    reporte = []
-    for modelo, total, roi_prom, relevantes in resumen:
-        reporte.append(
-            f"🚘 {modelo.title()}:\n"
-            f"• Total anuncios: {total}\n"
-            f"• ROI promedio últimos 30 días: {roi_prom:.1f}%\n"
-            f"• Anuncios relevantes: {relevantes}\n"
-        )
-    return "\n".join(reporte)
+    conn = get_conn(); cur = conn.cursor()
+    cur.execute(
+        "SELECT modelo, COUNT(*) total, AVG(roi) avg_roi, "
+        "SUM(CASE WHEN score>=? THEN 1 ELSE 0 END) rel "
+        "FROM anuncios WHERE fecha_scrape>=date('now','-30 days') "
+        "GROUP BY modelo ORDER BY rel DESC, avg_roi DESC",
+        (SCORE_MIN_DB,)
+    )
+    rows = cur.fetchall(); report = []
+    for m, total, avg_roi, rel in rows:
+        report.append(f"🚘 {m.title()}: {total} anuncios, ROI={avg_roi:.1f}%, relevantes={rel}")
+    return "\n".join(report)
