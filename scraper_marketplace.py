@@ -192,14 +192,15 @@ async def procesar_modelo(page: Page, modelo: str, resultados: List[str], pendie
     logger.info(f"📊 {modelo.upper()} → {contador}")
     return len(nuevos)
 
-async def buscar_autos_marketplace() -> Tuple[List[str], List[str]]:
+async def buscar_autos_marketplace(modelos_override: Optional[List[str]] = None) -> Tuple[List[str], List[str]]:
     logger.info("\n🔎 Iniciando búsqueda en Marketplace…")
     resultados, pendientes = [], []
     async with async_playwright() as p:
         browser = await p.chromium.launch(headless=True)
         ctx = await cargar_contexto_con_cookies(browser)
         page = await ctx.new_page()
-        for modelo in random.sample(MODELOS_INTERES, len(MODELOS_INTERES)):
+        modelos = modelos_override or MODELOS_INTERES
+        for modelo in random.sample(modelos, len(modelos)):
             logger.info(f"\n🔍 Procesando modelo: {modelo.upper()}")
             await procesar_modelo(page, modelo, resultados, pendientes)
         await browser.close()
