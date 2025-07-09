@@ -1,6 +1,5 @@
 import re
 import os
-import json
 import random
 import asyncio
 import logging
@@ -10,7 +9,8 @@ from playwright.async_api import async_playwright, Page, Browser, BrowserContext
 from utils_analisis import (
     limpiar_precio, contiene_negativos, puntuar_anuncio,
     calcular_roi_real, coincide_modelo,
-    existe_en_db, insertar_anuncio_db, inicializar_tabla_anuncios, limpiar_link
+    existe_en_db, insertar_anuncio_db, inicializar_tabla_anuncios, limpiar_link,
+    modelos_bajo_rendimiento
 )
 
 logging.basicConfig(
@@ -28,7 +28,7 @@ MODELOS_INTERES = [
 ]
 COOKIES_PATH = "fb_cookies.json"
 MIN_PRECIO_VALIDO = 3000
-MAX_INTENTOS = 12
+MAX_INTENTOS = 8  # Bajamos intentos para no alargar demasiado
 
 inicializar_tabla_anuncios()
 
@@ -78,28 +78,17 @@ def extraer_anio_y_titulo(texto: str, modelo: str) -> Tuple[Optional[int], str]:
             pass
 
     if not anio:
-        m1 = re.search(r"(19\d{2}|20[0-2]\d|2030)", texto)
-        if m1:
-            anio = int(m1.group())
-    if not anio:
-        m2 = re.search(r"(año|modelo)\D{0,4}(19\d{2}|20[0-2]\d|2030)", texto.lower())
-        if m2:
-            anio = int(m2.group(2))
-    if not anio:
-        m3 = re.search(r"[-•]\s*(19\d{2}|20[0-2]\d)\s*[-•]", texto)
-        if m3:
-            anio = int(m3.group(1))
-    if not anio:
-        m4 = re.search(r"(19\d{2}|20[0-2]\d)[,\.]", texto)
-        if m4:
-            anio = int(m4.group(1))
-
+        m = re.search(r"(19\d{2}|20[0-2]\d|2030)", texto)
+        if m:
+            anio = int(m.group())
     return anio, titulo
 
-async def hacer_scroll_pagina(page: Page, veces=5, min_delay=0.8, max_delay=1.5):
-    for _ in range(veces):
-        await page.mouse.wheel(0, 400)
-        await asyncio.sleep(random.uniform(min_delay, max_delay))
+async def hacer_scroll_pagina(page: Page, min_delay=0.8, max_delay=1.5) -> bool:
+    prev_height = await page.evaluate("document.body.scrollHeight")
+    await page.mouse.wheel(0, 400)
+    await asyncio.sleep(random.uniform(min_delay, max_delay))
+    new_height = await page.evaluate("document.body.scrollHeight")
+    return new_height > prev_height
 
 async def procesar_modelo(page: Page, modelo: str, resultados: List[str], pendientes: List[str]) -> int:
     vistos, nuevos = set(), set()
@@ -108,87 +97,100 @@ async def procesar_modelo(page: Page, modelo: str, resultados: List[str], pendie
         "filtro_modelo", "guardado", "guardado_incompleto"
     ]}
     SORT_OPTS = ["best_match", "newest", "price_asc"]
-    url_busquedas = [
-        f"https://www.facebook.com/marketplace/guatemala/search/"
-        f"?query={modelo.replace(' ', '%20')}&minPrice=1000&maxPrice=60000"
-        f"&sortBy={sort}"
-        for sort in SORT_OPTS
-    ]
     consec_sin_nuevos = 0
 
-    for url_busqueda in url_busquedas:
+    for sort in SORT_OPTS:
+        url_busqueda = (
+            f"https://www.facebook.com/marketplace/guatemala/search/"
+            f"?query={modelo.replace(' ', '%20')}&minPrice=1000&maxPrice=60000&sortBy={sort}"
+        )
         await page.goto(url_busqueda)
-        await asyncio.sleep(random.uniform(4, 7))
+        await asyncio.sleep(random.uniform(2, 4))  # Reducido para acelerar
+
         for intento in range(MAX_INTENTOS):
-            nuevos_inicio = len(nuevos)
             items = await extraer_items_pagina(page)
             if not items:
-                await hacer_scroll_pagina(page)
+                if not await hacer_scroll_pagina(page):
+                    logger.info(f"🚦 No más contenido para {modelo} con sort {sort}")
+                    break
                 continue
+
+            nuevos_inicio = len(nuevos)
             for item in items:
                 texto, full_url = item["texto"], limpiar_link(item["url"])
                 contador["total"] += 1
+
                 if not full_url.startswith("https://www.facebook.com/marketplace/item/"):
                     continue
                 if not texto or full_url in vistos or existe_en_db(full_url):
                     contador["duplicado"] += 1
                     continue
                 vistos.add(full_url)
+
                 if contiene_negativos(texto):
                     contador["negativo"] += 1
                     continue
+
                 m = re.search(r"[Qq\$]\s?[\d\.,]+", texto)
                 if not m:
                     contador["sin_precio"] += 1
                     pendientes.append(f"🔍 {modelo.title()}\n📝 {texto}\n📎 {full_url}")
                     continue
+
                 precio = limpiar_precio(m.group())
                 if precio < MIN_PRECIO_VALIDO:
                     continue
+
                 anio, titulo = extraer_anio_y_titulo(texto, modelo)
                 if not anio:
                     contador["sin_anio"] += 1
                     continue
+
                 if not coincide_modelo(texto, modelo):
                     score_test = puntuar_anuncio(titulo, precio, texto)
-                    if score_test < 7:
+                    if score_test < 6:  # Subí umbral para permitir más anuncios relevantes
                         contador["filtro_modelo"] += 1
                         continue
-                km = texto.splitlines()[3].strip() if len(texto.splitlines()) > 3 else ""
+
                 roi = calcular_roi_real(modelo, precio, anio)
                 score = puntuar_anuncio(titulo, precio, texto)
-                if score >= 4:
+
+                relevante_db = score >= 4 and roi >= -10
+                if relevante_db:
                     insertar_anuncio_db(
                         url=full_url,
                         modelo=modelo,
                         año=anio,
                         precio=precio,
-                        kilometraje=km,
+                        kilometraje="",  # km no extraído
                         roi=roi,
                         score=score,
-                        relevante=(score >= 4 and roi >= -10),
+                        relevante=(score >= 6 and roi >= 10),
                     )
                     contador["guardado"] += 1
-                    if score >= 6 and roi >= -10:
+                    if score >= 6 and roi >= 10:
                         mensaje = (
                             f"🚘 *{titulo}*\n"
                             f"• Año: {anio}\n"
                             f"• Precio: Q{precio:,}\n"
-                            f"• Kilometraje: {km}\n"
                             f"• ROI: {roi:.1f}%\n"
                             f"• Score: {score}/10\n"
                             f"🔗 {full_url}"
                         )
                         resultados.append(mensaje)
                         nuevos.add(full_url)
+
             if len(nuevos) == nuevos_inicio:
                 consec_sin_nuevos += 1
                 if consec_sin_nuevos >= 3:
-                    logger.info(f"🚦 {modelo} → 3 scrolls sin hallazgos, abortando.")
+                    logger.info(f"🚦 {modelo} → 3 iteraciones sin anuncios nuevos, abortando sort {sort}")
                     break
             else:
                 consec_sin_nuevos = 0
-            await hacer_scroll_pagina(page)
+
+            if not await hacer_scroll_pagina(page):
+                break
+
     logger.info(f"📊 {modelo.upper()} → {contador}")
     return len(nuevos)
 
@@ -199,17 +201,23 @@ async def buscar_autos_marketplace(modelos_override: Optional[List[str]] = None)
         browser = await p.chromium.launch(headless=True)
         ctx = await cargar_contexto_con_cookies(browser)
         page = await ctx.new_page()
+
         modelos = modelos_override or MODELOS_INTERES
-        for modelo in random.sample(modelos, len(modelos)):
+        bajos = modelos_bajo_rendimiento()
+        modelos_activos = [m for m in modelos if m not in bajos]
+        logger.info(f"🚀 Modelos activos para esta corrida: {modelos_activos}")
+
+        for modelo in random.sample(modelos_activos, len(modelos_activos)):
             logger.info(f"\n🔍 Procesando modelo: {modelo.upper()}")
             await procesar_modelo(page, modelo, resultados, pendientes)
+
         await browser.close()
     return resultados, pendientes
 
 if __name__ == "__main__":
     async def main():
-        brutos, pendientes = await buscar_autos_marketplace()
-        for r in brutos:
+        resultados, pendientes = await buscar_autos_marketplace()
+        for r in resultados:
             print(r + "\n")
         if pendientes:
             print("📌 Pendientes para revisión manual:\n")
