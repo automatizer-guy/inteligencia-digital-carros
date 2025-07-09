@@ -23,6 +23,9 @@ PRECIOS_POR_DEFECTO = {
     "toyota": 45000, "honda": 47000
 }
 
+# 📦 Lista de modelos de interés exportable
+MODELOS_INTERES = list(PRECIOS_POR_DEFECTO.keys())
+
 PALABRAS_NEGATIVAS = [
     "repuesto", "repuestos", "solo repuestos", "para repuestos", "piezas",
     "desarme", "chocado", "motor fundido", "no arranca", "no enciende",
@@ -224,9 +227,9 @@ def get_rendimiento_modelo(modelo: str, dias: int = 7) -> float:
         WHERE modelo = ? 
           AND fecha_scrape >= date('now', ?)
     """, (SCORE_MIN_DB, modelo, f"-{dias} days"))
-    ratio = cur.fetchone()[0] or 0.0
+    result = cur.fetchone()[0] or 0.0
     conn.close()
-    return round(ratio, 3)
+    return round(result, 3)
 
 def modelos_bajo_rendimiento(threshold: float = 0.005, dias: int = 7) -> List[str]:
     bajos = []
