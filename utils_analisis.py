@@ -4,7 +4,7 @@ import os
 import time
 import atexit
 from datetime import datetime, date
-from typing import List, Optional, Callable, Any, Tuple
+from typing import List, Optional, Dict, Any, Tuple
 
 # 🚩 Ruta a la base de datos
 DB_PATH = os.path.abspath("upload-artifact/anuncios.db")
@@ -12,22 +12,19 @@ os.makedirs(os.path.dirname(DB_PATH), exist_ok=True)
 
 # 🔧 Parámetros globales
 DEBUG = os.getenv("DEBUG", "False").lower() in ("1", "true", "yes")
-
 SCORE_MIN_DB = 4
 SCORE_MIN_TELEGRAM = 6
 ROI_MINIMO = 10.0
 TOLERANCIA_PRECIO_REF = 2
-
-# Penalización por antigüedad (años sobre PENAL_ANIOS) * PENAL_POR_ANIO
 PENAL_ANIOS = 10
 PENAL_POR_ANIO = 0.02
-# Penalización personalizada por modelo (opcional)
-PENAL_POR_MODEL = {
+
+# Penalización por modelo (opcional)
+PENAL_POR_MODEL: Dict[str, float] = {
     # "rav4": 0.015, "kia picanto": 0.03, ...
 }
 
-# Referencias de precio por modelo
-PRECIOS_POR_DEFECTO = {
+PRECIOS_POR_DEFECTO: Dict[str, int] = {
     "yaris": 50000, "civic": 60000, "corolla": 45000, "sentra": 40000,
     "rav4": 120000, "cr-v": 90000, "tucson": 65000, "kia picanto": 39000,
     "chevrolet spark": 32000, "nissan march": 39000, "suzuki alto": 28000,
@@ -35,23 +32,21 @@ PRECIOS_POR_DEFECTO = {
     "suzuki grand vitara": 49000, "hyundai i10": 36000, "kia rio": 42000,
     "toyota": 45000, "honda": 47000
 }
-MODELOS_INTERES = list(PRECIOS_POR_DEFECTO.keys())
+MODELOS_INTERES: List[str] = list(PRECIOS_POR_DEFECTO.keys())
 
 PALABRAS_NEGATIVAS = [
     "repuesto", "repuestos", "solo repuestos", "para repuestos", "piezas",
     "desarme", "chocado", "motor fundido", "no arranca", "no enciende",
     "papeles atrasados", "sin motor", "para partes", "no funciona"
 ]
-
 LUGARES_EXTRANJEROS = [
     "mexico", "ciudad de méxico", "monterrey", "usa", "estados unidos",
     "honduras", "el salvador", "panamá", "costa rica", "colombia", "ecuador"
 ]
 
 # ---- Utilidades de performance ----
-def timeit(func: Callable) -> Callable:
-    """Decorator para medir tiempo de ejecución (solo si DEBUG=True)."""
-    def wrapper(*args, **kwargs) -> Any:
+def timeit(func):
+    def wrapper(*args, **kwargs):
         if not DEBUG:
             return func(*args, **kwargs)
         start = time.perf_counter()
@@ -67,7 +62,7 @@ _conn: Optional[sqlite3.Connection] = None
 def get_conn() -> sqlite3.Connection:
     global _conn
     if _conn is None:
-        _conn = sqlite3.connect(DB_PATH, isolation_level=None)
+        _conn = sqlite3.connect(DB_PATH, check_same_thread=False)
     return _conn
 
 @atexit.register
@@ -113,10 +108,8 @@ def limpiar_link(link: Optional[str]) -> str:
                    if c.isascii() and c.isprintable()
                    and c not in ['\n','\r','\t','\u2028','\u2029','\u00A0',' '])
 
-
 def normalizar_texto(texto: str) -> str:
     return re.sub(r"[^a-z0-9]", "", texto.lower())
-
 
 def coincide_modelo(titulo: str, modelo: str) -> bool:
     norm = normalizar_texto(titulo)
@@ -124,9 +117,12 @@ def coincide_modelo(titulo: str, modelo: str) -> bool:
 
 # ---- Extracción de año ----
 def extraer_anio(texto: str) -> Optional[int]:
-    for pat in [r"\b(19\d{2}|20[0-2]\d|2030)\b",
-                r"[-•]\s*(19\d{2}|20[0-2]\d)\s*[-•]",
-                r"(19\d{2}|20[0-2]\d)[,\.]"]:
+    patterns = [
+        r"\b(19\d{2}|20[0-2]\d|2030)\b",
+        r"[-•]\s*(19\d{2}|20[0-2]\d)\s*[-•]",
+        r"(19\d{2}|20[0-2]\d)[,\.]"
+    ]
+    for pat in patterns:
         m = re.search(pat, texto)
         if m:
             an = int(m.group(1))
@@ -140,17 +136,14 @@ def extraer_anio(texto: str) -> Optional[int]:
                 return an
     return None
 
-
 def limpiar_precio(texto: str) -> int:
     s = re.sub(r"[Qq\$\.,]", "", texto.lower())
     m = re.search(r"\b\d{3,7}\b", s)
     return int(m.group()) if m else 0
 
-# ---- Filtros primarios ----
 def contiene_negativos(texto: str) -> bool:
     low = texto.lower()
     return any(p in low for p in PALABRAS_NEGATIVAS)
-
 
 def es_extranjero(texto: str) -> bool:
     low = texto.lower()
@@ -158,31 +151,50 @@ def es_extranjero(texto: str) -> bool:
 
 # ---- Parsing completo ----
 @timeit
-def parsear_anuncio(texto: str) -> Optional[Tuple[str, str, int, int, str]]:
+def parsear_anuncio(texto: str) -> Optional[Tuple[str,str,int,int,str]]:
     if es_extranjero(texto) or contiene_negativos(texto):
         return None
-
-    m_url = re.search(r"https://www\\.facebook\\.com/marketplace/item/\\d+", texto)
+    m_url = re.search(r"https://www\.facebook\.com/marketplace/item/\d+", texto)
     url = limpiar_link(m_url.group()) if m_url else ""
     if not link_valido(url):
         return None
-
-    m_pr = re.search(r"[Qq\\$]\s?([\\d.,]+)", texto)
+    m_pr = re.search(r"[Qq\$]\s?([\d.,]+)", texto)
     precio = limpiar_precio(m_pr.group(1)) if m_pr else 0
     if precio <= 0:
         return None
-
     anio = extraer_anio(texto)
     if not anio:
         return None
-
     modelo = next((m for m in MODELOS_INTERES if coincide_modelo(texto, m)), None)
     if not modelo:
         return None
-
     lines = [l.strip() for l in texto.splitlines() if l.strip()]
     km = lines[3] if len(lines) > 3 else ""
     return url, modelo, anio, precio, km
+
+# ---- Score extraíble para Telegram ----
+def extraer_score(texto: str) -> int:
+    m = re.search(r"Score:\s?(\d{1,2})/10", texto)
+    return int(m.group(1)) if m else 0
+
+def analizar_mensaje(texto: str) -> Optional[Dict[str, Any]]:
+    parsed = parsear_anuncio(texto)
+    if not parsed:
+        return None
+    url, modelo, anio, precio, km = parsed
+    roi = calcular_roi_real(modelo, precio, anio)
+    score = puntuar_anuncio(texto)
+    relevante = score >= SCORE_MIN_TELEGRAM and roi >= ROI_MINIMO
+    return {
+        "url": url,
+        "modelo": modelo,
+        "año": anio,
+        "precio": precio,
+        "km": km,
+        "roi": roi,
+        "score": score,
+        "relevante": relevante
+    }
 
 # ---- Cálculo de ROI ----
 @timeit
@@ -203,16 +215,16 @@ def calcular_roi_real(modelo: str, precio_compra: int, año: int, costo_extra: i
     penal = max(0, antig - PENAL_ANIOS) * penal_por_ano
     precio_dep = precio_obj * (1 - penal)
     inversion = precio_compra + costo_extra
-    roi = ((precio_dep - inversion) / inversion) * 100 if inversion > 0 else 0
+    roi = ((precio_dep - inversion) / inversion) * 100 if inversion > 0 else 0.0
     return round(roi, 1)
 
-# ---- Scoring ----
+# ---- Scoring para DB ----
 @timeit
 def puntuar_anuncio(texto: str) -> int:
     parsed = parsear_anuncio(texto)
     if not parsed:
         return 0
-    url, modelo, anio, precio, km = parsed
+    _, modelo, anio, precio, _ = parsed
     pts = 3
     r = calcular_roi_real(modelo, precio, anio)
     if r >= ROI_MINIMO:
@@ -229,23 +241,29 @@ def puntuar_anuncio(texto: str) -> int:
         pts += 1
     return max(0, min(pts, 10))
 
-# ---- Inserción en DB ----
+# ---- Inserción en BD ----
 @timeit
-def insertar_anuncios_batch(anuncios: List[Tuple[str,str,int,int,str,int,int]]):
+def insertar_anuncio_db(
+    url: str, modelo: str, año: int, precio: int, km: str, roi: float, score: int
+) -> None:
     conn = get_conn(); cur = conn.cursor()
-    cur.executemany(
-        "INSERT OR IGNORE INTO anuncios "
-        "(link, modelo, anio, precio, km, fecha_scrape, roi, score, relevante) "
-        "VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)",
-        [
-            (url, modelo, anio, precio, km, date.today().isoformat(),
-             roi, score, int(score >= SCORE_MIN_DB))
-            for url, modelo, anio, precio, km, roi, score in anuncios
-        ]
+    cur.execute(
+        "INSERT OR IGNORE INTO anuncios"
+        " (link, modelo, anio, precio, km, fecha_scrape, roi, score, relevante)"
+        " VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)",
+        (url, modelo, año, precio, km, date.today().isoformat(),
+         roi, score, int(score >= SCORE_MIN_DB))
     )
     conn.commit()
 
-# ---- Rendimiento histórico ----
+def existe_en_db(link: str) -> bool:
+    link = limpiar_link(link)
+    conn = get_conn(); cur = conn.cursor()
+    cur.execute("SELECT 1 FROM anuncios WHERE link = ?", (link,))
+    found = cur.fetchone() is not None
+    return found
+
+# ---- Métricas históricas ----
 @timeit
 def get_rendimiento_modelo(modelo: str, dias: int = 7) -> float:
     conn = get_conn(); cur = conn.cursor()
@@ -275,32 +293,3 @@ def resumen_mensual() -> str:
     for m, total, avg_roi, rel in rows:
         report.append(f"🚘 {m.title()}: {total} anuncios, ROI={avg_roi:.1f}%, relevantes={rel}")
     return "\n".join(report)
-
-# ---- Helpers para BOT ----
-+def extraer_score(texto: str) -> int:
-+    """Extrae el score numérico de un mensaje formateado."""
-+    m = re.search(r"Score:\s?(\d+)/10", texto)
-+    return int(m.group(1)) if m else 0
-+
-+def analizar_mensaje(texto: str) -> Optional[dict]:
-+    """
-+    Reproduce la lógica de parse + score + ROI para el bot.
-+    Devuelve dict con {url, modelo, año, precio, km, score, roi, relevante},
-+    o None si el mensaje no cumple los mínimos.
-+    """
-+    parsed = parsear_anuncio(texto)
-+    if not parsed:
-+        return None
-+    url, modelo, anio, precio, km = parsed
-+    score = puntuar_anuncio(texto)
-+    roi   = calcular_roi_real(modelo, precio, anio)
-+    return {
-+        "url": url,
-+        "modelo": modelo,
-+        "año": anio,
-+        "precio": precio,
-+        "km": km,
-+        "score": score,
-+        "roi": roi,
-+        "relevante": score >= SCORE_MIN_TELEGRAM and roi >= 0
-+    }
