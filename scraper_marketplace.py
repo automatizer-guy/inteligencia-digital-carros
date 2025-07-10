@@ -9,7 +9,7 @@ from typing import List, Dict, Optional, Tuple
 from playwright.async_api import async_playwright, Browser, BrowserContext, Page
 from utils_analisis import (
     limpiar_precio, contiene_negativos, puntuar_anuncio,
-    calcular_roi_real, coincide_modelo,
+    calcular_roi_real, coincide_modelo, extraer_anio,
     existe_en_db, insertar_anuncio_db, inicializar_tabla_anuncios,
     limpiar_link, modelos_bajo_rendimiento, MODELOS_INTERES,
     SCORE_MIN_DB, SCORE_MIN_TELEGRAM, ROI_MINIMO
