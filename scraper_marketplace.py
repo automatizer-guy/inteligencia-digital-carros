@@ -169,7 +169,7 @@ async def procesar_modelo(page: Page, modelo: str, resultados: List[str], pendie
                 if len(nuevos) < 5:
                     logger.info(f"🛑 {modelo} → {consec_repetidos} duplicados seguidos pero aún no se han guardado suficientes ({len(nuevos)}). Abortando.")
                 else:
-            logger.info(f"🛑 {modelo} → {consec_repetidos} duplicados seguidos y ya hay suficiente guardado. Abortando.")
+                    logger.info(f"🛑 {modelo} → {consec_repetidos} duplicados seguidos y ya hay suficiente guardado. Abortando.")
                 break
             
             if intento >= max_scrolls - 1:
