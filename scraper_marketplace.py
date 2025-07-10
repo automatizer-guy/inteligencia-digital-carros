@@ -93,7 +93,7 @@ async def procesar_modelo(page: Page, modelo: str, resultados: List[str], pendie
 
         consec_repetidos = 0
         max_repetidos = 5
-        max_scrolls = 30
+        max_scrolls = 15
 
         for intento in range(max_scrolls):
             items = await extraer_items_pagina(page)
