@@ -81,7 +81,7 @@ async def procesar_modelo(page: Page, modelo: str, resultados: List[str], pendie
 
         consec_repetidos = 0
         max_repetidos = 10
-        max_scrolls = 20
+        max_scrolls = 30
 
         for intento in range(max_scrolls):
             items = await extraer_items_pagina(page)
@@ -91,10 +91,60 @@ async def procesar_modelo(page: Page, modelo: str, resultados: List[str], pendie
                 continue
 
             nuevos_inicio = len(nuevos)
-            for itm in items:
-                texto = itm["texto"]
-                url = limpiar_link(itm["url"])
-                contador["total"] += 1
+           for itm in items:
+               texto = itm["texto"]
+               url = limpiar_link(itm["url"])
+               contador["total"] += 1
+               if not url.startswith("https://www.facebook.com/marketplace/item/"):
+                    continue
+                   
+               if url in vistos or existe_en_db(url):
+                    contador["duplicado"] += 1
+                    consec_repetidos += 1
+                    continue
+                
+               consec_repetidos = 0
+               vistos.add(url)
+               
+               if contiene_negativos(texto):
+                    contador["negativo"] += 1
+                    continue
+                
+               if es_extranjero(texto):
+                    contador["extranjero"] += 1
+                    continue
+                
+               m = re.search(r"[Qq\$]\s?[\d\.,]+", texto)
+               if not m:
+                    contador["sin_precio"] += 1
+                    pendientes.append(f"🔍 {modelo.title()}\n📝 {texto}\n🔗 {url}")
+                    continue
+                   
+               precio = limpiar_precio(m.group())
+               if precio < MIN_PRECIO_VALIDO:
+                    contador["precio_bajo"] += 1
+                    continue
+                
+               anio = extraer_anio(texto)
+               if not anio or not (1990 <= anio <= datetime.now().year):
+                contador["sin_anio"] += 1
+                continue
+        
+                if not coincide_modelo(texto, modelo):
+                contador["filtro_modelo"] += 1
+                continue
+        
+                roi = calcular_roi_real(modelo, precio, anio)
+                score = puntuar_anuncio(texto)
+                insertar_anuncio_db(url, modelo, anio, precio, "", roi, score, relevante=False)
+                contador["guardado"] += 1
+                nuevos.add(url)
+        
+                if score >= SCORE_MIN_TELEGRAM and roi >= ROI_MINIMO:
+                resultados.append(
+                    f"🚘 *{modelo.title()}* | Año: {anio} | Precio: Q{precio:,} | ROI: {roi:.1f}% | Score: {score}/10\n🔗 {url}"
+                )
+
                 if not url.startswith("https://www.facebook.com/marketplace/item/"):
                     continue
                 if url in vistos or existe_en_db(url):
