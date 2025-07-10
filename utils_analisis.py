@@ -179,6 +179,10 @@ def extraer_anio(texto: str) -> Optional[int]:
 
     return None
 
+def contar_anuncios_sin_anio(textos: List[str]) -> int:
+    sin_anio = [t for t in textos if extraer_anio(t) is None]
+    print(f"🔍 {len(sin_anio)} sin año de {len(textos)} textos analizados")
+    return len(sin_anio)
 
 def limpiar_precio(texto: str) -> int:
     s = re.sub(r"[Qq\$\.,]", "", texto.lower())
