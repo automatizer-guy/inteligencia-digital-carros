@@ -106,9 +106,40 @@ def limpiar_link(link: Optional[str]) -> str:
 def normalizar_texto(texto: str) -> str:
     return re.sub(r"[^a-z0-9]", "", texto.lower())
 
-def coincide_modelo(titulo: str, modelo: str) -> bool:
-    norm = normalizar_texto(titulo)
-    return all(normalizar_texto(p) in norm for p in modelo.split())
+def coincide_modelo(texto: str, modelo: str) -> bool:
+    import unicodedata
+    texto_l = unicodedata.normalize("NFKD", texto.lower())
+    modelo_l = modelo.lower()
+
+    # Diccionario extendido de variantes y sinónimos
+    sinonimos = {
+        "accent": ["acent", "acsent", "accent rb", "hyundai rb", "rb15", "hyundai acent", "accen"],
+        "civic": ["civc", "civic lx", "civic ex", "civic sport", "cvic", "civic 1.8", "honda civic"],
+        "sentra": ["sentran", "sentra b13", "nissan b13", "nissan sentra", "sentr4", "sentra clásico"],
+        "rio": ["rio5", "kia rio", "rio lx", "rio x", "rio x-line", "kia hatchback", "kia ryo"],
+        "swift": ["swift sport", "swift gl", "suzuki swift", "swift dzire", "swft", "swift 1.2"],
+        "march": ["nissan march", "march active", "march sense", "m4rch"],
+        "yaris": ["toyota yaris", "yaris hb", "yariz", "yaris core", "yaris s"],
+        "cr-v": ["crv", "cr-v lx", "honda cr-v", "cr b", "crv ex", "crv turbo"],
+        "tucson": ["hyundai tucson", "tucsón", "tuczon", "tucson gls", "tucson ix"],
+        "spark": ["chevrolet spark", "spark gt", "sp4rk", "spark life"],
+        "picanto": ["kia picanto", "picanto xline", "pikanto", "picanto 1.2"],
+        "alto": ["suzuki alto", "alto 800", "alt0", "alto std"],
+        "grand vitara": ["suzuki grand vitara", "gran vitara", "vitara 4x4", "grandvitara"]
+    }
+
+    variantes = sinonimos.get(modelo_l, [])
+    variantes += [modelo_l]
+
+    # Limpiar acentos y normalizar texto para mejor coincidencia
+    def limpiar(t: str) -> str:
+        return unicodedata.normalize("NFKD", t).encode("ascii", "ignore").decode("ascii")
+
+    texto_limpio = limpiar(texto_l)
+
+    # Coincidencia flexible con variantes normalizadas
+    return any(v in texto_limpio for v in variantes)
+
 
 PALABRAS_NUMEROS = {
     "cero": 0, "uno": 1, "una": 1, "dos": 2, "tres": 3, "cuatro": 4, "cinco": 5,
