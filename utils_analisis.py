@@ -119,21 +119,22 @@ def coincide_modelo(titulo: str, modelo: str) -> bool:
 def extraer_anio(texto: str) -> Optional[int]:
     patterns = [
         r"\b(19\d{2}|20[0-2]\d|2030)\b",
+        r"(?:año|modelo)\D{0,4}(19\d{2}|20[0-2]\d|2030)",
         r"[-•]\s*(19\d{2}|20[0-2]\d)\s*[-•]",
         r"(19\d{2}|20[0-2]\d)[,\.]"
     ]
     for pat in patterns:
-        m = re.search(pat, texto)
-        if m:
-            an = int(m.group(1))
-            if 1990 <= an <= 2030:
-                return an
-    for line in texto.splitlines():
-        m = re.match(r"^(19\d{2}|20[0-2]\d|2030)\b", line.strip())
-        if m:
-            an = int(m.group(1))
-            if 1990 <= an <= 2030:
-                return an
+        match = re.search(pat, texto.lower())
+        if match:
+            try:
+                anio = int(match.group(1))
+                if 1990 <= anio <= 2030:
+                    return anio
+            except ValueError:
+                continue
+    for anio in range(2030, 1989, -1):
+        if f" {anio} " in texto or f"\n{anio} " in texto or f" {anio}\n" in texto:
+            return anio
     return None
 
 def limpiar_precio(texto: str) -> int:
