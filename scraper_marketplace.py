@@ -64,6 +64,12 @@ async def scroll_hasta(page: Page) -> bool:
     now = await page.evaluate("document.body.scrollHeight")
     return now > prev
 
+def resumen_diagnostico(modelo: str, contador: Dict[str, int]) -> str:
+    lineas = [f"🔍 {modelo.upper()}"]
+    for k, v in contador.items():
+        lineas.append(f"• {k.replace('_', ' ').capitalize()}: {v}")
+    return "\n".join(lineas)
+
 async def procesar_modelo(page: Page, modelo: str, resultados: List[str], pendientes: List[str]) -> int:
     vistos, nuevos = set(), set()
     contador = {k: 0 for k in [
@@ -153,15 +159,9 @@ async def procesar_modelo(page: Page, modelo: str, resultados: List[str], pendie
                 break
             if not await scroll_hasta(page):
                 break
+
     logger.info(f"📊 {modelo.upper()} → {contador}")
-    def resumen_diagnostico(modelo: str, contador: Dict[str, int]) -> str:
-    lineas = [f"🔍 {modelo.upper()}"]
-    for k, v in contador.items():
-        lineas.append(f"• {k.replace('_', ' ').capitalize()}: {v}")
-    return "\n".join(lineas)
-
-logger.info(resumen_diagnostico(modelo, contador))
-
+    logger.info(resumen_diagnostico(modelo, contador))
     return len(nuevos)
 
 async def buscar_autos_marketplace(modelos_override: Optional[List[str]] = None) -> Tuple[List[str], List[str]]:
