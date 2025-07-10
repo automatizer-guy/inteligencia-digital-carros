@@ -12,7 +12,7 @@ from utils_analisis import (
     calcular_roi_real, coincide_modelo, extraer_anio,
     existe_en_db, insertar_anuncio_db, inicializar_tabla_anuncios,
     limpiar_link, modelos_bajo_rendimiento, MODELOS_INTERES,
-    SCORE_MIN_DB, SCORE_MIN_TELEGRAM, ROI_MINIMO
+    SCORE_MIN_TELEGRAM, ROI_MINIMO
 )
 
 logger = logging.getLogger(__name__)
@@ -20,6 +20,7 @@ logging.basicConfig(level=logging.INFO, format="%(asctime)s [%(levelname)s] %(me
 
 COOKIES_PATH = "fb_cookies.json"
 MIN_PRECIO_VALIDO = 3000
+MAX_EJEMPLOS_SIN_ANIO = 5
 
 async def cargar_contexto_con_cookies(browser: Browser) -> BrowserContext:
     logger.info("🔐 Cargando cookies desde entorno…")
@@ -73,6 +74,7 @@ def resumen_diagnostico(modelo: str, contador: Dict[str, int]) -> str:
 async def procesar_modelo(page: Page, modelo: str, resultados: List[str], pendientes: List[str]) -> int:
     vistos, nuevos = set(), set()
     vistos_globales = set()
+    sin_anio_ejemplos = []
     contador = {k: 0 for k in [
         "total", "duplicado", "negativo", "sin_precio", "sin_anio",
         "filtro_modelo", "guardado", "precio_bajo", "extranjero"
@@ -97,7 +99,6 @@ async def procesar_modelo(page: Page, modelo: str, resultados: List[str], pendie
                     break
                 continue
 
-            nuevos_inicio = len(nuevos)
             for itm in items:
                 texto = itm["texto"]
                 url = limpiar_link(itm["url"])
@@ -105,18 +106,14 @@ async def procesar_modelo(page: Page, modelo: str, resultados: List[str], pendie
 
                 if not url.startswith("https://www.facebook.com/marketplace/item/"):
                     continue
-
-
                 if url in vistos_globales or existe_en_db(url):
                     contador["duplicado"] += 1
                     consec_repetidos += 1
                     vistos_globales.add(url)
                     continue
-
                 if contiene_negativos(texto):
                     contador["negativo"] += 1
                     continue
-
                 if "mexico" in texto.lower():
                     contador["extranjero"] += 1
                     continue
@@ -135,7 +132,9 @@ async def procesar_modelo(page: Page, modelo: str, resultados: List[str], pendie
                 anio = extraer_anio(texto)
                 if not anio or not (1990 <= anio <= datetime.now().year):
                     contador["sin_anio"] += 1
-                    logger.debug(f"🔍 sin_anio → {texto}")  # 👈 Insertalo aquí
+                    if len(sin_anio_ejemplos) < MAX_EJEMPLOS_SIN_ANIO:
+                        sin_anio_ejemplos.append((texto, url))
+                    logger.debug(f"❓ Sin año → {texto[:80]}... | URL: {url}")
                     continue
 
                 if not coincide_modelo(texto, modelo):
@@ -157,16 +156,22 @@ async def procesar_modelo(page: Page, modelo: str, resultados: List[str], pendie
 
             if consec_repetidos >= max_repetidos and len(nuevos) < 5:
                 logger.info(f"🛑 {modelo} → demasiados duplicados pero aún no se han guardado 5. Se sigue buscando.")
-                continue  # No abortamos aún
+                continue
             elif consec_repetidos >= max_repetidos:
                 logger.info(f"🛑 {modelo} → {max_repetidos} duplicados seguidos y ya hay suficiente guardado. Abortando.")
                 break
-
             if not await scroll_hasta(page):
                 break
 
     logger.info(f"📊 {modelo.upper()} → {contador}")
     logger.info(resumen_diagnostico(modelo, contador))
+
+    if sin_anio_ejemplos:
+        print(f"📌 Ejemplos sin año ({modelo}):")
+        for i, (texto, url) in enumerate(sin_anio_ejemplos):
+            print(f"  {i+1}. 📝 {texto[:80]}...\n     🔗 {url}")
+        print("")
+
     return len(nuevos)
 
 async def buscar_autos_marketplace(modelos_override: Optional[List[str]] = None) -> Tuple[List[str], List[str]]:
