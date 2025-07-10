@@ -126,8 +126,7 @@ async def procesar_modelo(page: Page, modelo: str, resultados: List[str], pendie
                     contador["precio_bajo"] += 1
                     continue
 
-                match_anio = re.search(r"(19\d{2}|20[0-2]\d)", texto)
-                anio = int(match_anio.group()) if match_anio else None
+                anio = extraer_anio(texto)
                 if not anio or not (1990 <= anio <= datetime.now().year):
                     contador["sin_anio"] += 1
                     continue
@@ -155,6 +154,14 @@ async def procesar_modelo(page: Page, modelo: str, resultados: List[str], pendie
             if not await scroll_hasta(page):
                 break
     logger.info(f"📊 {modelo.upper()} → {contador}")
+    def resumen_diagnostico(modelo: str, contador: Dict[str, int]) -> str:
+    lineas = [f"🔍 {modelo.upper()}"]
+    for k, v in contador.items():
+        lineas.append(f"• {k.replace('_', ' ').capitalize()}: {v}")
+    return "\n".join(lineas)
+
+logger.info(resumen_diagnostico(modelo, contador))
+
     return len(nuevos)
 
 async def buscar_autos_marketplace(modelos_override: Optional[List[str]] = None) -> Tuple[List[str], List[str]]:
