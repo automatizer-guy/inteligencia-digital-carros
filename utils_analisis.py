@@ -3,6 +3,7 @@ import sqlite3
 import os
 import time
 import atexit
+from collections import Counter
 from datetime import datetime, date
 from typing import List, Optional, Dict, Any, Tuple
 
@@ -115,32 +116,30 @@ def coincide_modelo(titulo: str, modelo: str) -> bool:
     norm = normalizar_texto(titulo)
     return all(normalizar_texto(p) in norm for p in modelo.split())
 
+from collections import Counter
+
 def extraer_anio(texto: str) -> Optional[int]:
     """
-    Extrae el año de un texto (entre 1990 y 2030), usando:
-    - Regex comunes y abreviadas
-    - Frases semánticas frecuentes
-    - Fallback fuerza bruta
+    Extrae el año de un texto (entre 1990 y 2030) de forma robusta y precisa.
+    - Busca múltiples patrones comunes.
+    - Elige el año más frecuente si hay varios candidatos.
+    - Fallback con revisión completa del texto.
     """
     texto = texto.lower()
     texto = texto.translate(str.maketrans("áéíóú", "aeiou"))
     texto_limpio = re.sub(r"[^a-z0-9\s/.-]", " ", texto)
 
+    # Todos los posibles patrones
     patrones = [
-        # año completo aislado
-        r"\b(19\d{2}|20[0-2]\d|2030)\b",
-
-        # contexto con palabras clave
-        r"(?:modelo|a[ñn]o|anio|version|edicion|automatico|del a[ñn]o|es|viene|trae|tiene)\D{0,6}(19\d{2}|20[0-2]\d|2030)",
-
-        # abreviaciones comunes
+        r"\b(19\d{2}|20[0-2]\d|2030)\b",  # años completos
+        r"(?:modelo|a[ñn]o|anio|version|edicion|automatico|del a[ñn]o|es|viene|trae|tiene)[^\d]{0,6}(19\d{2}|20[0-2]\d|2030)",
         r"\bmodelo\s+(\d{2})\b",
         r"\b(?:mdl|vr|m|version)\s?(\d{2})\b",
-
-        # fechas con guión o slash
-        r"\b(0[1-9]|1[0-2])[-/](19\d{2}|20[0-2]\d|2030)\b",  # 06/2015
-        r"(19\d{2}|20[0-2]\d|2030)[-/](0[1-9]|1[0-2])",      # 2015/06
+        r"\b(0[1-9]|1[0-2])[-/](19\d{2}|20[0-2]\d|2030)\b",  # fechas tipo 06/2015
+        r"(19\d{2}|20[0-2]\d|2030)[-/](0[1-9]|1[0-2])",
     ]
+
+    encontrados = []
 
     for pat in patrones:
         matches = re.findall(pat, texto_limpio)
@@ -150,29 +149,32 @@ def extraer_anio(texto: str) -> Optional[int]:
                 try:
                     val = int(grupo)
                     if val < 100:
-                        val += 2000  # modelo 08 → 2008
+                        val += 2000
                     if 1990 <= val <= 2030:
-                        return val
+                        encontrados.append(val)
                 except ValueError:
                     continue
 
-    # Frases semánticas → heurística
+    # Si se encontraron varios, devolver el más común
+    if encontrados:
+        return Counter(encontrados).most_common(1)[0][0]
+
+    # Heurística por frases típicas
     frases_semanticas = [
         "modelo reciente", "nuevo modelo", "del ano",
-        "recien importado", "full full", "ultima generacion",
-        "nuevo ingreso", "nueva version", "año actual",
-        "nuevo ingreso", "recién llegado"
+        "recien importado", "ultima generacion", "nuevo ingreso",
+        "nueva version", "año actual", "recién llegado"
     ]
     for frase in frases_semanticas:
         if frase in texto_limpio:
             return datetime.now().year - 1
 
-    # Fallback fuerza bruta
+    # Fallback: revisión fuerza bruta
     for anio in range(2030, 1989, -1):
-        if f" {anio} " in texto_limpio or f"\n{anio} " in texto_limpio or f" {anio}\n" in texto_limpio:
+        if f" {anio} " in texto_limpio or f"\n{anio}" in texto_limpio or f"{anio}\n" in texto_limpio:
             return anio
 
-    # Si DEBUG está activado, guardar texto sin año
+    # Guardar para depuración si está activo DEBUG
     if os.getenv("DEBUG", "false").lower() in ("1", "true", "yes"):
         with open("anuncios_sin_anio.txt", "a", encoding="utf-8") as f:
             f.write(texto + "\n---\n")
