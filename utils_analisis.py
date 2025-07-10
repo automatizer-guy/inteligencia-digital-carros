@@ -139,49 +139,51 @@ def texto_a_numero(texto: str) -> Optional[int]:
     return None
 
 def extraer_anio(texto: str) -> Optional[int]:
+    import re
     texto_l = texto.lower()
     candidatos = []
-    anio_actual = datetime.now().year
+    ANIO_MIN = 1990
+    ANIO_MAX = datetime.now().year + 1
 
-    for match in re.finditer(r"\b(19[8-9]\d|20[0-2]\d)\b", texto_l):
-        val = int(match.group())
-        if ANIO_MIN <= val <= ANIO_MAX:
-            candidatos.append(val)
+    patrones = [
+        r"\b(?:modelo|año|ano|del)?\s*(\d{4})\b",                  # Año completo
+        r"\b(?:modelo|año|ano|del)?\s*(\d{2})\b",                  # Año abreviado 2 dígitos
+        r"\b(?:dos mil\s*(\d{2}))\b",                              # "dos mil trece"
+        r"\b(?:veinte\s*(\d{2}))\b",                               # "veinte veinte"
+        r"\b(\d{2,4})\s*(modelo|año|ano|del)?\b",                  # "2013 modelo", "13 año"
+    ]
 
-    for match in re.finditer(r"\b(\d{2})(?:[\s\-/]?(modelo|año|ano|del))?\b", texto_l):
-        num = int(match.group(1))
-        base = 2000 if num <= (anio_actual - 2000) else 1900
-        val = base + num
-        if ANIO_MIN <= val <= ANIO_MAX:
-            candidatos.append(val)
+    for patron in patrones:
+        for match in re.finditer(patron, texto_l):
+            try:
+                año = int(match.group(1))
+                if año < 100:
+                    base = 2000 if año < 30 else 1900
+                    año += base
+                if ANIO_MIN <= año <= ANIO_MAX:
+                    candidatos.append(año)
+            except:
+                continue
 
-    for match in re.finditer(r"(del?|año|ano|modelo)[:\s]*(\d{4})", texto_l):
-        val = int(match.group(2))
-        if ANIO_MIN <= val <= ANIO_MAX:
-            candidatos.append(val)
-
-    for linea in texto_l.splitlines()[:3]:
-        if any(p in linea for p in ["año", "ano", "modelo"]):
-            for match in re.finditer(r"\b(19[8-9]\d|20[0-2]\d)\b", linea):
-                val = int(match.group())
-                if ANIO_MIN <= val <= ANIO_MAX:
-                    candidatos.append(val)
-            for match in re.finditer(r"\b(\d{2})[\s\-/]?(modelo|año|ano|del)?\b", linea):
-                num = int(match.group(1))
-                base = 2000 if num <= (anio_actual - 2000) else 1900
-                val = base + num
-                if ANIO_MIN <= val <= ANIO_MAX:
-                    candidatos.append(val)
-
-    anio_palabra = texto_a_numero(texto_l)
-    if anio_palabra:
-        candidatos.append(anio_palabra)
+    # Año por palabras (opcional)
+    if 'dos mil' in texto_l:
+        match = re.search(r'dos mil (\w+)', texto_l)
+        if match:
+            palabra = match.group(1).strip()
+            mapa = {
+                'uno': 1, 'dos': 2, 'tres': 3, 'cuatro': 4, 'cinco': 5,
+                'seis': 6, 'siete': 7, 'ocho': 8, 'nueve': 9, 'diez': 10,
+                'once': 11, 'doce': 12, 'trece': 13, 'catorce': 14, 'quince': 15,
+                'dieciseis': 16, 'diecisiete': 17, 'dieciocho': 18, 'diecinueve': 19,
+                'veinte': 20, 'veintiuno': 21, 'veintidos': 22, 'veintitrés': 23,
+                'veinticuatro': 24
+            }
+            if palabra in mapa:
+                año = 2000 + mapa[palabra]
+                candidatos.append(año)
 
     if candidatos:
-        contador = Counter(candidatos)
-        max_freq = max(contador.values())
-        años = [a for a, f in contador.items() if f == max_freq]
-        return max(años)
+        return candidatos[0]  # El primero suele ser el más semántico
 
     return None
 
