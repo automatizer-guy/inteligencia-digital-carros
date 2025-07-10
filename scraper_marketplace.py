@@ -135,6 +135,7 @@ async def procesar_modelo(page: Page, modelo: str, resultados: List[str], pendie
                 anio = extraer_anio(texto)
                 if not anio or not (1990 <= anio <= datetime.now().year):
                     contador["sin_anio"] += 1
+                    logger.debug(f"🔍 sin_anio → {texto}")  # 👈 Insertalo aquí
                     continue
 
                 if not coincide_modelo(texto, modelo):
