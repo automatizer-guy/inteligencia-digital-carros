@@ -92,7 +92,7 @@ async def procesar_modelo(page: Page, modelo: str, resultados: List[str], pendie
         await asyncio.sleep(random.uniform(2, 4))
 
         consec_repetidos = 0
-        max_repetidos = 10
+        max_repetidos = 5
         max_scrolls = 30
 
         for intento in range(max_scrolls):
