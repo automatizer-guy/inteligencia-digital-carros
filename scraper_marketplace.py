@@ -165,12 +165,17 @@ async def procesar_modelo(page: Page, modelo: str, resultados: List[str], pendie
                         f"🚘 *{modelo.title()}* | Año: {anio} | Precio: Q{precio:,} | ROI: {roi:.1f}% | Score: {score}/10\n🔗 {url}"
                     )
 
-            if consec_repetidos >= max_repetidos and len(nuevos) < 5:
-                logger.info(f"🛑 {modelo} → demasiados duplicados pero aún no se han guardado 5. Se sigue buscando.")
-                continue
-            elif consec_repetidos >= max_repetidos:
-                logger.info(f"🛑 {modelo} → {max_repetidos} duplicados seguidos y ya hay suficiente guardado. Abortando.")
+            if consec_repetidos >= max_repetidos:
+                if len(nuevos) < 5:
+                    logger.info(f"🛑 {modelo} → {consec_repetidos} duplicados seguidos pero aún no se han guardado suficientes ({len(nuevos)}). Abortando.")
+                else:
+            logger.info(f"🛑 {modelo} → {consec_repetidos} duplicados seguidos y ya hay suficiente guardado. Abortando.")
                 break
+            
+            if intento >= max_scrolls - 1:
+                logger.warning(f"⏳ {modelo} → Se alcanzó el límite de scrolls ({max_scrolls}). Cortando búsqueda.")
+                break
+            
             if not await scroll_hasta(page):
                 break
 
