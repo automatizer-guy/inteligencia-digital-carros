@@ -118,11 +118,17 @@ def coincide_modelo(titulo: str, modelo: str) -> bool:
 # ---- Extracción de año ----
 def extraer_anio(texto: str) -> Optional[int]:
     patterns = [
-        r"\b(19\d{2}|20[0-2]\d|2030)\b",
-        r"(?:año|modelo)\D{0,4}(19\d{2}|20[0-2]\d|2030)",
-        r"[-•]\s*(19\d{2}|20[0-2]\d)\s*[-•]",
-        r"(19\d{2}|20[0-2]\d)[,\.]"
+        r"\b(19\d{2}|20[0-2]\d|2030)\b",                               # año aislado
+        r"(?:año|model(?:o|a))\D{0,6}(19\d{2}|20[0-2]\d|2030)",        # precedido por palabras clave
+        r"[-•\s:](19\d{2}|20[0-2]\d|2030)[-•\s,\.]",                   # entre puntuación
+        r"(?:del año|es modelo|modelo del)\s*(19\d{2}|20[0-2]\d|2030)", # frases comunes
+        r"(?:versión|edición)\D{0,6}(19\d{2}|20[0-2]\d|2030)",         # ediciones especiales
+        r"automático\s*(19\d{2}|20[0-2]\d|2030)",                      # junto a características
+        r"año(?:\s*de)?\s*(19\d{2}|20[0-2]\d|2030)",                   # expresiones más naturales
+        r"modelo\s*(19\d{2}|20[0-2]\d|2030)",                          # modelo 2021
+        r"\banio\s*(19\d{2}|20[0-2]\d|2030)",                          # error común: "anio"
     ]
+
     for pat in patterns:
         match = re.search(pat, texto.lower())
         if match:
