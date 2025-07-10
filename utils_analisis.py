@@ -117,41 +117,38 @@ def coincide_modelo(titulo: str, modelo: str) -> bool:
 
 def extraer_anio(texto: str) -> Optional[int]:
     """
-    Intenta extraer el año (1990–2030) de un texto de anuncio usando:
-    1. Regex con contexto ("año 2015", "modelo 2016", etc.)
-    2. Regex de fechas abreviadas ("modelo 22", "mdl16", "06/2015")
-    3. Heurísticas semánticas ("nuevo modelo")
-    4. Fallback por presencia de año explícito (1990-2030)
+    Extrae el año de un texto (entre 1990 y 2030), usando:
+    - Regex comunes y abreviadas
+    - Frases semánticas frecuentes
+    - Fallback fuerza bruta
     """
     texto = texto.lower()
-    texto_sin_tildes = texto.translate(str.maketrans("áéíóú", "aeiou"))
-    texto_limpio = re.sub(r"[^a-z0-9\s/.-]", " ", texto_sin_tildes)  # eliminar símbolos raros
+    texto = texto.translate(str.maketrans("áéíóú", "aeiou"))
+    texto_limpio = re.sub(r"[^a-z0-9\s/.-]", " ", texto)
 
-    # -------- REGEX COMUNES --------
     patrones = [
         # año completo aislado
         r"\b(19\d{2}|20[0-2]\d|2030)\b",
 
-        # precedido por palabras clave
-        r"(?:modelo|a[ñn]o|anio|version|edicion|autom[aá]tico|del a[ñn]o)\D{0,6}(19\d{2}|20[0-2]\d|2030)",
+        # contexto con palabras clave
+        r"(?:modelo|a[ñn]o|anio|version|edicion|automatico|del a[ñn]o|es|viene|trae|tiene)\D{0,6}(19\d{2}|20[0-2]\d|2030)",
 
-        # abreviaciones tipo modelo 22
+        # abreviaciones comunes
         r"\bmodelo\s+(\d{2})\b",
+        r"\b(?:mdl|vr|m|version)\s?(\d{2})\b",
 
-        # formas como mdl16, vr18, m22
-        r"\b(?:mdl|vr|m)\s?(\d{2})\b",
-
-        # fechas con slash o guion
+        # fechas con guión o slash
         r"\b(0[1-9]|1[0-2])[-/](19\d{2}|20[0-2]\d|2030)\b",  # 06/2015
-        r"(19\d{2}|20[0-2]\d|2030)[-/](0[1-9]|1[0-2])",  # 2015/06
+        r"(19\d{2}|20[0-2]\d|2030)[-/](0[1-9]|1[0-2])",      # 2015/06
     ]
 
     for pat in patrones:
-        match = re.search(pat, texto_limpio)
-        if match:
-            for group in match.groups():
+        matches = re.findall(pat, texto_limpio)
+        for match in matches:
+            grupos = match if isinstance(match, tuple) else (match,)
+            for grupo in grupos:
                 try:
-                    val = int(group)
+                    val = int(grupo)
                     if val < 100:
                         val += 2000  # modelo 08 → 2008
                     if 1990 <= val <= 2030:
@@ -159,23 +156,28 @@ def extraer_anio(texto: str) -> Optional[int]:
                 except ValueError:
                     continue
 
-    # -------- HEURÍSTICAS SEMÁNTICAS --------
+    # Frases semánticas → heurística
     frases_semanticas = [
         "modelo reciente", "nuevo modelo", "del ano",
         "recien importado", "full full", "ultima generacion",
-        "nuevo ingreso", "nueva version", "año actual"
+        "nuevo ingreso", "nueva version", "año actual",
+        "nuevo ingreso", "recién llegado"
     ]
     for frase in frases_semanticas:
         if frase in texto_limpio:
             return datetime.now().year - 1
 
-    # -------- FALLBACK FUERZA BRUTA --------
+    # Fallback fuerza bruta
     for anio in range(2030, 1989, -1):
         if f" {anio} " in texto_limpio or f"\n{anio} " in texto_limpio or f" {anio}\n" in texto_limpio:
             return anio
 
-    return None
+    # Si DEBUG está activado, guardar texto sin año
+    if os.getenv("DEBUG", "false").lower() in ("1", "true", "yes"):
+        with open("anuncios_sin_anio.txt", "a", encoding="utf-8") as f:
+            f.write(texto + "\n---\n")
 
+    return None
 
 
 def limpiar_precio(texto: str) -> int:
