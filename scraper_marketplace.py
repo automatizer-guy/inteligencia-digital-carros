@@ -20,7 +20,6 @@ logging.basicConfig(level=logging.INFO, format="%(asctime)s [%(levelname)s] %(me
 
 COOKIES_PATH = "fb_cookies.json"
 MIN_PRECIO_VALIDO = 3000
-MAX_INTENTOS = 8
 
 async def cargar_contexto_con_cookies(browser: Browser) -> BrowserContext:
     logger.info("🔐 Cargando cookies desde entorno…")
@@ -79,23 +78,30 @@ async def procesar_modelo(page: Page, modelo: str, resultados: List[str], pendie
         )
         await page.goto(url_busq)
         await asyncio.sleep(random.uniform(2, 4))
-        consec = 0
-        for _ in range(MAX_INTENTOS):
+
+        consec_repetidos = 0
+        max_repetidos = 10
+        max_scrolls = 20
+
+        for intento in range(max_scrolls):
             items = await extraer_items_pagina(page)
             if not items:
                 if not await scroll_hasta(page):
                     break
                 continue
-            inicio = len(nuevos)
+
+            nuevos_inicio = len(nuevos)
             for itm in items:
                 texto = itm["texto"]
-                url = itm["url"]
+                url = limpiar_link(itm["url"])
                 contador["total"] += 1
                 if not url.startswith("https://www.facebook.com/marketplace/item/"):
                     continue
                 if url in vistos or existe_en_db(url):
                     contador["duplicado"] += 1
+                    consec_repetidos += 1
                     continue
+                consec_repetidos = 0
                 vistos.add(url)
                 if contiene_negativos(texto):
                     contador["negativo"] += 1
@@ -122,17 +128,15 @@ async def procesar_modelo(page: Page, modelo: str, resultados: List[str], pendie
                 score = puntuar_anuncio(texto)
                 insertar_anuncio_db(url, modelo, anio, precio, "", roi, score, relevante=False)
                 contador["guardado"] += 1
+                nuevos.add(url)
                 if score >= SCORE_MIN_TELEGRAM and roi >= ROI_MINIMO:
                     resultados.append(
                         f"🚘 *{modelo.title()}* | Año: {anio} | Precio: Q{precio:,} | ROI: {roi:.1f}% | Score: {score}/10\n🔗 {url}"
                     )
-                    nuevos.add(url)
-            if len(nuevos) == inicio:
-                consec += 1
-                if consec >= 2:
-                    break
-            else:
-                consec = 0
+
+            if consec_repetidos >= max_repetidos:
+                logger.info(f"🛑 {modelo} → {max_repetidos} anuncios repetidos seguidos, abortando.")
+                break
             if not await scroll_hasta(page):
                 break
     logger.info(f"📊 {modelo.upper()} → {contador}")
