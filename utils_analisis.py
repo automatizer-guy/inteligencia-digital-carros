@@ -117,31 +117,45 @@ def coincide_modelo(titulo: str, modelo: str) -> bool:
 
 # ---- Extracción de año ----
 def extraer_anio(texto: str) -> Optional[int]:
-    patterns = [
-        r"\b(19\d{2}|20[0-2]\d|2030)\b",                               # año aislado
-        r"(?:año|model(?:o|a))\D{0,6}(19\d{2}|20[0-2]\d|2030)",        # precedido por palabras clave
-        r"[-•\s:](19\d{2}|20[0-2]\d|2030)[-•\s,\.]",                   # entre puntuación
-        r"(?:del año|es modelo|modelo del)\s*(19\d{2}|20[0-2]\d|2030)", # frases comunes
-        r"(?:versión|edición)\D{0,6}(19\d{2}|20[0-2]\d|2030)",         # ediciones especiales
-        r"automático\s*(19\d{2}|20[0-2]\d|2030)",                      # junto a características
-        r"año(?:\s*de)?\s*(19\d{2}|20[0-2]\d|2030)",                   # expresiones más naturales
-        r"modelo\s*(19\d{2}|20[0-2]\d|2030)",                          # modelo 2021
-        r"\banio\s*(19\d{2}|20[0-2]\d|2030)",                          # error común: "anio"
+    texto = texto.lower()
+
+    patrones = [
+        r"\b(19\d{2}|20[0-2]\d|2030)\b",  # año aislado
+        r"(?:modelo|año|anio)\D{0,6}(19\d{2}|20[0-2]\d|2030)",  # precedido por etiquetas
+        r"(?:versión|edición)\D{0,6}(19\d{2}|20[0-2]\d|2030)",  # junto a edición
+        r"(?:del año|modelo del año)\D{0,6}(19\d{2}|20[0-2]\d|2030)",  # frases comunes
+        r"automático\s*(19\d{2}|20[0-2]\d|2030)",  # cercano a características
+        r"\banio\s*(19\d{2}|20[0-2]\d|2030)",  # error común: “anio”
+        r"\bmodelo\s*([0-9]{2})\b"  # año abreviado como “modelo 22”
     ]
 
-    for pat in patterns:
-        match = re.search(pat, texto.lower())
-        if match:
+    for pat in patrones:
+        m = re.search(pat, texto)
+        if m:
             try:
-                anio = int(match.group(1))
-                if 1990 <= anio <= 2030:
-                    return anio
-            except ValueError:
+                val = int(m.group(1))
+                # año corto como “modelo 22”
+                if val < 100:
+                    val += 2000
+                if 1990 <= val <= 2030:
+                    return val
+            except:
                 continue
-    for anio in range(2030, 1989, -1):
-        if f" {anio} " in texto or f"\n{anio} " in texto or f" {anio}\n" in texto:
-            return anio
+
+    # 🔍 Heurísticas semánticas (no numéricas)
+    texto_sin_tildes = texto.replace("á", "a").replace("é", "e").replace("í", "i").replace("ó", "o").replace("ú", "u")
+    semantico = ["modelo reciente", "del año", "nuevo modelo", "full full", "recien importado"]
+    for frase in semantico:
+        if frase in texto_sin_tildes:
+            return datetime.now().year - 1  # asumimos año anterior
+
+    # Fallback por fuerza bruta
+    for an in range(2030, 1989, -1):
+        if f" {an} " in texto or f"\n{an} " in texto or f" {an}\n" in texto:
+            return an
+
     return None
+
 
 def limpiar_precio(texto: str) -> int:
     s = re.sub(r"[Qq\$\.,]", "", texto.lower())
