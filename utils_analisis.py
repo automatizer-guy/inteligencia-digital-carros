@@ -150,56 +150,66 @@ def texto_a_numero(texto: str) -> Optional[int]:
 
 def extraer_anio(texto: str) -> Optional[int]:
     texto_l = texto.lower()
-    candidatos_contextuales = []
-    candidatos_fuertes = []
-    candidatos_debiles = []
-    candidatos_sueltos = []
-
-    for match in re.finditer(r"(19\d{2}|20[0-3]\d)", texto_l):
+    candidatos = []
+    anio_actual = datetime.now().year
+    
+    # 1. Patrones mejorados para años de 4 dígitos
+    for match in re.finditer(r"\b(19[8-9]\d|20[0-2]\d)\b", texto_l):
         val = int(match.group())
         if ANIO_MIN <= val <= ANIO_MAX:
-            antes = texto_l[max(0, match.start() - 15):match.start()]
-            despues = texto_l[match.end():match.end() + 15]
-            contexto = antes + " " + despues
-            if re.search(r"(modelo|año|ano|es|del|un|version)", contexto):
-                candidatos_fuertes.append(val)
-            elif re.search(r"(comparado|mejor que|similar a)", contexto):
-                continue
-            else:
-                candidatos_debiles.append(val)
-
-    for match in re.finditer(r"(modelo|año|ano)\s+(\d{2})\b", texto_l):
-        val = int(match.group(2))
-        val += 2000
+            candidatos.append(val)
+    
+    # 2. Patrones para años de 2 dígitos con diferentes formatos
+    # Acepta: "modelo 15", "año-15", "del 15", etc.
+    for match in re.finditer(r"\b(\d{2})[\s\-/]?(modelo|año|ano|del)?\b", texto_l):
+        num = int(match.group(1))
+        # Conversión inteligente considerando año actual
+        base = 2000 if num <= (anio_actual - 2000) else 1900
+        val = base + num
         if ANIO_MIN <= val <= ANIO_MAX:
-            candidatos_contextuales.append(val)
-
-    anio_palabra = texto_a_numero(texto_l)
-    if anio_palabra and ANIO_MIN <= anio_palabra <= ANIO_MAX:
-        candidatos_contextuales.append(anio_palabra)
-
-    if not candidatos_fuertes and not candidatos_contextuales:
-        for match in re.finditer(r"\b(\d{2})\b", texto_l):
-            val = int(match.group(1)) + 2000
-            if ANIO_MIN <= val <= ANIO_MAX:
-                candidatos_sueltos.append(val)
-
-    if candidatos_fuertes:
-        return Counter(candidatos_fuertes).most_common(1)[0][0]
-    if candidatos_contextuales:
-        return Counter(candidatos_contextuales).most_common(1)[0][0]
-    if candidatos_debiles:
-        return Counter(candidatos_debiles).most_common(1)[0][0]
-    if candidatos_sueltos:
-        return Counter(candidatos_sueltos).most_common(1)[0][0]
-
+            candidatos.append(val)
+    
+    # 3. Detección en formatos comunes de Guatemala
+    # Ejemplo: "año: 2015", "modelo 2015", "del 2015"
+    for match in re.finditer(r"(del?|año|ano|modelo)[:\s]*(\d{4})", texto_l):
+        val = int(match.group(2))
+        if ANIO_MIN <= val <= ANIO_MAX:
+            candidatos.append(val)
+    
+    # 4. Búsqueda en posiciones estratégicas (primeras líneas)
+    lineas = texto_l.splitlines()
+    for linea in lineas[:3]:  # Solo primeras 3 líneas
+        if any(palabra in linea for palabra in ["año", "ano", "modelo"]):
+            # Buscamos años de 4 dígitos en estas líneas
+            for match in re.finditer(r"\b(19[8-9]\d|20[0-2]\d)\b", linea):
+                val = int(match.group())
+                if ANIO_MIN <= val <= ANIO_MAX:
+                    candidatos.append(val)
+            # Y también de 2 dígitos
+            for match in re.finditer(r"\b(\d{2})[\s\-/]?(modelo|año|ano|del)?\b", linea):
+                num = int(match.group(1))
+                base = 2000 if num <= (anio_actual - 2000) else 1900
+                val = base + num
+                if ANIO_MIN <= val <= ANIO_MAX:
+                    candidatos.append(val)
+    
+    # 5. Manejo de candidatos múltiples
+    if candidatos:
+        # Priorizar años más recientes y con más apariciones
+        contador = Counter(candidatos)
+        # Ordenamos por frecuencia y luego por año (más reciente primero)
+        año_comun = contador.most_common(1)[0][0]
+        # Pero si hay varios con la misma frecuencia, elegimos el más reciente
+        max_freq = contador[año_comun]
+        años_con_max_freq = [año for año, count in contador.items() if count == max_freq]
+        return max(años_con_max_freq)  # El año más reciente entre los más frecuentes
+    
     return None
 
-# (El resto del archivo sigue igual)
-# Puedes continuar desde 'contar_anuncios_sin_anio' en tu versión original.
 def contar_anuncios_sin_anio(textos: List[str]) -> int:
     sin_anio = [t for t in textos if extraer_anio(t) is None]
-    print(f"🔍 {len(sin_anio)} sin año de {len(textos)} textos analizados")
+    if DEBUG:
+        print(f"🔍 {len(sin_anio)} sin año de {len(textos)} textos analizados")
     return len(sin_anio)
 
 def limpiar_precio(texto: str) -> int:
@@ -321,7 +331,6 @@ def insertar_anuncio_db(
         " VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)",
         (url, modelo, año, precio, km, date.today().isoformat(),
          roi, score, int(score >= SCORE_MIN_DB))
-    )
     conn.commit()
 
 def existe_en_db(link: str) -> bool:
