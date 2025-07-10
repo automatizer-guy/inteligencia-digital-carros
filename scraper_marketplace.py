@@ -50,9 +50,12 @@ async def extraer_items_pagina(page: Page) -> List[Dict[str, str]]:
         items = await page.query_selector_all("a[href*='/marketplace/item']")
         resultados = []
         for a in items:
-            txt = (await a.inner_text()).strip()
+            titulo = (await a.inner_text()).strip()
+            aria_label = await a.get_attribute("aria-label") or ""
+            texto_completo = f"{titulo} {aria_label}".strip()
             href = await a.get_attribute("href") or ""
-            resultados.append({"texto": txt, "url": limpiar_url(href)})
+            resultados.append({"texto": texto_completo, "url": limpiar_url(href)})
+
         return resultados
     except Exception as e:
         logger.error(f"❌ Error al extraer items: {e}")
