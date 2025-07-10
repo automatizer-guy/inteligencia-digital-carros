@@ -115,46 +115,67 @@ def coincide_modelo(titulo: str, modelo: str) -> bool:
     norm = normalizar_texto(titulo)
     return all(normalizar_texto(p) in norm for p in modelo.split())
 
-# ---- Extracción de año ----
 def extraer_anio(texto: str) -> Optional[int]:
+    """
+    Intenta extraer el año (1990–2030) de un texto de anuncio usando:
+    1. Regex con contexto ("año 2015", "modelo 2016", etc.)
+    2. Regex de fechas abreviadas ("modelo 22", "mdl16", "06/2015")
+    3. Heurísticas semánticas ("nuevo modelo")
+    4. Fallback por presencia de año explícito (1990-2030)
+    """
     texto = texto.lower()
+    texto_sin_tildes = texto.translate(str.maketrans("áéíóú", "aeiou"))
+    texto_limpio = re.sub(r"[^a-z0-9\s/.-]", " ", texto_sin_tildes)  # eliminar símbolos raros
 
+    # -------- REGEX COMUNES --------
     patrones = [
-        r"\b(19\d{2}|20[0-2]\d|2030)\b",  # año aislado
-        r"(?:modelo|año|anio)\D{0,6}(19\d{2}|20[0-2]\d|2030)",  # precedido por etiquetas
-        r"(?:versión|edición)\D{0,6}(19\d{2}|20[0-2]\d|2030)",  # junto a edición
-        r"(?:del año|modelo del año)\D{0,6}(19\d{2}|20[0-2]\d|2030)",  # frases comunes
-        r"automático\s*(19\d{2}|20[0-2]\d|2030)",  # cercano a características
-        r"\banio\s*(19\d{2}|20[0-2]\d|2030)",  # error común: “anio”
-        r"\bmodelo\s*([0-9]{2})\b"  # año abreviado como “modelo 22”
+        # año completo aislado
+        r"\b(19\d{2}|20[0-2]\d|2030)\b",
+
+        # precedido por palabras clave
+        r"(?:modelo|a[ñn]o|anio|version|edicion|autom[aá]tico|del a[ñn]o)\D{0,6}(19\d{2}|20[0-2]\d|2030)",
+
+        # abreviaciones tipo modelo 22
+        r"\bmodelo\s+(\d{2})\b",
+
+        # formas como mdl16, vr18, m22
+        r"\b(?:mdl|vr|m)\s?(\d{2})\b",
+
+        # fechas con slash o guion
+        r"\b(0[1-9]|1[0-2])[-/](19\d{2}|20[0-2]\d|2030)\b",  # 06/2015
+        r"(19\d{2}|20[0-2]\d|2030)[-/](0[1-9]|1[0-2])",  # 2015/06
     ]
 
     for pat in patrones:
-        m = re.search(pat, texto)
-        if m:
-            try:
-                val = int(m.group(1))
-                # año corto como “modelo 22”
-                if val < 100:
-                    val += 2000
-                if 1990 <= val <= 2030:
-                    return val
-            except:
-                continue
+        match = re.search(pat, texto_limpio)
+        if match:
+            for group in match.groups():
+                try:
+                    val = int(group)
+                    if val < 100:
+                        val += 2000  # modelo 08 → 2008
+                    if 1990 <= val <= 2030:
+                        return val
+                except ValueError:
+                    continue
 
-    # 🔍 Heurísticas semánticas (no numéricas)
-    texto_sin_tildes = texto.replace("á", "a").replace("é", "e").replace("í", "i").replace("ó", "o").replace("ú", "u")
-    semantico = ["modelo reciente", "del año", "nuevo modelo", "full full", "recien importado"]
-    for frase in semantico:
-        if frase in texto_sin_tildes:
-            return datetime.now().year - 1  # asumimos año anterior
+    # -------- HEURÍSTICAS SEMÁNTICAS --------
+    frases_semanticas = [
+        "modelo reciente", "nuevo modelo", "del ano",
+        "recien importado", "full full", "ultima generacion",
+        "nuevo ingreso", "nueva version", "año actual"
+    ]
+    for frase in frases_semanticas:
+        if frase in texto_limpio:
+            return datetime.now().year - 1
 
-    # Fallback por fuerza bruta
-    for an in range(2030, 1989, -1):
-        if f" {an} " in texto or f"\n{an} " in texto or f" {an}\n" in texto:
-            return an
+    # -------- FALLBACK FUERZA BRUTA --------
+    for anio in range(2030, 1989, -1):
+        if f" {anio} " in texto_limpio or f"\n{anio} " in texto_limpio or f" {anio}\n" in texto_limpio:
+            return anio
 
     return None
+
 
 
 def limpiar_precio(texto: str) -> int:
