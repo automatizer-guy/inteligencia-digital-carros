@@ -72,6 +72,7 @@ def resumen_diagnostico(modelo: str, contador: Dict[str, int]) -> str:
 
 async def procesar_modelo(page: Page, modelo: str, resultados: List[str], pendientes: List[str]) -> int:
     vistos, nuevos = set(), set()
+    vistos_globales = set()
     contador = {k: 0 for k in [
         "total", "duplicado", "negativo", "sin_precio", "sin_anio",
         "filtro_modelo", "guardado", "precio_bajo", "extranjero"
@@ -105,13 +106,12 @@ async def procesar_modelo(page: Page, modelo: str, resultados: List[str], pendie
                 if not url.startswith("https://www.facebook.com/marketplace/item/"):
                     continue
 
-                if url in vistos or existe_en_db(url):
+
+                if url in vistos_globales or existe_en_db(url):
                     contador["duplicado"] += 1
                     consec_repetidos += 1
+                    vistos_globales.add(url)
                     continue
-
-                consec_repetidos = 0
-                vistos.add(url)
 
                 if contiene_negativos(texto):
                     contador["negativo"] += 1
