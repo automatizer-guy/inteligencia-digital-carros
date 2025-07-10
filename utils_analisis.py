@@ -116,71 +116,87 @@ def coincide_modelo(titulo: str, modelo: str) -> bool:
     norm = normalizar_texto(titulo)
     return all(normalizar_texto(p) in norm for p in modelo.split())
 
-from collections import Counter
+PALABRAS_NUMEROS = {
+    "cero": 0, "uno": 1, "una": 1, "dos": 2, "tres": 3, "cuatro": 4, "cinco": 5,
+    "seis": 6, "siete": 7, "ocho": 8, "nueve": 9, "diez": 10, "once": 11, "doce": 12,
+    "trece": 13, "catorce": 14, "quince": 15, "dieciseis": 16, "diecisiete": 17,
+    "dieciocho": 18, "diecinueve": 19, "veinte": 20, "veintiuno": 21, "veintidos": 22,
+    "veintitrés": 23, "veintitres": 23, "veinticuatro": 24, "veinticinco": 25,
+    "veintiseis": 26, "veintiséis": 26, "veintisiete": 27, "veintiocho": 28,
+    "veintinueve": 29, "treinta": 30, "treinta y uno": 31,
+    "noventa y nueve": 99,
+}
+
+ANIO_MIN = 1990
+ANIO_MAX = datetime.now().year
+
+def texto_a_numero(texto: str) -> Optional[int]:
+    texto = texto.lower()
+    if "dos mil" in texto:
+        partes = texto.split()
+        try:
+            if len(partes) == 3 and partes[0] == "dos" and partes[1] == "mil":
+                base = 2000
+                sufijo = PALABRAS_NUMEROS.get(partes[2], None)
+                if sufijo is not None:
+                    return base + sufijo
+        except:
+            pass
+    for palabra, num in PALABRAS_NUMEROS.items():
+        if re.search(rf"\b(modelo|año|ano)?\s*{palabra}\b", texto):
+            if num < 100:
+                return 2000 + num
+    return None
 
 def extraer_anio(texto: str) -> Optional[int]:
-    """
-    Extrae el año de un texto (entre 1990 y 2030) de forma robusta y precisa.
-    - Busca múltiples patrones comunes.
-    - Elige el año más frecuente si hay varios candidatos.
-    - Fallback con revisión completa del texto.
-    """
-    texto = texto.lower()
-    texto = texto.translate(str.maketrans("áéíóú", "aeiou"))
-    texto_limpio = re.sub(r"[^a-z0-9\s/.-]", " ", texto)
+    texto_l = texto.lower()
+    candidatos_contextuales = []
+    candidatos_fuertes = []
+    candidatos_debiles = []
+    candidatos_sueltos = []
 
-    # Todos los posibles patrones
-    patrones = [
-        r"\b(19\d{2}|20[0-2]\d|2030)\b",  # años completos
-        r"(?:modelo|a[ñn]o|anio|version|edicion|automatico|del a[ñn]o|es|viene|trae|tiene)[^\d]{0,6}(19\d{2}|20[0-2]\d|2030)",
-        r"\bmodelo\s+(\d{2})\b",
-        r"\b(?:mdl|vr|m|version)\s?(\d{2})\b",
-        r"\b(0[1-9]|1[0-2])[-/](19\d{2}|20[0-2]\d|2030)\b",  # fechas tipo 06/2015
-        r"(19\d{2}|20[0-2]\d|2030)[-/](0[1-9]|1[0-2])",
-    ]
+    for match in re.finditer(r"(19\d{2}|20[0-3]\d)", texto_l):
+        val = int(match.group())
+        if ANIO_MIN <= val <= ANIO_MAX:
+            antes = texto_l[max(0, match.start() - 15):match.start()]
+            despues = texto_l[match.end():match.end() + 15]
+            contexto = antes + " " + despues
+            if re.search(r"(modelo|año|ano|es|del|un|version)", contexto):
+                candidatos_fuertes.append(val)
+            elif re.search(r"(comparado|mejor que|similar a)", contexto):
+                continue
+            else:
+                candidatos_debiles.append(val)
 
-    encontrados = []
+    for match in re.finditer(r"(modelo|año|ano)\s+(\d{2})\b", texto_l):
+        val = int(match.group(2))
+        val += 2000
+        if ANIO_MIN <= val <= ANIO_MAX:
+            candidatos_contextuales.append(val)
 
-    for pat in patrones:
-        matches = re.findall(pat, texto_limpio)
-        for match in matches:
-            grupos = match if isinstance(match, tuple) else (match,)
-            for grupo in grupos:
-                try:
-                    val = int(grupo)
-                    if val < 100:
-                        val += 2000
-                    if 1990 <= val <= 2030:
-                        encontrados.append(val)
-                except ValueError:
-                    continue
+    anio_palabra = texto_a_numero(texto_l)
+    if anio_palabra and ANIO_MIN <= anio_palabra <= ANIO_MAX:
+        candidatos_contextuales.append(anio_palabra)
 
-    # Si se encontraron varios, devolver el más común
-    if encontrados:
-        return Counter(encontrados).most_common(1)[0][0]
+    if not candidatos_fuertes and not candidatos_contextuales:
+        for match in re.finditer(r"\b(\d{2})\b", texto_l):
+            val = int(match.group(1)) + 2000
+            if ANIO_MIN <= val <= ANIO_MAX:
+                candidatos_sueltos.append(val)
 
-    # Heurística por frases típicas
-    frases_semanticas = [
-        "modelo reciente", "nuevo modelo", "del ano",
-        "recien importado", "ultima generacion", "nuevo ingreso",
-        "nueva version", "año actual", "recién llegado"
-    ]
-    for frase in frases_semanticas:
-        if frase in texto_limpio:
-            return datetime.now().year - 1
-
-    # Fallback: revisión fuerza bruta
-    for anio in range(2030, 1989, -1):
-        if f" {anio} " in texto_limpio or f"\n{anio}" in texto_limpio or f"{anio}\n" in texto_limpio:
-            return anio
-
-    # Guardar para depuración si está activo DEBUG
-    if os.getenv("DEBUG", "false").lower() in ("1", "true", "yes"):
-        with open("anuncios_sin_anio.txt", "a", encoding="utf-8") as f:
-            f.write(texto + "\n---\n")
+    if candidatos_fuertes:
+        return Counter(candidatos_fuertes).most_common(1)[0][0]
+    if candidatos_contextuales:
+        return Counter(candidatos_contextuales).most_common(1)[0][0]
+    if candidatos_debiles:
+        return Counter(candidatos_debiles).most_common(1)[0][0]
+    if candidatos_sueltos:
+        return Counter(candidatos_sueltos).most_common(1)[0][0]
 
     return None
 
+# (El resto del archivo sigue igual)
+# Puedes continuar desde 'contar_anuncios_sin_anio' en tu versión original.
 def contar_anuncios_sin_anio(textos: List[str]) -> int:
     sin_anio = [t for t in textos if extraer_anio(t) is None]
     print(f"🔍 {len(sin_anio)} sin año de {len(textos)} textos analizados")
@@ -201,7 +217,7 @@ def es_extranjero(texto: str) -> bool:
 
 # ---- Parsing completo ----
 @timeit
-def parsear_anuncio(texto: str) -> Optional[Tuple[str,str,int,int,str]]:
+def parsear_anuncio(texto: str) -> Optional[Tuple[str, str, int, int, str]]:
     if es_extranjero(texto) or contiene_negativos(texto):
         return None
     m_url = re.search(r"https://www\.facebook\.com/marketplace/item/\d+", texto)
@@ -210,7 +226,7 @@ def parsear_anuncio(texto: str) -> Optional[Tuple[str,str,int,int,str]]:
         return None
     m_pr = re.search(r"[Qq\$]\s?([\d.,]+)", texto)
     precio = limpiar_precio(m_pr.group(1)) if m_pr else 0
-    if precio <= 0:
+    if precio < 3000:
         return None
     anio = extraer_anio(texto)
     if not anio:
@@ -249,7 +265,8 @@ def analizar_mensaje(texto: str) -> Optional[Dict[str, Any]]:
 # ---- Cálculo de ROI ----
 @timeit
 def get_precio_referencia(modelo: str, año: int, tolerancia: Optional[int] = None) -> int:
-    conn = get_conn(); cur = conn.cursor()
+    conn = get_conn()
+    cur = conn.cursor()
     cur.execute(
         "SELECT MIN(precio) FROM anuncios WHERE modelo=? AND ABS(anio-?)<=?",
         (modelo, año, tolerancia or TOLERANCIA_PRECIO_REF)
@@ -296,7 +313,8 @@ def puntuar_anuncio(texto: str) -> int:
 def insertar_anuncio_db(
     url: str, modelo: str, año: int, precio: int, km: str, roi: float, score: int, relevante: bool = False
 ) -> None:
-    conn = get_conn(); cur = conn.cursor()
+    conn = get_conn()
+    cur = conn.cursor()
     cur.execute(
         "INSERT OR IGNORE INTO anuncios"
         " (link, modelo, anio, precio, km, fecha_scrape, roi, score, relevante)"
@@ -308,15 +326,16 @@ def insertar_anuncio_db(
 
 def existe_en_db(link: str) -> bool:
     link = limpiar_link(link)
-    conn = get_conn(); cur = conn.cursor()
+    conn = get_conn()
+    cur = conn.cursor()
     cur.execute("SELECT 1 FROM anuncios WHERE link = ?", (link,))
-    found = cur.fetchone() is not None
-    return found
+    return cur.fetchone() is not None
 
 # ---- Métricas históricas ----
 @timeit
 def get_rendimiento_modelo(modelo: str, dias: int = 7) -> float:
-    conn = get_conn(); cur = conn.cursor()
+    conn = get_conn()
+    cur = conn.cursor()
     cur.execute(
         "SELECT SUM(CASE WHEN score>=? THEN 1 ELSE 0 END)*1.0/COUNT(*) "
         "FROM anuncios WHERE modelo=? AND fecha_scrape>=date('now',?)",
@@ -331,7 +350,8 @@ def modelos_bajo_rendimiento(threshold: float = 0.005, dias: int = 7) -> List[st
 # ---- Resumen mensual ----
 @timeit
 def resumen_mensual() -> str:
-    conn = get_conn(); cur = conn.cursor()
+    conn = get_conn()
+    cur = conn.cursor()
     cur.execute(
         "SELECT modelo, COUNT(*) total, AVG(roi) avg_roi, "
         "SUM(CASE WHEN score>=? THEN 1 ELSE 0 END) rel "
@@ -339,7 +359,8 @@ def resumen_mensual() -> str:
         "GROUP BY modelo ORDER BY rel DESC, avg_roi DESC",
         (SCORE_MIN_DB,)
     )
-    rows = cur.fetchall(); report = []
+    rows = cur.fetchall()
+    report = []
     for m, total, avg_roi, rel in rows:
         report.append(f"🚘 {m.title()}: {total} anuncios, ROI={avg_roi:.1f}%, relevantes={rel}")
     return "\n".join(report)
