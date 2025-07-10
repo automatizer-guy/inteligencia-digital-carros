@@ -68,7 +68,7 @@ async def procesar_modelo(page: Page, modelo: str, resultados: List[str], pendie
     vistos, nuevos = set(), set()
     contador = {k: 0 for k in [
         "total", "duplicado", "negativo", "sin_precio", "sin_anio",
-        "filtro_modelo", "guardado"
+        "filtro_modelo", "guardado", "precio_bajo", "extranjero"
     ]}
     SORT_OPTS = ["best_match", "newest", "price_asc"]
     for sort in SORT_OPTS:
@@ -91,94 +91,59 @@ async def procesar_modelo(page: Page, modelo: str, resultados: List[str], pendie
                 continue
 
             nuevos_inicio = len(nuevos)
-           for itm in items:
-               texto = itm["texto"]
-               url = limpiar_link(itm["url"])
-               contador["total"] += 1
-               if not url.startswith("https://www.facebook.com/marketplace/item/"):
-                    continue
-                   
-               if url in vistos or existe_en_db(url):
-                    contador["duplicado"] += 1
-                    consec_repetidos += 1
-                    continue
-                
-               consec_repetidos = 0
-               vistos.add(url)
-               
-               if contiene_negativos(texto):
-                    contador["negativo"] += 1
-                    continue
-                
-               if es_extranjero(texto):
-                    contador["extranjero"] += 1
-                    continue
-                
-               m = re.search(r"[Qq\$]\s?[\d\.,]+", texto)
-               if not m:
-                    contador["sin_precio"] += 1
-                    pendientes.append(f"🔍 {modelo.title()}\n📝 {texto}\n🔗 {url}")
-                    continue
-                   
-               precio = limpiar_precio(m.group())
-               if precio < MIN_PRECIO_VALIDO:
-                    contador["precio_bajo"] += 1
-                    continue
-                
-               anio = extraer_anio(texto)
-               if not anio or not (1990 <= anio <= datetime.now().year):
-                contador["sin_anio"] += 1
-                continue
-        
-                if not coincide_modelo(texto, modelo):
-                contador["filtro_modelo"] += 1
-                continue
-        
-                roi = calcular_roi_real(modelo, precio, anio)
-                score = puntuar_anuncio(texto)
-                insertar_anuncio_db(url, modelo, anio, precio, "", roi, score, relevante=False)
-                contador["guardado"] += 1
-                nuevos.add(url)
-        
-                if score >= SCORE_MIN_TELEGRAM and roi >= ROI_MINIMO:
-                resultados.append(
-                    f"🚘 *{modelo.title()}* | Año: {anio} | Precio: Q{precio:,} | ROI: {roi:.1f}% | Score: {score}/10\n🔗 {url}"
-                )
+            for itm in items:
+                texto = itm["texto"]
+                url = limpiar_link(itm["url"])
+                contador["total"] += 1
 
                 if not url.startswith("https://www.facebook.com/marketplace/item/"):
                     continue
+
                 if url in vistos or existe_en_db(url):
                     contador["duplicado"] += 1
                     consec_repetidos += 1
                     continue
+
                 consec_repetidos = 0
                 vistos.add(url)
+
                 if contiene_negativos(texto):
                     contador["negativo"] += 1
                     continue
+
+                if "mexico" in texto.lower():
+                    contador["extranjero"] += 1
+                    continue
+
                 m = re.search(r"[Qq\$]\s?[\d\.,]+", texto)
                 if not m:
                     contador["sin_precio"] += 1
                     pendientes.append(f"🔍 {modelo.title()}\n📝 {texto}\n🔗 {url}")
                     continue
+
                 precio = limpiar_precio(m.group())
                 if precio < MIN_PRECIO_VALIDO:
+                    contador["precio_bajo"] += 1
                     continue
+
                 match_anio = re.search(r"(19\d{2}|20[0-2]\d)", texto)
                 anio = int(match_anio.group()) if match_anio else None
                 if not anio or not (1990 <= anio <= datetime.now().year):
                     contador["sin_anio"] += 1
                     continue
+
                 if not coincide_modelo(texto, modelo):
                     score_t = puntuar_anuncio(texto)
                     if score_t < SCORE_MIN_TELEGRAM:
                         contador["filtro_modelo"] += 1
                         continue
+
                 roi = calcular_roi_real(modelo, precio, anio)
                 score = puntuar_anuncio(texto)
                 insertar_anuncio_db(url, modelo, anio, precio, "", roi, score, relevante=False)
                 contador["guardado"] += 1
                 nuevos.add(url)
+
                 if score >= SCORE_MIN_TELEGRAM and roi >= ROI_MINIMO:
                     resultados.append(
                         f"🚘 *{modelo.title()}* | Año: {anio} | Precio: Q{precio:,} | ROI: {roi:.1f}% | Score: {score}/10\n🔗 {url}"
