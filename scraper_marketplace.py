@@ -55,7 +55,6 @@ async def extraer_items_pagina(page: Page) -> List[Dict[str, str]]:
             texto_completo = f"{titulo} {aria_label}".strip()
             href = await a.get_attribute("href") or ""
             resultados.append({"texto": texto_completo, "url": limpiar_url(href)})
-
         return resultados
     except Exception as e:
         logger.error(f"❌ Error al extraer items: {e}")
@@ -83,6 +82,7 @@ async def procesar_modelo(page: Page, modelo: str, resultados: List[str], pendie
         "filtro_modelo", "guardado", "precio_bajo", "extranjero"
     ]}
     SORT_OPTS = ["best_match", "newest", "price_asc"]
+
     for sort in SORT_OPTS:
         url_busq = (
             "https://www.facebook.com/marketplace/guatemala/search/"
@@ -103,7 +103,6 @@ async def procesar_modelo(page: Page, modelo: str, resultados: List[str], pendie
                 continue
 
             for itm in items:
-                texto = itm["texto"]
                 url = limpiar_link(itm["url"])
                 contador["total"] += 1
 
@@ -114,6 +113,15 @@ async def procesar_modelo(page: Page, modelo: str, resultados: List[str], pendie
                     consec_repetidos += 1
                     vistos_globales.add(url)
                     continue
+
+                try:
+                    await page.goto(url)
+                    await asyncio.sleep(2)
+                    texto = await page.inner_text("div[role='main']")
+                except Exception:
+                    texto = itm["texto"]
+
+                texto = texto.strip()
                 if contiene_negativos(texto):
                     contador["negativo"] += 1
                     continue
@@ -183,6 +191,7 @@ async def buscar_autos_marketplace(modelos_override: Optional[List[str]] = None)
     flops = modelos_bajo_rendimiento()
     activos = [m for m in modelos if m not in flops]
     results, pend = [], []
+
     async with async_playwright() as p:
         browser = await p.chromium.launch(headless=True)
         ctx = await cargar_contexto_con_cookies(browser)
