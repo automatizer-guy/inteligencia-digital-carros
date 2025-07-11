@@ -1,0 +1,38 @@
+import asyncio
+from playwright.async_api import async_playwright
+
+async def inspeccionar_marketplace():
+    async with async_playwright() as p:
+        browser = await p.chromium.launch(headless=False)  # Para que veas qué pasa
+        context = await browser.new_context()
+        page = await context.new_page()
+
+        url = "https://www.facebook.com/marketplace/guatemala/search/?query=corolla"
+        await page.goto(url)
+        await page.wait_for_timeout(5000)  # Espera 5 segundos a que cargue
+
+        # Obtener todo el HTML visible
+        html = await page.content()
+
+        with open("marketplace_corolla.html", "w", encoding="utf-8") as f:
+            f.write(html)
+        print("Archivo marketplace_corolla.html guardado.")
+
+        # Prueba varios selectores para contar elementos:
+        selectores = [
+            "a[href*='/marketplace/item']",  # El tuyo
+            "div[role='link']",
+            "div[aria-label*='anuncio']",
+            "article",
+            "div[role='article']",
+            "div[role='main'] a",
+            "a"  # Cualquier enlace
+        ]
+
+        for sel in selectores:
+            elems = await page.query_selector_all(sel)
+            print(f"Selector '{sel}' encontró {len(elems)} elementos.")
+
+        await browser.close()
+
+asyncio.run(inspeccionar_marketplace())
