@@ -217,6 +217,15 @@ async def buscar_autos_marketplace(modelos_override: Optional[List[str]] = None)
         browser = await p.chromium.launch(headless=True)
         ctx = await cargar_contexto_con_cookies(browser)
         page = await ctx.new_page()
+        await page.goto("https://www.facebook.com/marketplace")
+await asyncio.sleep(2)
+
+titulo = await page.title()
+if "log in" in titulo.lower() or "sign up" in titulo.lower():
+    logger.warning(f"⚠️ Facebook muestra página de login: '{titulo}'")
+    results.append("🚨 Sesión inválida en Marketplace. Verifica las cookies.")
+    return results, pend, []  # Evita seguir scraping si no hay sesión válida
+
         for m in random.sample(activos, len(activos)):
             try:
                 await asyncio.wait_for(procesar_modelo(page, m, results, pend, destacados), timeout=420)
