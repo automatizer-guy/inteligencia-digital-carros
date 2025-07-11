@@ -74,8 +74,7 @@ def resumen_diagnostico(modelo: str, contador: Dict[str, int]) -> str:
     return "\n".join(lineas)
 
 async def procesar_modelo(page: Page, modelo: str, resultados: List[str], pendientes: List[str], destacados: List[str]) -> int:
-    vistos, nuevos = set(), set()
-    vistos_globales = set()
+    nuevos = set()
     sin_anio_ejemplos = []
     contador = {k: 0 for k in [
         "total", "duplicado", "negativo", "sin_precio", "sin_anio",
@@ -91,12 +90,10 @@ async def procesar_modelo(page: Page, modelo: str, resultados: List[str], pendie
         await page.goto(url_busq)
         await asyncio.sleep(random.uniform(2, 4))
 
-        max_scrolls_base = 10
-        max_scrolls_top = 30
-        scrolls_realizados = 0
-        consec_repetidos = 0
+        scrolls_realizados, consec_repetidos = 0, 0
+        vistos_globales = set()
 
-        while scrolls_realizados < max_scrolls_top:
+        while scrolls_realizados < 30:
             items = await extraer_items_pagina(page)
             if not items:
                 if not await scroll_hasta(page):
@@ -149,12 +146,10 @@ async def procesar_modelo(page: Page, modelo: str, resultados: List[str], pendie
                     contador["sin_anio"] += 1
                     if len(sin_anio_ejemplos) < MAX_EJEMPLOS_SIN_ANIO:
                         sin_anio_ejemplos.append((texto, url))
-                    logger.debug(f"❓ Sin año → {texto[:80]}... | URL: {url}")
                     continue
 
                 if not coincide_modelo(texto, modelo):
-                    score_t = puntuar_anuncio(texto)
-                    if score_t < SCORE_MIN_TELEGRAM:
+                    if puntuar_anuncio(texto) < SCORE_MIN_TELEGRAM:
                         contador["filtro_modelo"] += 1
                         continue
 
@@ -165,13 +160,10 @@ async def procesar_modelo(page: Page, modelo: str, resultados: List[str], pendie
                 nuevos.add(url)
                 nuevos_en_scroll += 1
 
+                anuncio = f"🚘 *{modelo.title()}* | Año: {anio} | Precio: Q{precio:,} | ROI: {roi:.1f}% | Score: {score}/10\n🔗 {url}"
+                destacados.append(anuncio)
                 if score >= SCORE_MIN_TELEGRAM and roi >= ROI_MINIMO:
-                    resultados.append(
-                        f"🚘 *{modelo.title()}* | Año: {anio} | Precio: Q{precio:,} | ROI: {roi:.1f}% | Score: {score}/10\n🔗 {url}"
-                    )
-                destacados.append(
-                    f"🚘 *{modelo.title()}* | Año: {anio} | Precio: Q{precio:,} | ROI: {roi:.1f}% | Score: {score}/10\n🔗 {url}"
-                )
+                    resultados.append(anuncio)
 
             scrolls_realizados += 1
 
@@ -181,29 +173,17 @@ async def procesar_modelo(page: Page, modelo: str, resultados: List[str], pendie
                 consec_repetidos = 0
 
             if consec_repetidos >= 5 and len(nuevos) < 5:
-                logger.info(f"🛑 {modelo} → {consec_repetidos} duplicados sin nuevos válidos tras {scrolls_realizados} scrolls. Se aborta búsqueda.")
+                logger.info(f"🛑 {modelo} → Se detiene por demasiados repetidos.")
                 break
 
-            if scrolls_realizados >= max_scrolls_base and len(nuevos) < 5:
-                logger.info(f"🛑 {modelo} → Se realizaron {scrolls_realizados} scrolls pero solo {len(nuevos)} válidos. Abortando búsqueda para este sort.")
+            if scrolls_realizados >= 10 and len(nuevos) < 5:
+                logger.info(f"🛑 {modelo} → Scrolls mínimos sin resultados.")
                 break
 
             if not await scroll_hasta(page):
                 break
 
-    logger.info(f"📊 {modelo.upper()} → {contador}")
     logger.info(resumen_diagnostico(modelo, contador))
-
-    if sin_anio_ejemplos:
-        print(f"📌 Ejemplos sin año ({modelo}):")
-        for i, ejemplo in enumerate(sin_anio_ejemplos):
-            if isinstance(ejemplo, tuple) and len(ejemplo) == 2:
-                texto, url = ejemplo
-                print(f"  {i+1}. 📝 {texto[:80]}...\n     🔗 {url}")
-            else:
-                print(f"  {i+1}. ⚠️ Formato inesperado: {ejemplo[:100]}")
-        print("")
-
     return len(nuevos)
 
 async def buscar_autos_marketplace(modelos_override: Optional[List[str]] = None) -> Tuple[List[str], List[str], List[str]]:
@@ -220,29 +200,25 @@ async def buscar_autos_marketplace(modelos_override: Optional[List[str]] = None)
 
         await page.goto("https://www.facebook.com/marketplace")
         await asyncio.sleep(2)
-        
-        titulo = await page.title()
-        if "log in" in titulo.lower() or "sign up" in titulo.lower():
-            logger.warning(f"⚠️ Facebook muestra login: '{titulo}'")
-            alerta = "🚨 Sesión inválida en Marketplace. Verifica las cookies."
-            results.append(alert)
-            pend.append(alert)
-            destacados.append(alert)
-            return results, pend, destacados
 
+        titulo = await page.title()
+        if "log in" in titulo.lower():
+            alerta = "🚨 Sesión inválida en Marketplace. Verifica las cookies."
+            logger.warning(alerta)
+            return [alerta], [alerta], [alerta]
 
         try:
             for m in random.sample(activos, len(activos)):
                 await asyncio.wait_for(procesar_modelo(page, m, results, pend, destacados), timeout=420)
         except asyncio.TimeoutError:
-            logger.warning(f"⏳ {m} → Excedió tiempo máximo de 7 minutos. Se aborta.")
+            logger.warning(f"⏳ {m} → Excedió tiempo máximo de 7 minutos.")
 
         await browser.close()
     return results, pend, destacados
 
 if __name__ == "__main__":
     async def main():
-        brutos, pendientes, relevantes = await buscar_autos_marketplace()
+        brutos, pendientes, destacados = await buscar_autos_marketplace()
 
         for r in brutos:
             print(r + "\n")
@@ -252,9 +228,9 @@ if __name__ == "__main__":
             for p in pendientes:
                 print(p + "\n")
 
-        if relevantes:
-            print("📦 Anuncios destacados que cumplen Score y ROI:\n")
-            for d in relevantes:
+        if destacados:
+            print("📦 Anuncios destacados:\n")
+            for d in destacados:
                 print(d + "\n")
         else:
             print("😕 No se encontró ningún anuncio destacado en esta corrida.\n")
