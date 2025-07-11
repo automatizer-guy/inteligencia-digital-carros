@@ -88,6 +88,7 @@ async def procesar_modelo(page: Page, modelo: str, resultados: List[str], pendie
             "https://www.facebook.com/marketplace/guatemala/search/"
             f"?query={modelo.replace(' ', '%20')}&minPrice=1000&maxPrice=60000&sortBy={sort}"
         )
+        logger.info(f"🌐 URL buscada: {url_busq}")
         await page.goto(url_busq)
         await asyncio.sleep(random.uniform(2, 4))
 
@@ -95,10 +96,20 @@ async def procesar_modelo(page: Page, modelo: str, resultados: List[str], pendie
         max_scrolls_top = 30
         scrolls_realizados = 0
         consec_repetidos = 0
+        html_debug_guardado = False
 
         while scrolls_realizados < max_scrolls_top:
             items = await extraer_items_pagina(page)
+            logger.info(f"🔄 Scroll {scrolls_realizados + 1}: {len(items)} items detectados")
+
             if not items:
+                if scrolls_realizados == 1 and not html_debug_guardado:
+                    html = await page.content()
+                    with open(f"debug_{modelo}.html", "w", encoding="utf-8") as f:
+                        f.write(html)
+                    logger.info(f"💾 Guardado HTML de diagnóstico: debug_{modelo}.html")
+                    html_debug_guardado = True
+
                 if not await scroll_hasta(page):
                     break
                 scrolls_realizados += 1
@@ -221,8 +232,13 @@ async def buscar_autos_marketplace(modelos_override: Optional[List[str]] = None)
         await page.goto("https://www.facebook.com/marketplace")
         await asyncio.sleep(3)
 
+        html_inicio = await page.content()
+        if "Marketplace" not in html_inicio:
+            with open("debug_marketplace_fail.html", "w", encoding="utf-8") as f:
+                f.write(html_inicio)
+            logger.warning("⚠️ Marketplace no cargó correctamente. ¿Cookies inválidas?")
+
         try:
-            # Verificación robusta de sesión
             await page.wait_for_selector("text=Crear cuenta nueva", timeout=4000)
             logger.warning("⚠️ Facebook redirige a login. No hay sesión activa.")
             alerta = "🚨 Sesión inválida en Marketplace. Verifica las cookies."
