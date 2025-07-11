@@ -102,8 +102,8 @@ async def procesar_modelo(page: Page, modelo: str, resultados: List[str], pendie
             if not items:
                 if not await scroll_hasta(page):
                     break
-            scrolls_realizados += 1
-            continue
+                scrolls_realizados += 1
+                continue
 
             nuevos_en_scroll = 0
 
@@ -176,7 +176,7 @@ async def procesar_modelo(page: Page, modelo: str, resultados: List[str], pendie
             if nuevos_en_scroll == 0:
                 consec_repetidos += 1
             else:
-            consec_repetidos = 0
+                consec_repetidos = 0
 
             if consec_repetidos >= 5 and len(nuevos) < 5:
                 logger.info(f"🛑 {modelo} → {consec_repetidos} duplicados sin nuevos válidos tras {scrolls_realizados} scrolls. Se aborta búsqueda.")
@@ -187,17 +187,6 @@ async def procesar_modelo(page: Page, modelo: str, resultados: List[str], pendie
                 break
 
             if not await scroll_hasta(page):
-                break
-
-            if consec_repetidos >= max_repetidos:
-                if len(nuevos) < 5:
-                    logger.info(f"🛑 {modelo} → {consec_repetidos} duplicados seguidos pero aún no se han guardado suficientes ({len(nuevos)}). Abortando.")
-                else:
-                    logger.info(f"🛑 {modelo} → {consec_repetidos} duplicados seguidos y ya hay suficiente guardado. Abortando.")
-                break
-            
-            if intento >= max_scrolls - 1:
-                logger.warning(f"⏳ {modelo} → Se alcanzó el límite de scrolls ({max_scrolls}). Cortando búsqueda.")
                 break
             
             if not await scroll_hasta(page):
