@@ -7,6 +7,7 @@ from urllib.parse import urlparse
 from datetime import datetime
 from typing import List, Dict, Optional, Tuple
 from playwright.async_api import async_playwright, Browser, BrowserContext, Page
+
 from utils_analisis import (
     limpiar_precio, contiene_negativos, puntuar_anuncio,
     calcular_roi_real, coincide_modelo, extraer_anio,
@@ -21,8 +22,6 @@ logging.basicConfig(level=logging.INFO, format="%(asctime)s [%(levelname)s] %(me
 COOKIES_PATH = "fb_cookies.json"
 MIN_PRECIO_VALIDO = 3000
 MAX_EJEMPLOS_SIN_ANIO = 5
-DEBUG_HTML = True  # Guarda HTML si no se encuentran anuncios
-DEBUG_SCREENSHOT = True  # Guarda imagen de la página
 
 async def cargar_contexto_con_cookies(browser: Browser) -> BrowserContext:
     logger.info("🔐 Cargando cookies desde entorno…")
@@ -30,8 +29,10 @@ async def cargar_contexto_con_cookies(browser: Browser) -> BrowserContext:
     if not cj:
         logger.warning("⚠️ Sin cookies encontradas. Usando sesión anónima.")
         return await browser.new_context(locale="es-ES")
+    # Guardamos en disco la variable de entorno
     with open(COOKIES_PATH, "w", encoding="utf-8") as f:
         f.write(cj)
+    # Creamos contexto con esas cookies
     return await browser.new_context(
         storage_state=COOKIES_PATH,
         locale="es-ES",
@@ -46,14 +47,16 @@ def limpiar_url(link: str) -> str:
 
 async def extraer_items_pagina(page: Page) -> List[Dict[str, str]]:
     try:
-        items = await page.query_selector_all("a[href*='/marketplace/item']")
+        anchors = await page.query_selector_all("a[href*='/marketplace/item']")
         resultados = []
-        for a in items:
+        for a in anchors:
             titulo = (await a.inner_text()).strip()
-            aria_label = await a.get_attribute("aria-label") or ""
-            texto_completo = f"{titulo} {aria_label}".strip()
+            aria = await a.get_attribute("aria-label") or ""
             href = await a.get_attribute("href") or ""
-            resultados.append({"texto": texto_completo, "url": limpiar_url(href)})
+            resultados.append({
+                "texto": f"{titulo} {aria}".strip(),
+                "url": limpiar_url(href)
+            })
         return resultados
     except Exception as e:
         logger.error(f"❌ Error al extraer items: {e}")
@@ -66,13 +69,13 @@ async def scroll_hasta(page: Page) -> bool:
     now = await page.evaluate("document.body.scrollHeight")
     return now > prev
 
-def resumen_diagnostico(modelo: str, contador: Dict[str, int]) -> str:
-    lineas = [f"🔍 {modelo.upper()}"]
-    for k, v in contador.items():
-        lineas.append(f"• {k.replace('_', ' ').capitalize()}: {v}")
-    return "\n".join(lineas)
-
-async def procesar_modelo(page: Page, modelo: str, resultados: List[str], pendientes: List[str], destacados: List[str]) -> int:
+async def procesar_modelo(
+    page: Page,
+    modelo: str,
+    resultados: List[str],
+    pendientes: List[str],
+    destacados: List[str]
+) -> int:
     vistos_globales = set()
     sin_anio_ejemplos = []
     contador = {k: 0 for k in [
@@ -82,40 +85,36 @@ async def procesar_modelo(page: Page, modelo: str, resultados: List[str], pendie
     SORT_OPTS = ["best_match", "newest", "price_asc"]
 
     for sort in SORT_OPTS:
-        url_busq = f"https://www.facebook.com/marketplace/guatemala/search/?query={modelo.replace(' ', '%20')}&minPrice=1000&maxPrice=60000&sortBy={sort}"
+        url_busq = (
+            "https://www.facebook.com/marketplace/guatemala/search/"
+            f"?query={modelo.replace(' ', '%20')}"
+            f"&minPrice=1000&maxPrice=60000&sortBy={sort}"
+        )
         await page.goto(url_busq)
         await asyncio.sleep(random.uniform(2, 4))
 
-        scrolls_realizados = 0
-        consec_repetidos = 0
+        scrolls = 0
+        consec_dup = 0
         nuevos = set()
 
-        while scrolls_realizados < 25:
+        while scrolls < 25:
             items = await extraer_items_pagina(page)
-            logger.info(f"🧩 {modelo} - {sort} - Scroll #{scrolls_realizados+1}: {len(items)} ítems detectados")
-
-            if not items and DEBUG_HTML:
-                nombre = modelo.replace(" ", "_").lower()
-                with open(f"debug_{nombre}.html", "w", encoding="utf-8") as f:
-                    f.write(await page.content())
-                if DEBUG_SCREENSHOT:
-                    await page.screenshot(path=f"screenshot_{nombre}.png", full_page=True)
-                logger.warning(f"🧪 Guardado HTML vacío: debug_{nombre}.html y screenshot_{nombre}.png")
+            logger.info(f"🧩 {modelo} ({sort}) — Scroll #{scrolls+1}: {len(items)} ítems encontrados")
 
             nuevos_en_scroll = 0
-
             for itm in items:
-                url = limpiar_link(itm["url"])
+                url = itm["url"]
                 contador["total"] += 1
 
                 if not url.startswith("https://www.facebook.com/marketplace/item/"):
                     continue
                 if url in vistos_globales or existe_en_db(url):
                     contador["duplicado"] += 1
-                    consec_repetidos += 1
+                    consec_dup += 1
                     vistos_globales.add(url)
                     continue
 
+                # volcamos la página individual
                 try:
                     await page.goto(url)
                     await asyncio.sleep(2)
@@ -131,13 +130,13 @@ async def procesar_modelo(page: Page, modelo: str, resultados: List[str], pendie
                     contador["extranjero"] += 1
                     continue
 
-                m = re.search(r"[Qq\$]\s?[\d\.,]+", texto)
-                if not m:
+                m_pr = re.search(r"[Qq\$]\s?[\d\.,]+", texto)
+                if not m_pr:
                     contador["sin_precio"] += 1
                     pendientes.append(f"🔍 {modelo.title()}\n📝 {texto}\n🔗 {url}")
                     continue
 
-                precio = limpiar_precio(m.group())
+                precio = limpiar_precio(m_pr.group())
                 if precio < MIN_PRECIO_VALIDO:
                     contador["precio_bajo"] += 1
                     continue
@@ -155,74 +154,74 @@ async def procesar_modelo(page: Page, modelo: str, resultados: List[str], pendie
                         contador["filtro_modelo"] += 1
                         continue
 
-                roi = calcular_roi_real(modelo, precio, anio)
+                roi   = calcular_roi_real(modelo, precio, anio)
                 score = puntuar_anuncio(texto)
                 insertar_anuncio_db(url, modelo, anio, precio, "", roi, score, relevante=False)
                 contador["guardado"] += 1
                 nuevos.add(url)
                 nuevos_en_scroll += 1
 
+                # solo destacamos si cumple ambos
                 if score >= SCORE_MIN_TELEGRAM and roi >= ROI_MINIMO:
-                    resultados.append(
-                        f"🚘 *{modelo.title()}* | Año: {anio} | Precio: Q{precio:,} | ROI: {roi:.1f}% | Score: {score}/10\n🔗 {url}"
-                    )
-                destacados.append(
-                    f"🚘 *{modelo.title()}* | Año: {anio} | Precio: Q{precio:,} | ROI: {roi:.1f}% | Score: {score}/10\n🔗 {url}"
-                )
+                    msg = f"🚘 *{modelo.title()}* | Año: {anio} | Precio: Q{precio:,} | ROI: {roi:.1f}% | Score: {score}/10\n🔗 {url}"
+                    resultados.append(msg)
+                    destacados.append(msg)
 
-            scrolls_realizados += 1
+            scrolls += 1
             if nuevos_en_scroll == 0:
-                consec_repetidos += 1
+                consec_dup += 1
             else:
-                consec_repetidos = 0
-            if consec_repetidos >= 5 and len(nuevos) < 5:
+                consec_dup = 0
+
+            if consec_dup >= 5 and len(nuevos) < 5:
                 break
             if not await scroll_hasta(page):
                 break
 
     logger.info(f"📊 {modelo.upper()} → {contador}")
-    logger.info(resumen_diagnostico(modelo, contador))
 
     if sin_anio_ejemplos:
-        print(f"📌 Ejemplos sin año ({modelo}):")
-        for i, (texto, url) in enumerate(sin_anio_ejemplos):
-            print(f"  {i+1}. 📝 {texto[:80]}...\n     🔗 {url}")
-        print("")
+        logger.info(f"📌 Ejemplos sin año para {modelo}:")
+        for i, (t, u) in enumerate(sin_anio_ejemplos, 1):
+            logger.info(f"   {i}. {t[:80]}… | {u}")
 
     return len(nuevos)
 
-async def buscar_autos_marketplace(modelos_override: Optional[List[str]] = None) -> Tuple[List[str], List[str], List[str]]:
+async def buscar_autos_marketplace(
+    modelos_override: Optional[List[str]] = None
+) -> Tuple[List[str], List[str], List[str]]:
     inicializar_tabla_anuncios()
     modelos = modelos_override or MODELOS_INTERES
-    flops = modelos_bajo_rendimiento()
+    flops   = modelos_bajo_rendimiento()
     activos = [m for m in modelos if m not in flops]
+
     results, pend, destacados = [], [], []
-
     async with async_playwright() as p:
-        # ⚠️ Cambia esto a False si quieres ver el navegador
         browser = await p.chromium.launch(headless=True)
-        ctx = await cargar_contexto_con_cookies(browser)
-        page = await ctx.new_page()
+        ctx     = await cargar_contexto_con_cookies(browser)
+        page    = await ctx.new_page()
 
+        # 1) diagnóstico de sesión
         await page.goto("https://www.facebook.com/marketplace")
         await asyncio.sleep(3)
-
         try:
-            await page.wait_for_selector("text=Crear cuenta nueva", timeout=4000)
-            alerta = "🚨 Sesión inválida en Marketplace. Verifica las cookies."
-            results.append(alert)
-            pend.append(alert)
-            destacados.append(alert)
-            logger.warning(alert)
-            return results, pend, destacados
+            # si aparece esta cadena, es login
+            await page.wait_for_selector("text=Crear cuenta nueva", timeout=5000)
+            alerta = "🚨 SESIÓN NO VÁLIDA EN MARKETPLACE. Revisa tus cookies."
+            logger.warning(alerta)
+            return [alerta], [alerta], [alerta]
         except:
             logger.info("✅ Sesión activa detectada en Marketplace.")
 
+        # 2) procesamos cada modelo
         for m in random.sample(activos, len(activos)):
             try:
-                await asyncio.wait_for(procesar_modelo(page, m, results, pend, destacados), timeout=420)
+                await asyncio.wait_for(
+                    procesar_modelo(page, m, results, pend, destacados),
+                    timeout=420
+                )
             except asyncio.TimeoutError:
-                logger.warning(f"⏳ {m} → Excedió tiempo máximo. Se aborta.")
+                logger.warning(f"⏳ {m} → timeout. Se salta.")
 
         await browser.close()
     return results, pend, destacados
@@ -230,16 +229,17 @@ async def buscar_autos_marketplace(modelos_override: Optional[List[str]] = None)
 if __name__ == "__main__":
     async def main():
         brutos, pendientes, relevantes = await buscar_autos_marketplace()
+        # salida por consola
         for r in brutos:
-            print(r + "\n")
+            print(r, "\n")
         if pendientes:
             print("📌 Pendientes:\n")
             for p in pendientes:
-                print(p + "\n")
+                print(p, "\n")
         if relevantes:
             print("📦 Destacados:\n")
             for d in relevantes:
-                print(d + "\n")
+                print(d, "\n")
         else:
             print("😕 No se encontró ningún anuncio destacado.\n")
 
