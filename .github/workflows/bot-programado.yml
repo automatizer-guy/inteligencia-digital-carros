@@ -83,7 +83,7 @@ jobs:
       - name: Copiar DB al branch data
         run: cp "${{ env.DB_PATH }}" data/anuncios.db
 
-      # 9️⃣ Commit & push con token
+      # 9️⃣ Commit & push DB actualizada
       - name: Commit & push DB actualizada
         env:
           PAT_PUSH: ${{ secrets.PAT_PUSH }}
@@ -100,7 +100,7 @@ jobs:
             echo "📁 Sin cambios detectados en la base, se omite push"
           fi
 
-      # 🔟 Resumen final
+      # 🔟 Resumen final del run
       - name: Resumen final del run
         run: |
           sudo apt-get update && sudo apt-get install -y sqlite3
@@ -111,6 +111,7 @@ jobs:
           sqlite3 "${{ env.DB_PATH }}" \
             "SELECT link, fecha_scrape FROM anuncios ORDER BY fecha_scrape DESC, rowid DESC LIMIT 1;"
 
+      # 1️⃣1️⃣ Subir archivos de depuración
       - name: Subir archivos de depuración
         if: always()
         uses: actions/upload-artifact@v3
@@ -119,4 +120,3 @@ jobs:
           path: |
             debug_*.html
             screenshot_*.png
-      
