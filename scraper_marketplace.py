@@ -18,7 +18,7 @@ from utils_analisis import (
 logger = logging.getLogger(__name__)
 logging.basicConfig(level=logging.INFO, format="%(asctime)s [%(levelname)s] %(message)s")
 
-COOKIES_PATH = "fb_cookies.json"
+COOKIES_PATH = "FB_COOKIES.JSON"
 MIN_PRECIO_VALIDO = 3000
 MAX_EJEMPLOS_SIN_ANIO = 5
 DEBUG_HTML = True  # Guarda HTML si no se encuentran anuncios
