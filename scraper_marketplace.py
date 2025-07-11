@@ -15,6 +15,7 @@ from utils_analisis import (
     SCORE_MIN_TELEGRAM, ROI_MINIMO
 )
 
+# Configurar logger
 logger = logging.getLogger(__name__)
 logging.basicConfig(level=logging.INFO, format="%(asctime)s [%(levelname)s] %(message)s")
 
@@ -165,16 +166,16 @@ async def procesar_modelo(page: Page, modelo: str, resultados: List[str], pendie
                 nuevos.add(url)
                 nuevos_en_scroll += 1
 
+                anuncio = (
+                    f"🚘 *{modelo.title()}* | Año: {anio} | Precio: Q{precio:,} "
+                    f"| ROI: {roi:.1f}% | Score: {score}/10\n🔗 {url}"
+                )
                 if score >= SCORE_MIN_TELEGRAM and roi >= ROI_MINIMO:
-                    resultados.append(
-                        f"🚘 *{modelo.title()}* | Año: {anio} | Precio: Q{precio:,} | ROI: {roi:.1f}% | Score: {score}/10\n🔗 {url}"
-                    )
-                destacados.append(
-                        f"🚘 *{modelo.title()}* | Año: {anio} | Precio: Q{precio:,} | ROI: {roi:.1f}% | Score: {score}/10\n🔗 {url}"
-                    )
+                    resultados.append(anuncio)
+                destacados.append(anuncio)
 
             scrolls_realizados += 1
-            
+
             if nuevos_en_scroll == 0:
                 consec_repetidos += 1
             else:
@@ -196,8 +197,12 @@ async def procesar_modelo(page: Page, modelo: str, resultados: List[str], pendie
 
     if sin_anio_ejemplos:
         print(f"📌 Ejemplos sin año ({modelo}):")
-        for i, (texto, url) in enumerate(sin_anio_ejemplos):
-            print(f"  {i+1}. 📝 {texto[:80]}...\n     🔗 {url}")
+        for i, ejemplo in enumerate(sin_anio_ejemplos):
+            if isinstance(ejemplo, tuple) and len(ejemplo) == 2:
+                texto, url = ejemplo
+                print(f"  {i+1}. 📝 {texto[:80]}...\n     🔗 {url}")
+            else:
+                print(f"  {i+1}. 📝 {ejemplo[:80]}... (⚠️ formato inesperado)")
         print("")
 
     return len(nuevos)
