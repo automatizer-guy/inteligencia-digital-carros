@@ -73,7 +73,7 @@ def resumen_diagnostico(modelo: str, contador: Dict[str, int]) -> str:
         lineas.append(f"• {k.replace('_', ' ').capitalize()}: {v}")
     return "\n".join(lineas)
 
-async def procesar_modelo(page: Page, modelo: str, resultados: List[str], pendientes: List[str]) -> int:
+async def procesar_modelo(page: Page, modelo: str, resultados: List[str], pendientes: List[str], destacados: List[str]) -> int:
     vistos, nuevos = set(), set()
     vistos_globales = set()
     sin_anio_ejemplos = []
