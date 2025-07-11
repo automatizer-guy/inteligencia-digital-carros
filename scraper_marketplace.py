@@ -82,7 +82,6 @@ async def procesar_modelo(page: Page, modelo: str, resultados: List[str], pendie
         "filtro_modelo", "guardado", "precio_bajo", "extranjero"
     ]}
     SORT_OPTS = ["best_match", "newest", "price_asc"]
-    vistos_globales = set()
 
     for sort in SORT_OPTS:
         url_busq = (
@@ -188,9 +187,6 @@ async def procesar_modelo(page: Page, modelo: str, resultados: List[str], pendie
 
             if not await scroll_hasta(page):
                 break
-            
-            if not await scroll_hasta(page):
-                break
 
     logger.info(f"📊 {modelo.upper()} → {contador}")
     logger.info(resumen_diagnostico(modelo, contador))
@@ -216,9 +212,9 @@ async def buscar_autos_marketplace(modelos_override: Optional[List[str]] = None)
         page = await ctx.new_page()
         for m in random.sample(activos, len(activos)):
             try:
-                await asyncio.wait_for(procesar_modelo(page, m, results, pend), timeout=600)
+                await asyncio.wait_for(procesar_modelo(page, m, results, pend), timeout=420)
             except asyncio.TimeoutError:
-                logger.warning(f"⏳ {m} → Excedió tiempo máximo de 5 minutos. Se aborta.")
+                logger.warning(f"⏳ {m} → Excedió tiempo máximo de 7 minutos. Se aborta.")
         await browser.close()
     return results, pend
 
