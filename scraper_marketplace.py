@@ -212,7 +212,7 @@ async def buscar_autos_marketplace(modelos_override: Optional[List[str]] = None)
         page = await ctx.new_page()
         for m in random.sample(activos, len(activos)):
             try:
-                await asyncio.wait_for(procesar_modelo(page, m, results, pend), timeout=420)
+                await asyncio.wait_for(procesar_modelo(page, m, results, pend, destacados), timeout=420)
             except asyncio.TimeoutError:
                 logger.warning(f"⏳ {m} → Excedió tiempo máximo de 7 minutos. Se aborta.")
         await browser.close()
