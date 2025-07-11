@@ -217,37 +217,30 @@ async def buscar_autos_marketplace(modelos_override: Optional[List[str]] = None)
         browser = await p.chromium.launch(headless=True)
         ctx = await cargar_contexto_con_cookies(browser)
         page = await ctx.new_page()
+
         await page.goto("https://www.facebook.com/marketplace")
-await asyncio.sleep(2)
+        await asyncio.sleep(2)
+        titulo = await page.title()
+        if "log in" in titulo.lower() or "sign up" in titulo.lower():
+            logger.warning(f"⚠️ Facebook muestra login: '{titulo}'")
+            results.append("🚨 Sesión inválida en Marketplace. Verifica las cookies.")
+            return results, pend, destacados
 
-titulo = await page.title()
-if "log in" in titulo.lower() or "sign up" in titulo.lower():
-    logger.warning(f"⚠️ Facebook muestra página de login: '{titulo}'")
-    results.append("🚨 Sesión inválida en Marketplace. Verifica las cookies.")
-    return results, pend, []  # Evita seguir scraping si no hay sesión válida
-
-        for m in random.sample(activos, len(activos)):
-            try:
+        try:
+            for m in random.sample(activos, len(activos)):
                 await asyncio.wait_for(procesar_modelo(page, m, results, pend, destacados), timeout=420)
-            except asyncio.TimeoutError:
-                logger.warning(f"⏳ {m} → Excedió tiempo máximo de 7 minutos. Se aborta.")
-            except Exception as e:
-                logger.error(f"❌ Error procesando {m}: {e}")
+        except asyncio.TimeoutError:
+            logger.warning(f"⏳ {m} → Excedió tiempo máximo de 7 minutos. Se aborta.")
+
         await browser.close()
     return results, pend, destacados
 
 if __name__ == "__main__":
     async def main():
-        try:
-            brutos, pendientes, relevantes = await buscar_autos_marketplace()
-        except Exception as e:
-            logger.error(f"❌ Error en scraper: {e}")
-            return
+        brutos, pendientes, relevantes = await buscar_autos_marketplace()
 
-        if brutos:
-            print("📋 Todos los guardados válidos:\n")
-            for r in brutos:
-                print(r + "\n")
+        for r in brutos:
+            print(r + "\n")
 
         if pendientes:
             print("📌 Pendientes para revisión manual:\n")
