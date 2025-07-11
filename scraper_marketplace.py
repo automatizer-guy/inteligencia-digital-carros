@@ -220,11 +220,16 @@ async def buscar_autos_marketplace(modelos_override: Optional[List[str]] = None)
 
         await page.goto("https://www.facebook.com/marketplace")
         await asyncio.sleep(2)
+        
         titulo = await page.title()
         if "log in" in titulo.lower() or "sign up" in titulo.lower():
             logger.warning(f"⚠️ Facebook muestra login: '{titulo}'")
-            results.append("🚨 Sesión inválida en Marketplace. Verifica las cookies.")
+            alerta = "🚨 Sesión inválida en Marketplace. Verifica las cookies."
+            results.append(alert)
+            pend.append(alert)
+            destacados.append(alert)
             return results, pend, destacados
+
 
         try:
             for m in random.sample(activos, len(activos)):
