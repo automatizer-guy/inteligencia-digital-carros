@@ -169,7 +169,10 @@ async def procesar_modelo(page: Page, modelo: str, resultados: List[str], pendie
                     resultados.append(
                         f"🚘 *{modelo.title()}* | Año: {anio} | Precio: Q{precio:,} | ROI: {roi:.1f}% | Score: {score}/10\n🔗 {url}"
                     )
-                    
+                destacados.append(
+                        f"🚘 *{modelo.title()}* | Año: {anio} | Precio: Q{precio:,} | ROI: {roi:.1f}% | Score: {score}/10\n🔗 {url}"
+                    )
+
             scrolls_realizados += 1
             
             if nuevos_en_scroll == 0:
