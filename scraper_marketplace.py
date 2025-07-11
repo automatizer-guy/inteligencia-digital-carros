@@ -82,6 +82,7 @@ async def procesar_modelo(page: Page, modelo: str, resultados: List[str], pendie
         "filtro_modelo", "guardado", "precio_bajo", "extranjero"
     ]}
     SORT_OPTS = ["best_match", "newest", "price_asc"]
+    vistos_globales = set()
 
     for sort in SORT_OPTS:
         url_busq = (
@@ -91,16 +92,20 @@ async def procesar_modelo(page: Page, modelo: str, resultados: List[str], pendie
         await page.goto(url_busq)
         await asyncio.sleep(random.uniform(2, 4))
 
+        max_scrolls_base = 10
+        max_scrolls_top = 30
+        scrolls_realizados = 0
         consec_repetidos = 0
-        max_repetidos = 5
-        max_scrolls = 15
 
-        for intento in range(max_scrolls):
+        while scrolls_realizados < max_scrolls_top:
             items = await extraer_items_pagina(page)
             if not items:
                 if not await scroll_hasta(page):
                     break
-                continue
+            scrolls_realizados += 1
+            continue
+
+            nuevos_en_scroll = 0
 
             for itm in items:
                 url = limpiar_link(itm["url"])
@@ -159,11 +164,30 @@ async def procesar_modelo(page: Page, modelo: str, resultados: List[str], pendie
                 insertar_anuncio_db(url, modelo, anio, precio, "", roi, score, relevante=False)
                 contador["guardado"] += 1
                 nuevos.add(url)
+                nuevos_en_scroll += 1
 
                 if score >= SCORE_MIN_TELEGRAM and roi >= ROI_MINIMO:
                     resultados.append(
                         f"🚘 *{modelo.title()}* | Año: {anio} | Precio: Q{precio:,} | ROI: {roi:.1f}% | Score: {score}/10\n🔗 {url}"
                     )
+                    
+            scrolls_realizados += 1
+            
+            if nuevos_en_scroll == 0:
+                consec_repetidos += 1
+            else:
+            consec_repetidos = 0
+
+            if consec_repetidos >= 5 and len(nuevos) < 5:
+                logger.info(f"🛑 {modelo} → {consec_repetidos} duplicados sin nuevos válidos tras {scrolls_realizados} scrolls. Se aborta búsqueda.")
+                break
+
+            if scrolls_realizados >= max_scrolls_base and len(nuevos) < 5:
+                logger.info(f"🛑 {modelo} → Se realizaron {scrolls_realizados} scrolls pero solo {len(nuevos)} válidos. Abortando búsqueda para este sort.")
+                break
+
+            if not await scroll_hasta(page):
+                break
 
             if consec_repetidos >= max_repetidos:
                 if len(nuevos) < 5:
