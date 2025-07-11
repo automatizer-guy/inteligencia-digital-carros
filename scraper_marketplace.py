@@ -15,7 +15,6 @@ from utils_analisis import (
     SCORE_MIN_TELEGRAM, ROI_MINIMO
 )
 
-# Configurar logger
 logger = logging.getLogger(__name__)
 logging.basicConfig(level=logging.INFO, format="%(asctime)s [%(levelname)s] %(message)s")
 
@@ -166,13 +165,13 @@ async def procesar_modelo(page: Page, modelo: str, resultados: List[str], pendie
                 nuevos.add(url)
                 nuevos_en_scroll += 1
 
-                anuncio = (
-                    f"🚘 *{modelo.title()}* | Año: {anio} | Precio: Q{precio:,} "
-                    f"| ROI: {roi:.1f}% | Score: {score}/10\n🔗 {url}"
-                )
                 if score >= SCORE_MIN_TELEGRAM and roi >= ROI_MINIMO:
-                    resultados.append(anuncio)
-                destacados.append(anuncio)
+                    resultados.append(
+                        f"🚘 *{modelo.title()}* | Año: {anio} | Precio: Q{precio:,} | ROI: {roi:.1f}% | Score: {score}/10\n🔗 {url}"
+                    )
+                destacados.append(
+                    f"🚘 *{modelo.title()}* | Año: {anio} | Precio: Q{precio:,} | ROI: {roi:.1f}% | Score: {score}/10\n🔗 {url}"
+                )
 
             scrolls_realizados += 1
 
@@ -202,7 +201,7 @@ async def procesar_modelo(page: Page, modelo: str, resultados: List[str], pendie
                 texto, url = ejemplo
                 print(f"  {i+1}. 📝 {texto[:80]}...\n     🔗 {url}")
             else:
-                print(f"  {i+1}. 📝 {ejemplo[:80]}... (⚠️ formato inesperado)")
+                print(f"  {i+1}. ⚠️ Formato inesperado: {ejemplo[:100]}")
         print("")
 
     return len(nuevos)
@@ -223,12 +222,18 @@ async def buscar_autos_marketplace(modelos_override: Optional[List[str]] = None)
                 await asyncio.wait_for(procesar_modelo(page, m, results, pend, destacados), timeout=420)
             except asyncio.TimeoutError:
                 logger.warning(f"⏳ {m} → Excedió tiempo máximo de 7 minutos. Se aborta.")
+            except Exception as e:
+                logger.error(f"❌ Error procesando {m}: {e}")
         await browser.close()
     return results, pend, destacados
 
 if __name__ == "__main__":
     async def main():
-        brutos, pendientes, relevantes = await buscar_autos_marketplace()
+        try:
+            brutos, pendientes, relevantes = await buscar_autos_marketplace()
+        except Exception as e:
+            logger.error(f"❌ Error en scraper: {e}")
+            return
 
         if brutos:
             print("📋 Todos los guardados válidos:\n")
