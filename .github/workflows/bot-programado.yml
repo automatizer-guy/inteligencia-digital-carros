@@ -114,7 +114,7 @@ jobs:
       # 1️⃣1️⃣ Subir archivos de depuración
       - name: Subir archivos de depuración
         if: always()
-        uses: actions/upload-artifact@v3
+        uses: actions/upload-artifact@v4
         with:
           name: debugging-artifacts
           path: |
