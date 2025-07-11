@@ -199,12 +199,12 @@ async def procesar_modelo(page: Page, modelo: str, resultados: List[str], pendie
 
     return len(nuevos)
 
-async def buscar_autos_marketplace(modelos_override: Optional[List[str]] = None) -> Tuple[List[str], List[str]]:
+async def buscar_autos_marketplace(modelos_override: Optional[List[str]] = None) -> Tuple[List[str], List[str], List[str]]:
     inicializar_tabla_anuncios()
     modelos = modelos_override or MODELOS_INTERES
     flops = modelos_bajo_rendimiento()
     activos = [m for m in modelos if m not in flops]
-    results, pend = [], []
+    results, pend, destacados = [], [], []
 
     async with async_playwright() as p:
         browser = await p.chromium.launch(headless=True)
