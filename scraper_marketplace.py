@@ -216,15 +216,27 @@ async def buscar_autos_marketplace(modelos_override: Optional[List[str]] = None)
             except asyncio.TimeoutError:
                 logger.warning(f"⏳ {m} → Excedió tiempo máximo de 7 minutos. Se aborta.")
         await browser.close()
-    return results, pend
+    return results, pend, destacados
 
 if __name__ == "__main__":
     async def main():
-        brutos, pendientes = await buscar_autos_marketplace()
-        for r in brutos:
-            print(r + "\n")
+        brutos, pendientes, relevantes = await buscar_autos_marketplace()
+
+        if brutos:
+            print("📋 Todos los guardados válidos:\n")
+            for r in brutos:
+                print(r + "\n")
+
         if pendientes:
             print("📌 Pendientes para revisión manual:\n")
             for p in pendientes:
                 print(p + "\n")
+
+        if relevantes:
+            print("📦 Anuncios destacados que cumplen Score y ROI:\n")
+            for d in relevantes:
+                print(d + "\n")
+        else:
+            print("😕 No se encontró ningún anuncio destacado en esta corrida.\n")
+
     asyncio.run(main())
