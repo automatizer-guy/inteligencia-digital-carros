@@ -13,6 +13,7 @@ from utils_analisis import (
     modelos_bajo_rendimiento, MODELOS_INTERES
 )
 
+# Configuración del logger
 logging.basicConfig(
     level=logging.INFO,
     format="%(asctime)s [%(levelname)s] %(message)s",
@@ -21,6 +22,7 @@ logging.basicConfig(
 logger = logging.getLogger(__name__)
 inicializar_tabla_anuncios()
 
+# Configuración del bot
 BOT_TOKEN = os.environ["BOT_TOKEN"].strip()
 CHAT_ID = int(os.environ["CHAT_ID"].strip())
 DB_PATH = os.environ.get("DB_PATH", "upload-artifact/anuncios.db")
@@ -50,7 +52,7 @@ async def enviar_ofertas():
     logger.info(f"✅ Modelos activos: {activos}")
 
     try:
-        brutos, pendientes = await buscar_autos_marketplace(modelos_override=activos)
+        brutos, pendientes, destacados = await buscar_autos_marketplace(modelos_override=activos)
     except Exception as e:
         logger.error(f"❌ Error en scraper: {e}")
         await safe_send("❌ Error ejecutando scraper, revisa logs.")
@@ -108,15 +110,17 @@ async def enviar_ofertas():
         return
 
     if buenos:
-        texto = "\n\n".join(buenos)
-        await safe_send(texto)
+        texto = "📦 *Ofertas destacadas:*" + "\n\n" + "\n\n".join(buenos)
+        for i in range(0, len(texto), 3000):
+            await safe_send(texto[i:i+3000])
 
     if potenciales:
-        texto = "🟡 Potenciales (score>=4 & roi>=10):\n" + "\n\n".join(potenciales)
-        await safe_send(texto)
+        texto = "🟡 *Potenciales (score>=4 & roi>=10):*\n" + "\n\n".join(potenciales)
+        for i in range(0, len(texto), 3000):
+            await safe_send(texto[i:i+3000])
 
     if pendientes:
-        texto = "📌 Pendientes manuales:\n" + "\n\n".join(pendientes)
+        texto = "📌 *Pendientes manuales:*\n" + "\n\n".join(pendientes)
         for i in range(0, len(texto), 3000):
             await safe_send(texto[i:i+3000])
 
@@ -124,7 +128,7 @@ async def enviar_ofertas():
         cur = conn.cursor()
         cur.execute("SELECT COUNT(*) FROM anuncios")
         total_db = cur.fetchone()[0]
-    await safe_send(f"📦 Total en base: {total_db} anuncios")
+    await safe_send(f"📦 Total acumulado en base: {total_db} anuncios")
 
 if __name__ == "__main__":
     asyncio.run(enviar_ofertas())
