@@ -4,7 +4,6 @@ import json
 import random
 import asyncio
 import logging
-import time
 from urllib.parse import urlparse
 from datetime import datetime
 from typing import List, Dict, Optional, Tuple
@@ -76,10 +75,6 @@ async def procesar_modelo(page: Page, modelo: str,
                           procesados: List[str],
                           potenciales: List[str],
                           relevantes: List[str]) -> int:
-    logger.info("─" * 80)
-    logger.info(f"🚗 Empezando scrapeo para: {modelo.upper()}")
-    inicio_modelo = time.time()
-
     vistos_globales = set()
     sin_anio_ejemplos = []
     contador = {k: 0 for k in [
@@ -182,12 +177,9 @@ async def procesar_modelo(page: Page, modelo: str,
                 break
 
     logger.info(f"📊 {modelo.upper()} → {contador}")
-    duracion = int(time.time() - inicio_modelo)
-    logger.info(f"🕒 Tiempo total para {modelo.upper()}: {duracion // 60}m {duracion % 60}s")
     return len(nuevos)
 
 async def buscar_autos_marketplace(modelos_override: Optional[List[str]] = None) -> Tuple[List[str], List[str], List[str]]:
-    inicio_total = time.time()
     inicializar_tabla_anuncios()
     modelos = modelos_override or MODELOS_INTERES
     flops = modelos_bajo_rendimiento()
@@ -218,9 +210,6 @@ async def buscar_autos_marketplace(modelos_override: Optional[List[str]] = None)
 
         await browser.close()
 
-    duracion_total = int(time.time() - inicio_total)
-    logger.info("─" * 80)
-    logger.info(f"✅ Finalizado. Modelos procesados: {len(activos)} — Guardados: {len(procesados)} — Duración total: {duracion_total // 60}m {duracion_total % 60}s")
     return procesados, potenciales, relevantes
 
 if __name__ == "__main__":
@@ -231,13 +220,12 @@ if __name__ == "__main__":
             print("🚀 Relevantes para Telegram:\n")
             for r in relevantes:
                 print(r + "\n")
-       else:
+        else:
             mensaje_final = (
                 f"📉 Hoy no se encontraron anuncios relevantes.\n"
                 f"📦 Anuncios guardados: {len(procesados)} nuevos\n"
             )
             print(mensaje_final + "\n")
-
 
         if procesados:
             print("📂 Procesados:\n")
