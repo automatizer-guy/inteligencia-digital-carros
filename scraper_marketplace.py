@@ -14,7 +14,7 @@ from utils_analisis import (
     calcular_roi_real, coincide_modelo, extraer_anio,
     existe_en_db, insertar_anuncio_db, inicializar_tabla_anuncios,
     limpiar_link, modelos_bajo_rendimiento, MODELOS_INTERES,
-    SCORE_MIN_TELEGRAM, ROI_MINIMO, contar_total_registros_db
+    SCORE_MIN_TELEGRAM, ROI_MINIMO
 )
 
 logger = logging.getLogger(__name__)
@@ -231,14 +231,13 @@ if __name__ == "__main__":
             print("🚀 Relevantes para Telegram:\n")
             for r in relevantes:
                 print(r + "\n")
-        else:
-            total_actual = contar_total_registros_db()
+       else:
             mensaje_final = (
                 f"📉 Hoy no se encontraron anuncios relevantes.\n"
                 f"📦 Anuncios guardados: {len(procesados)} nuevos\n"
-                f"🗃️ Total en la base: {total_actual} registros"
             )
             print(mensaje_final + "\n")
+
 
         if procesados:
             print("📂 Procesados:\n")
