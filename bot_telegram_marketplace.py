@@ -29,8 +29,11 @@ DB_PATH = os.environ.get("DB_PATH", "upload-artifact/anuncios.db")
 os.makedirs(os.path.dirname(DB_PATH), exist_ok=True)
 bot = Bot(token=BOT_TOKEN)
 
+def escapar_multilinea(texto: str) -> str:
+    return escape_markdown(texto, version=2).replace(".", "\\.").replace("-", "\\-")
+
 async def safe_send(text: str, parse_mode="MarkdownV2"):
-    md = escape_markdown(text, version=2)
+    md = escapar_multilinea(text)
     for _ in range(3):
         try:
             return await bot.send_message(
@@ -109,20 +112,21 @@ async def enviar_ofertas():
             await safe_send(f"📡 Ejecución a las {now_local.strftime('%H:%M')}, sin ofertas.")
         return
 
-    if buenos:
-        texto = "📦 *Ofertas destacadas:*" + "\n\n" + "\n\n".join(buenos)
-        for i in range(0, len(texto), 3000):
-            await safe_send(texto[i:i+3000])
+    def dividir_y_enviar(titulo: str, items: list[str]):
+        if not items:
+            return
+        texto = titulo + "\n\n" + "\n\n".join(items)
+        bloques = [texto[i:i+3000] for i in range(0, len(texto), 3000)]
+        return bloques
 
-    if potenciales:
-        texto = "🟡 *Potenciales (score>=4 & roi>=10):*\n" + "\n\n".join(potenciales)
-        for i in range(0, len(texto), 3000):
-            await safe_send(texto[i:i+3000])
+    for bloque in dividir_y_enviar("📦 *Ofertas destacadas:*", buenos):
+        await safe_send(bloque)
 
-    if pendientes:
-        texto = "📌 *Pendientes manuales:*\n" + "\n\n".join(pendientes)
-        for i in range(0, len(texto), 3000):
-            await safe_send(texto[i:i+3000])
+    for bloque in dividir_y_enviar("🟡 *Potenciales (score>=4 & roi>=10):*", potenciales):
+        await safe_send(bloque)
+
+    for bloque in dividir_y_enviar("📌 *Pendientes manuales:*", pendientes):
+        await safe_send(bloque)
 
     with sqlite3.connect(DB_PATH) as conn:
         cur = conn.cursor()
