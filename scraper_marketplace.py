@@ -24,10 +24,10 @@ MAX_EJEMPLOS_SIN_ANIO = 5
 ROI_POTENCIAL_MIN = ROI_MINIMO - 10
 
 async def cargar_contexto_con_cookies(browser: Browser) -> BrowserContext:
-    logger.info("\U0001f510 Cargando cookies desde entorno…")
+    logger.info("🔐 Cargando cookies desde entorno…")
     cj = os.environ.get("FB_COOKIES_JSON", "")
     if not cj:
-        logger.warning("\u26a0\ufe0f Sin cookies encontradas. Usando sesión anónima.")
+        logger.warning("⚠️ Sin cookies encontradas. Usando sesión anónima.")
         return await browser.new_context(locale="es-ES")
 
     try:
@@ -157,7 +157,12 @@ async def procesar_modelo(page: Page, modelo: str,
                 nuevos_en_scroll += 1
 
                 mensaje_base = (
-                    f"🚘 *{modelo.title()}* | Año: {anio} | Precio: Q{precio:,} | ROI: {roi:.1f}% | Score: {score}/10\n🔗 {url}"
+                    f"🚘 *{modelo.title()}*\n"
+                    f"• Año: {anio}\n"
+                    f"• Precio: Q{precio:,}\n"
+                    f"• ROI: {roi:.1f}%\n"
+                    f"• Score: {score}/10\n"
+                    f"🔗 {url}"
                 )
 
                 procesados.append(mensaje_base)
@@ -233,7 +238,7 @@ if __name__ == "__main__":
         procesados, potenciales, relevantes = await buscar_autos_marketplace()
 
         if relevantes:
-            print("\U0001f680 Relevantes para Telegram:\n")
+            print("🚀 Relevantes para Telegram:\n")
             for r in relevantes:
                 print(r + "\n")
         else:
@@ -244,12 +249,12 @@ if __name__ == "__main__":
             print(mensaje_final + "\n")
 
         if procesados:
-            print("\ud83d\udcc2 Procesados:\n")
+            print("📂 Procesados:\n")
             for p in procesados:
                 print(p + "\n")
 
         if potenciales:
-            print("\ud83c\udfaf Potenciales cercanos a enviar:\n")
+            print("🎯 Potenciales cercanos a enviar:\n")
             for pot in potenciales:
                 print(pot + "\n")
 
