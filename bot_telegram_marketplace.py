@@ -5,8 +5,8 @@ import logging
 from datetime import datetime
 from zoneinfo import ZoneInfo
 from telegram import Bot
-from telegram.helpers import escape_markdown
 from scraper_marketplace import buscar_autos_marketplace
+from telegram.helpers import escape_markdown
 from utils_analisis import (
     inicializar_tabla_anuncios, analizar_mensaje, limpiar_link, es_extranjero,
     SCORE_MIN_DB, SCORE_MIN_TELEGRAM, ROI_MINIMO,
@@ -29,22 +29,25 @@ DB_PATH = os.environ.get("DB_PATH", "upload-artifact/anuncios.db")
 os.makedirs(os.path.dirname(DB_PATH), exist_ok=True)
 bot = Bot(token=BOT_TOKEN)
 
-def escapar_multilinea(texto: str) -> str:
-    return escape_markdown(texto, version=2).replace(".", "\\.").replace("-", "\\-")
-
 async def safe_send(text: str, parse_mode="MarkdownV2"):
-    md = escapar_multilinea(text)
     for _ in range(3):
         try:
             return await bot.send_message(
                 chat_id=CHAT_ID,
-                text=md,
+                text=escapar_multilinea(text),
                 parse_mode=parse_mode,
                 disable_web_page_preview=True
             )
         except Exception as e:
             logger.warning(f"Error enviando a Telegram (reintento): {e}")
             await asyncio.sleep(1)
+
+def dividir_y_enviar(titulo: str, items: list[str]) -> list[str]:
+    if not items:
+        return []
+    texto = titulo + "\n\n" + "\n\n".join(items)
+    bloques = [texto[i:i+3000] for i in range(0, len(texto), 3000)]
+    return bloques
 
 async def enviar_ofertas():
     logger.info("📡 Iniciando bot de Telegram")
@@ -111,13 +114,6 @@ async def enviar_ofertas():
         if now_local.hour == 18:
             await safe_send(f"📡 Ejecución a las {now_local.strftime('%H:%M')}, sin ofertas.")
         return
-
-    def dividir_y_enviar(titulo: str, items: list[str]):
-        if not items:
-            return
-        texto = titulo + "\n\n" + "\n\n".join(items)
-        bloques = [texto[i:i+3000] for i in range(0, len(texto), 3000)]
-        return bloques
 
     for bloque in dividir_y_enviar("📦 *Ofertas destacadas:*", buenos):
         await safe_send(bloque)
