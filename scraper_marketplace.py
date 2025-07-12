@@ -1,5 +1,5 @@
-import re
 import os
+import re
 import json
 import random
 import asyncio
@@ -7,7 +7,7 @@ import logging
 from urllib.parse import urlparse
 from datetime import datetime
 from typing import List, Dict, Optional, Tuple
-from playwright.async_api import async_playwright, Browser, BrowserContext, Page
+from playwright.async_api import async_playwright, Browser, Page, BrowserContext
 from utils_analisis import (
     limpiar_precio, contiene_negativos, puntuar_anuncio,
     calcular_roi_real, coincide_modelo, extraer_anio,
@@ -21,6 +21,7 @@ logging.basicConfig(level=logging.INFO, format="%(asctime)s [%(levelname)s] %(me
 
 MIN_PRECIO_VALIDO = 3000
 MAX_EJEMPLOS_SIN_ANIO = 5
+ROI_POTENCIAL_MIN = ROI_MINIMO - 10
 
 async def cargar_contexto_con_cookies(browser: Browser) -> BrowserContext:
     logger.info("🔐 Cargando cookies desde entorno…")
@@ -35,7 +36,10 @@ async def cargar_contexto_con_cookies(browser: Browser) -> BrowserContext:
         logger.error(f"❌ Error al parsear FB_COOKIES_JSON: {e}")
         return await browser.new_context(locale="es-ES")
 
-    context = await browser.new_context(locale="es-ES", user_agent="Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 Chrome/124.0.0.0 Safari/537.36")
+    context = await browser.new_context(
+        locale="es-ES",
+        user_agent="Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 Chrome/124.0.0.0 Safari/537.36"
+    )
     await context.add_cookies(cookies)
     return context
 
@@ -67,7 +71,10 @@ async def scroll_hasta(page: Page) -> bool:
     now = await page.evaluate("document.body.scrollHeight")
     return now > prev
 
-async def procesar_modelo(page: Page, modelo: str, resultados: List[str], pendientes: List[str], destacados: List[str]) -> int:
+async def procesar_modelo(page: Page, modelo: str,
+                          procesados: List[str],
+                          potenciales: List[str],
+                          relevantes: List[str]) -> int:
     vistos_globales = set()
     sin_anio_ejemplos = []
     contador = {k: 0 for k in [
@@ -121,7 +128,6 @@ async def procesar_modelo(page: Page, modelo: str, resultados: List[str], pendie
                 m = re.search(r"[Qq\$]\s?[\d\.,]+", texto)
                 if not m:
                     contador["sin_precio"] += 1
-                    pendientes.append(f"🔍 {modelo.title()}\n📝 {texto}\n🔗 {url}")
                     continue
 
                 precio = limpiar_precio(m.group())
@@ -149,13 +155,16 @@ async def procesar_modelo(page: Page, modelo: str, resultados: List[str], pendie
                 nuevos.add(url)
                 nuevos_en_scroll += 1
 
-                if score >= SCORE_MIN_TELEGRAM and roi >= ROI_MINIMO:
-                    resultados.append(
-                        f"🚘 *{modelo.title()}* | Año: {anio} | Precio: Q{precio:,} | ROI: {roi:.1f}% | Score: {score}/10\n🔗 {url}"
-                    )
-                destacados.append(
+                mensaje_base = (
                     f"🚘 *{modelo.title()}* | Año: {anio} | Precio: Q{precio:,} | ROI: {roi:.1f}% | Score: {score}/10\n🔗 {url}"
                 )
+
+                procesados.append(mensaje_base)
+
+                if score >= SCORE_MIN_TELEGRAM and roi >= ROI_MINIMO:
+                    relevantes.append(mensaje_base)
+                elif ROI_POTENCIAL_MIN <= roi < ROI_MINIMO:
+                    potenciales.append(mensaje_base)
 
             scrolls_realizados += 1
             if nuevos_en_scroll == 0:
@@ -175,7 +184,8 @@ async def buscar_autos_marketplace(modelos_override: Optional[List[str]] = None)
     modelos = modelos_override or MODELOS_INTERES
     flops = modelos_bajo_rendimiento()
     activos = [m for m in modelos if m not in flops]
-    results, pend, destacados = [], [], []
+
+    procesados, potenciales, relevantes = [], [], []
 
     async with async_playwright() as p:
         browser = await p.chromium.launch(headless=True)
@@ -188,37 +198,48 @@ async def buscar_autos_marketplace(modelos_override: Optional[List[str]] = None)
         if "login" in page.url or "recover" in page.url:
             alerta = "🚨 Sesión inválida: redirigido a la página de inicio de sesión. Verifica las cookies (FB_COOKIES_JSON)."
             logger.warning(alerta)
-            results.append(alerta)
-            pend.append(alerta)
-            destacados.append(alerta)
-            return results, pend, destacados
+            return [], [], [alerta]
 
         logger.info("✅ Sesión activa detectada correctamente en Marketplace.")
 
         for m in random.sample(activos, len(activos)):
             try:
-                await asyncio.wait_for(procesar_modelo(page, m, results, pend, destacados), timeout=420)
+                await asyncio.wait_for(procesar_modelo(page, m, procesados, potenciales, relevantes), timeout=420)
             except asyncio.TimeoutError:
                 logger.warning(f"⏳ {m} → Excedió tiempo máximo. Se aborta.")
 
         await browser.close()
 
-    return results, pend, destacados
+    return procesados, potenciales, relevantes
 
 if __name__ == "__main__":
     async def main():
-        brutos, pendientes, relevantes = await buscar_autos_marketplace()
-        for r in brutos:
-            print(r + "\n")
-        if pendientes:
-            print("📌 Pendientes:\n")
-            for p in pendientes:
-                print(p + "\n")
+        procesados, potenciales, relevantes = await buscar_autos_marketplace()
+
         if relevantes:
-            print("📦 Destacados:\n")
-            for d in relevantes:
-                print(d + "\n")
+            print("🚀 Relevantes para Telegram:\n")
+            for r in relevantes:
+                print(r + "\n")
         else:
-            print("😕 No se encontró ningún anuncio destacado.\n")
+            # ⚠️ No hubo relevantes → ¿Es última run del día?
+            from utils_analisis import contar_total_registros_db
+            total_actual = contar_total_registros_db()
+
+            mensaje_final = (
+                f"📉 Hoy no se encontraron anuncios relevantes.\n"
+                f"📦 Anuncios guardados: {len(procesados)} nuevos\n"
+                f"🗃️ Total en la base: {total_actual} registros"
+            )
+            print(mensaje_final + "\n")
+
+        if procesados:
+            print("📂 Procesados:\n")
+            for p in procesados:
+                print(p + "\n")
+
+        if potenciales:
+            print("🎯 Potenciales cercanos a enviar:\n")
+            for pot in potenciales:
+                print(pot + "\n")
 
     asyncio.run(main())
