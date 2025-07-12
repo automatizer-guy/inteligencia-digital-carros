@@ -24,10 +24,10 @@ MAX_EJEMPLOS_SIN_ANIO = 5
 ROI_POTENCIAL_MIN = ROI_MINIMO - 10
 
 async def cargar_contexto_con_cookies(browser: Browser) -> BrowserContext:
-    logger.info("🔐 Cargando cookies desde entorno…")
+    logger.info("\U0001f510 Cargando cookies desde entorno…")
     cj = os.environ.get("FB_COOKIES_JSON", "")
     if not cj:
-        logger.warning("⚠️ Sin cookies encontradas. Usando sesión anónima.")
+        logger.warning("\u26a0\ufe0f Sin cookies encontradas. Usando sesión anónima.")
         return await browser.new_context(locale="es-ES")
 
     try:
@@ -82,6 +82,7 @@ async def procesar_modelo(page: Page, modelo: str,
         "filtro_modelo", "guardado", "precio_bajo", "extranjero"
     ]}
     SORT_OPTS = ["best_match", "newest", "price_asc"]
+    inicio = datetime.now()
 
     for sort in SORT_OPTS:
         url_busq = f"https://www.facebook.com/marketplace/guatemala/search/?query={modelo.replace(' ', '%20')}&minPrice=1000&maxPrice=60000&sortBy={sort}"
@@ -94,7 +95,7 @@ async def procesar_modelo(page: Page, modelo: str,
 
         while scrolls_realizados < 25:
             items = await extraer_items_pagina(page)
-            logger.info(f"🧩 {modelo} ({sort}) — Scroll #{scrolls_realizados+1}: {len(items)} ítems encontrados")
+            logger.info(f"🧹 {modelo} ({sort}) — Scroll #{scrolls_realizados+1}: {len(items)} ítems encontrados")
 
             nuevos_en_scroll = 0
 
@@ -176,7 +177,22 @@ async def procesar_modelo(page: Page, modelo: str,
             if not await scroll_hasta(page):
                 break
 
-    logger.info(f"📊 {modelo.upper()} → {contador}")
+    duracion = (datetime.now() - inicio).seconds
+    resumen_vertical = f"""
+✨ MODELO: {modelo.upper()}
+   Duración: {duracion} s
+   Total encontrados: {contador['total']}
+   Guardados: {contador['guardado']}
+   Relevantes: {len(relevantes)}
+   Potenciales: {len(potenciales)}
+   Duplicados: {contador['duplicado']}
+   Desc. por score/modelo: {contador['filtro_modelo']}
+   Precio bajo: {contador['precio_bajo']}
+   Sin año: {contador['sin_anio']}
+   Negativos: {contador['negativo']}
+   Extranjero: {contador['extranjero']}
+✨"""
+    logger.info(resumen_vertical)
     return len(nuevos)
 
 async def buscar_autos_marketplace(modelos_override: Optional[List[str]] = None) -> Tuple[List[str], List[str], List[str]]:
@@ -217,7 +233,7 @@ if __name__ == "__main__":
         procesados, potenciales, relevantes = await buscar_autos_marketplace()
 
         if relevantes:
-            print("🚀 Relevantes para Telegram:\n")
+            print("\U0001f680 Relevantes para Telegram:\n")
             for r in relevantes:
                 print(r + "\n")
         else:
@@ -228,12 +244,12 @@ if __name__ == "__main__":
             print(mensaje_final + "\n")
 
         if procesados:
-            print("📂 Procesados:\n")
+            print("\ud83d\udcc2 Procesados:\n")
             for p in procesados:
                 print(p + "\n")
 
         if potenciales:
-            print("🎯 Potenciales cercanos a enviar:\n")
+            print("\ud83c\udfaf Potenciales cercanos a enviar:\n")
             for pot in potenciales:
                 print(pot + "\n")
 
