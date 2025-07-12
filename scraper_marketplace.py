@@ -1,5 +1,6 @@
 import re
 import os
+import json
 import random
 import asyncio
 import logging
@@ -18,7 +19,6 @@ from utils_analisis import (
 logger = logging.getLogger(__name__)
 logging.basicConfig(level=logging.INFO, format="%(asctime)s [%(levelname)s] %(message)s")
 
-COOKIES_PATH = "fb_cookies.json"
 MIN_PRECIO_VALIDO = 3000
 MAX_EJEMPLOS_SIN_ANIO = 5
 
@@ -28,13 +28,16 @@ async def cargar_contexto_con_cookies(browser: Browser) -> BrowserContext:
     if not cj:
         logger.warning("⚠️ Sin cookies encontradas. Usando sesión anónima.")
         return await browser.new_context(locale="es-ES")
-    with open(COOKIES_PATH, "w", encoding="utf-8") as f:
-        f.write(cj)
-    return await browser.new_context(
-        storage_state=COOKIES_PATH,
-        locale="es-ES",
-        user_agent="Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 Chrome/124.0.0.0 Safari/537.36"
-    )
+
+    try:
+        cookies = json.loads(cj)
+    except Exception as e:
+        logger.error(f"❌ Error al parsear FB_COOKIES_JSON: {e}")
+        return await browser.new_context(locale="es-ES")
+
+    context = await browser.new_context(locale="es-ES", user_agent="Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 Chrome/124.0.0.0 Safari/537.36")
+    await context.add_cookies(cookies)
+    return context
 
 def limpiar_url(link: str) -> str:
     if not link:
