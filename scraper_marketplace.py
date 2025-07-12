@@ -237,25 +237,16 @@ if __name__ == "__main__":
     async def main():
         procesados, potenciales, relevantes = await buscar_autos_marketplace()
 
-        if relevantes:
-            print("🚀 Relevantes para Telegram:\n")
-            for r in relevantes:
-                print(r + "\n")
-        else:
-            mensaje_final = (
-                f"📉 Hoy no se encontraron anuncios relevantes.\n"
-                f"📦 Anuncios guardados: {len(procesados)} nuevos\n"
-            )
-            print(mensaje_final + "\n")
+        logger.info("📦 Resumen final del scraping")
+        logger.info(f"Guardados totales: {len(procesados)}")
+        logger.info(f"Relevantes: {len(relevantes)}")
+        logger.info(f"Potenciales: {len(potenciales)}")
 
-        if procesados:
-            print("📂 Procesados:\n")
-            for p in procesados:
-                print(p + "\n")
+        logger.info("\n🟢 Relevantes con buen ROI:")
+        for r in relevantes:
+            logger.info(r.replace("*", "").replace("\\n", "\n"))
 
-        if potenciales:
-            print("🎯 Potenciales cercanos a enviar:\n")
-            for pot in potenciales:
-                print(pot + "\n")
-
+        logger.info("\n🟡 Potenciales cercanos:")
+        for pot in potenciales:
+            logger.info(pot.replace("*", "").replace("\\n", "\n"))
     asyncio.run(main())
