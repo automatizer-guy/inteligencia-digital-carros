@@ -6,6 +6,12 @@ import unicodedata
 from datetime import datetime, date
 from typing import Optional, Dict, Any, List
 
+def escapar_multilinea(texto: str) -> str:
+    """
+    Escapa caracteres especiales según formato MarkdownV2 de Telegram.
+    """
+    return re.sub(r'([_*\[\]()~`>#+=|{}.!\\-])', r'\\\1', texto)
+
 # ---- Config ----
 DB_PATH = os.path.abspath("upload-artifact/anuncios.db")
 os.makedirs(os.path.dirname(DB_PATH), exist_ok=True)
