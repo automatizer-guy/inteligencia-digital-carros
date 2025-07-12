@@ -10,7 +10,7 @@ from scraper_marketplace import buscar_autos_marketplace
 from utils_analisis import (
     inicializar_tabla_anuncios, analizar_mensaje, limpiar_link, es_extranjero,
     SCORE_MIN_DB, SCORE_MIN_TELEGRAM, ROI_MINIMO,
-    modelos_bajo_rendimiento, MODELOS_INTERES
+    modelos_bajo_rendimiento, MODELOS_INTERES, escapar_multilinea
 )
 
 # Configuración del logger
