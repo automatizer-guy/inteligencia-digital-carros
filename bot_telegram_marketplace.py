@@ -58,13 +58,14 @@ async def enviar_ofertas():
     logger.info(f"✅ Modelos activos: {activos}")
 
     try:
-        brutos, pendientes, destacados = await buscar_autos_marketplace(modelos_override=activos)
+        brutos, pendientes, _ = await buscar_autos_marketplace(modelos_override=activos)
     except Exception as e:
         logger.error(f"❌ Error en scraper: {e}")
         await safe_send("❌ Error ejecutando scraper, revisa logs.")
         return
 
     buenos, potenciales = [], []
+    resumen_relevantes, resumen_potenciales = [], []
     motivos = {
         "incompleto": 0, "extranjero": 0, "modelo no detectado": 0,
         "año fuera de rango": 0, "precio fuera de rango": 0, "roi bajo": 0
@@ -75,9 +76,19 @@ async def enviar_ofertas():
         if not res:
             motivos["incompleto"] += 1
             continue
+
         url, modelo, anio, precio, roi, score, relevante = (
             res["url"], res["modelo"], res["año"], res["precio"],
             res["roi"], res["score"], res["relevante"]
+        )
+
+        mensaje = (
+            f"🚘 *{modelo.title()}*\n"
+            f"• Año: {anio}\n"
+            f"• Precio: Q{precio:,}\n"
+            f"• ROI: {roi:.1f}%\n"
+            f"• Score: {score}/10\n"
+            f"🔗 {url}"
         )
 
         motivo = None
@@ -93,17 +104,19 @@ async def enviar_ofertas():
             motivos[motivo] = motivos.get(motivo, 0) + 1
 
         if relevante and score >= SCORE_MIN_TELEGRAM:
-            buenos.append(txt)
+            buenos.append(mensaje)
+            resumen_relevantes.append((modelo, url, roi, score))
         elif score >= SCORE_MIN_DB and roi >= ROI_MINIMO:
-            potenciales.append(txt)
+            potenciales.append(mensaje)
+            resumen_potenciales.append((modelo, url, roi, score))
 
         logger.info(
             f"🔍 {modelo} | Año {anio} | Precio {precio} | ROI {roi:.1f}% | Score {score}/10 | Relevante: {relevante}"
         )
 
     total = len(brutos)
-    resumen = f"📊 Procesados: {total} | Relevantes: {len(buenos)} | Potenciales: {len(potenciales)}"
-    await safe_send(resumen)
+    resumen_txt = f"📊 Procesados: {total} | Relevantes: {len(buenos)} | Potenciales: {len(potenciales)}"
+    await safe_send(resumen_txt)
 
     desc_total = sum(motivos.values())
     if desc_total:
@@ -118,7 +131,7 @@ async def enviar_ofertas():
     for bloque in dividir_y_enviar("📦 *Ofertas destacadas:*", buenos):
         await safe_send(bloque)
 
-    for bloque in dividir_y_enviar("🟡 *Potenciales (score>=4 & roi>=10):*", potenciales):
+    for bloque in dividir_y_enviar("🟡 *Potenciales (score≥4 & roi≥10):*", potenciales):
         await safe_send(bloque)
 
     for bloque in dividir_y_enviar("📌 *Pendientes manuales:*", pendientes):
@@ -129,6 +142,20 @@ async def enviar_ofertas():
         cur.execute("SELECT COUNT(*) FROM anuncios")
         total_db = cur.fetchone()[0]
     await safe_send(f"📦 Total acumulado en base: {total_db} anuncios")
+
+    # 🧾 Auditoría en GitHub Logs
+    logger.info("\n📋 Resumen final del scraping (para revisión manual):")
+    logger.info(f"Guardados totales: {len(buenos) + len(potenciales)}")
+    logger.info(f"Relevantes: {len(resumen_relevantes)}")
+    logger.info(f"Potenciales: {len(resumen_potenciales)}")
+
+    logger.info("\n🟢 Relevantes:")
+    for modelo, url, roi, score in resumen_relevantes:
+        logger.info(f"• {modelo.title()} | ROI: {roi:.1f}% | Score: {score}/10 → {url}")
+
+    logger.info("\n🟡 Potenciales:")
+    for modelo, url, roi, score in resumen_potenciales:
+        logger.info(f"• {modelo.title()} | ROI: {roi:.1f}% | Score: {score}/10 → {url}")
 
 if __name__ == "__main__":
     asyncio.run(enviar_ofertas())
