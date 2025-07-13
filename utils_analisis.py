@@ -103,8 +103,11 @@ def es_extranjero(texto: str) -> bool:
 
 def limpiar_precio(texto: str) -> int:
     s = re.sub(r"[Qq\$\.,]", "", texto.lower())
-    m = re.search(r"\b\d{3,7}\b", s)
-    return int(m.group()) if m else 0
+    matches = re.findall(r"\b\d{3,7}\b", s)
+    año_actual = datetime.now().year
+    candidatos = [int(x) for x in matches if int(x) < 1990 or int(x) > año_actual + 1]
+    return candidatos[0] if candidatos else 0
+
 
 # ---- Coincidencia de modelos ----
 def coincide_modelo(texto: str, modelo: str) -> bool:
