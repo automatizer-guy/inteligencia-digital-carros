@@ -23,11 +23,13 @@ MIN_PRECIO_VALIDO = 3000
 MAX_EJEMPLOS_SIN_ANIO = 5
 ROI_POTENCIAL_MIN = ROI_MINIMO - 10
 
+
 def limpiar_url(link: str) -> str:
     if not link:
         return ""
     path = urlparse(link.strip()).path.rstrip("/")
     return f"https://www.facebook.com{path}"
+
 
 async def cargar_contexto_con_cookies(browser: Browser) -> BrowserContext:
     logger.info("🔐 Cargando cookies desde entorno…")
@@ -48,6 +50,7 @@ async def cargar_contexto_con_cookies(browser: Browser) -> BrowserContext:
     await context.add_cookies(cookies)
     return context
 
+
 async def extraer_items_pagina(page: Page) -> List[Dict[str, str]]:
     try:
         items = await page.query_selector_all("a[href*='/marketplace/item']")
@@ -63,12 +66,14 @@ async def extraer_items_pagina(page: Page) -> List[Dict[str, str]]:
         logger.error(f"❌ Error al extraer items: {e}")
         return []
 
+
 async def scroll_hasta(page: Page) -> bool:
     prev = await page.evaluate("document.body.scrollHeight")
     await page.mouse.wheel(0, 400)
     await asyncio.sleep(random.uniform(0.8, 1.2))
     now = await page.evaluate("document.body.scrollHeight")
     return now > prev
+
 
 async def procesar_modelo(page: Page, modelo: str,
                           procesados: List[str],
@@ -210,6 +215,7 @@ async def procesar_modelo(page: Page, modelo: str,
 
     return len(nuevos)
 
+
 async def buscar_autos_marketplace(modelos_override: Optional[List[str]] = None) -> Tuple[List[str], List[str], List[str]]:
     inicializar_tabla_anuncios()
     modelos = modelos_override or MODELOS_INTERES
@@ -242,6 +248,7 @@ async def buscar_autos_marketplace(modelos_override: Optional[List[str]] = None)
         await browser.close()
 
     return procesados, potenciales, relevantes
+
 
 if __name__ == "__main__":
     async def main():
