@@ -111,12 +111,3 @@ jobs:
           sqlite3 "${{ env.DB_PATH }}" \
             "SELECT link, fecha_scrape FROM anuncios ORDER BY fecha_scrape DESC, rowid DESC LIMIT 1;"
 
-      # 1️⃣1️⃣ Subir archivos de depuración
-      - name: Subir archivos de depuración
-        if: always()
-        uses: actions/upload-artifact@v4
-        with:
-          name: debugging-artifacts
-          path: |
-            debug_*.html
-            screenshot_*.png
