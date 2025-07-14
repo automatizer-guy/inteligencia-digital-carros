@@ -23,13 +23,18 @@ MIN_PRECIO_VALIDO = 3000
 MAX_EJEMPLOS_SIN_ANIO = 5
 ROI_POTENCIAL_MIN = ROI_MINIMO - 10
 
+def limpiar_url(link: str) -> str:
+    if not link:
+        return ""
+    path = urlparse(link.strip()).path.rstrip("/")
+    return f"https://www.facebook.com{path}"
+
 async def cargar_contexto_con_cookies(browser: Browser) -> BrowserContext:
     logger.info("🔐 Cargando cookies desde entorno…")
     cj = os.environ.get("FB_COOKIES_JSON", "")
     if not cj:
         logger.warning("⚠️ Sin cookies encontradas. Usando sesión anónima.")
         return await browser.new_context(locale="es-ES")
-
     try:
         cookies = json.loads(cj)
     except Exception as e:
@@ -42,12 +47,6 @@ async def cargar_contexto_con_cookies(browser: Browser) -> BrowserContext:
     )
     await context.add_cookies(cookies)
     return context
-
-def limpiar_url(link: str) -> str:
-    if not link:
-        return ""
-    path = urlparse(link.strip()).path.rstrip("/")
-    return f"https://www.facebook.com{path}"
 
 async def extraer_items_pagina(page: Page) -> List[Dict[str, str]]:
     try:
@@ -101,6 +100,7 @@ async def procesar_modelo(page: Page, modelo: str,
 
             for itm in items:
                 url = limpiar_link(itm["url"])
+                texto = itm["texto"]
                 contador["total"] += 1
 
                 if not url.startswith("https://www.facebook.com/marketplace/item/"):
@@ -119,6 +119,10 @@ async def procesar_modelo(page: Page, modelo: str,
                     texto = itm["texto"]
 
                 texto = texto.strip()
+
+                if not coincide_modelo(texto, modelo):
+                    contador["filtro_modelo"] += 1
+                    continue
                 if contiene_negativos(texto):
                     contador["negativo"] += 1
                     continue
@@ -143,33 +147,39 @@ async def procesar_modelo(page: Page, modelo: str,
                         sin_anio_ejemplos.append((texto, url))
                     continue
 
-                if not coincide_modelo(texto, modelo):
-                    score_t = puntuar_anuncio(texto)
-                    if score_t < SCORE_MIN_TELEGRAM:
-                        contador["filtro_modelo"] += 1
-                        continue
+                roi_data = calcular_roi_real(modelo, precio, anio)
+                score = puntuar_anuncio(texto, roi_data)
 
-                roi = calcular_roi_real(modelo, precio, anio)
-                score = puntuar_anuncio(texto)
-                
-                # Construir mensaje base con formato Markdown
                 mensaje_base = (
                     f"🚘 *{modelo.title()}*\n"
                     f"• Año: {anio}\n"
                     f"• Precio: Q{precio:,}\n"
-                    f"• ROI: {roi:.2f}%\n"
+                    f"• ROI: {roi_data['roi']:.2f}%\n"
                     f"• Score: {score}/10\n"
                     f"🔗 {url}"
                 )
-                insertar_anuncio_db(url, modelo, anio, precio, "", roi, score, relevante=False)
+
+                insertar_anuncio_db(
+                    url=url,
+                    modelo=modelo,
+                    año=anio,
+                    precio=precio,
+                    km="",
+                    roi=roi_data["roi"],
+                    score=score,
+                    relevante=(score >= SCORE_MIN_TELEGRAM and roi_data["roi"] >= ROI_MINIMO),
+                    confianza_precio=roi_data["confianza"],
+                    muestra_precio=roi_data["muestra"]
+                )
+
                 contador["guardado"] += 1
                 nuevos.add(url)
                 nuevos_en_scroll += 1
                 procesados.append(mensaje_base)
 
-                if score >= SCORE_MIN_TELEGRAM and roi >= ROI_MINIMO:
+                if score >= SCORE_MIN_TELEGRAM and roi_data["roi"] >= ROI_MINIMO:
                     relevantes.append(mensaje_base)
-                elif ROI_POTENCIAL_MIN <= roi < ROI_MINIMO:
+                elif ROI_POTENCIAL_MIN <= roi_data["roi"] < ROI_MINIMO:
                     potenciales.append(mensaje_base)
 
             scrolls_realizados += 1
@@ -183,7 +193,7 @@ async def procesar_modelo(page: Page, modelo: str,
                 break
 
     duracion = (datetime.now() - inicio).seconds
-    resumen_vertical = f"""
+    logger.info(f"""
 ✨ MODELO: {modelo.upper()}
    Duración: {duracion} s
    Total encontrados: {contador['total']}
@@ -196,8 +206,8 @@ async def procesar_modelo(page: Page, modelo: str,
    Sin año: {contador['sin_anio']}
    Negativos: {contador['negativo']}
    Extranjero: {contador['extranjero']}
-✨"""
-    logger.info(resumen_vertical)
+✨""")
+
     return len(nuevos)
 
 async def buscar_autos_marketplace(modelos_override: Optional[List[str]] = None) -> Tuple[List[str], List[str], List[str]]:
@@ -218,8 +228,8 @@ async def buscar_autos_marketplace(modelos_override: Optional[List[str]] = None)
 
         if "login" in page.url or "recover" in page.url:
             alerta = "🚨 Sesión inválida: redirigido a la página de inicio de sesión. Verifica las cookies (FB_COOKIES_JSON)."
-            logger.warning(alerta)
-            return [], [], [alerta]
+                    logger.warning(alerta)
+        return [], [], [alerta]
 
         logger.info("✅ Sesión activa detectada correctamente en Marketplace.")
 
@@ -249,4 +259,5 @@ if __name__ == "__main__":
         logger.info("\n🟡 Potenciales cercanos:")
         for pot in potenciales:
             logger.info(pot.replace("*", "").replace("\\n", "\n"))
+
     asyncio.run(main())
