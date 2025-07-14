@@ -17,7 +17,7 @@ DB_PATH = os.path.abspath("upload-artifact/anuncios.db")
 os.makedirs(os.path.dirname(DB_PATH), exist_ok=True)
 
 DEBUG = os.getenv("DEBUG", "False").lower() in ("1", "true", "yes")
-SCORE_MIN_DB = 2
+SCORE_MIN_DB = 4
 SCORE_MIN_TELEGRAM = 6
 ROI_MINIMO = 10.0
 TOLERANCIA_PRECIO_REF = 1  # Reducido de 2 a 1 año
