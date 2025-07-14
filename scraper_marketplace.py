@@ -151,20 +151,20 @@ async def procesar_modelo(page: Page, modelo: str,
 
                 roi = calcular_roi_real(modelo, precio, anio)
                 score = puntuar_anuncio(texto)
-                insertar_anuncio_db(url, modelo, anio, precio, "", roi, score, relevante=False)
-                contador["guardado"] += 1
-                nuevos.add(url)
-                nuevos_en_scroll += 1
-
+                
+                # Construir mensaje base con formato Markdown
                 mensaje_base = (
                     f"🚘 *{modelo.title()}*\n"
                     f"• Año: {anio}\n"
                     f"• Precio: Q{precio:,}\n"
-                    f"• ROI: {roi:.1f}%\n"
+                    f"• ROI: {roi:.2f}%\n"
                     f"• Score: {score}/10\n"
                     f"🔗 {url}"
                 )
-
+                insertar_anuncio_db(url, modelo, anio, precio, "", roi, score, relevante=False)
+                contador["guardado"] += 1
+                nuevos.add(url)
+                nuevos_en_scroll += 1
                 procesados.append(mensaje_base)
 
                 if score >= SCORE_MIN_TELEGRAM and roi >= ROI_MINIMO:
