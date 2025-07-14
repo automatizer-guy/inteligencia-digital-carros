@@ -229,7 +229,7 @@ async def buscar_autos_marketplace(modelos_override: Optional[List[str]] = None)
         if "login" in page.url or "recover" in page.url:
             alerta = "🚨 Sesión inválida: redirigido a la página de inicio de sesión. Verifica las cookies (FB_COOKIES_JSON)."
                     logger.warning(alerta)
-        return [], [], [alerta]
+            return [], [], [alerta]
 
         logger.info("✅ Sesión activa detectada correctamente en Marketplace.")
 
