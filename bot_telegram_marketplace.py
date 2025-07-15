@@ -1,4 +1,4 @@
-# bot_telegram_marketplace.py (mejorado)
+# bot_telegram_marketplace.py (antiguo)
 
 import asyncio
 import os
