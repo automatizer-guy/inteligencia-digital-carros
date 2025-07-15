@@ -9,12 +9,11 @@ on:
 jobs:
   run-bot:
     runs-on: ubuntu-latest
-
     env:
-      BOT_TOKEN:        ${{ secrets.BOT_TOKEN }}
-      CHAT_ID:          ${{ secrets.CHAT_ID }}
-      FB_COOKIES_JSON:  ${{ secrets.FB_COOKIES_JSON }}
-      DB_PATH:          upload-artifact/anuncios.db
+      BOT_TOKEN: ${{ secrets.BOT_TOKEN }}
+      CHAT_ID: ${{ secrets.CHAT_ID }}
+      FB_COOKIES_JSON: ${{ secrets.FB_COOKIES_JSON }}
+      DB_PATH: upload-artifact/anuncios.db
 
     steps:
       # 1️⃣ Clonar main
@@ -49,53 +48,54 @@ jobs:
         run: |
           sudo apt-get update && sudo apt-get install -y sqlite3
           sqlite3 "${{ env.DB_PATH }}" "
-            CREATE TABLE IF NOT EXISTS anuncios (
-              link TEXT PRIMARY KEY,
-              modelo TEXT,
-              anio INTEGER,
-              precio INTEGER,
-              km TEXT,
-              fecha_scrape DATE,
-              roi REAL,
-              score INTEGER
-            );
+          CREATE TABLE IF NOT EXISTS anuncios (
+            link TEXT PRIMARY KEY,
+            modelo TEXT,
+            anio INTEGER,
+            precio INTEGER,
+            km TEXT,
+            fecha_scrape DATE,
+            roi REAL,
+            score INTEGER
+          );
           "
+
+      # 5️⃣ Contar anuncios antes del run
       - name: Contar anuncios antes del run
         id: db_prev
         run: |
-          echo "📊 Contando anuncios previos..."
+          echo "🕒 Contando anuncios previos..."
           echo "count=$(sqlite3 '${{ env.DB_PATH }}' 'SELECT COUNT(*) FROM anuncios;')" >> $GITHUB_OUTPUT
- 
 
-      # 5️⃣ Ver estado previo de DB
+      # 6️⃣ Ver estado previo por modelo
       - name: Volumen previo en DB
         run: |
           echo "📊 Anuncios por modelo:"
           sqlite3 "${{ env.DB_PATH }}" \
             "SELECT modelo, COUNT(*) FROM anuncios GROUP BY modelo ORDER BY COUNT(*) DESC;"
 
-      # 6️⃣ Instalar dependencias
+      # 7️⃣ Instalar dependencias
       - name: Instalar dependencias Python y Playwright
         run: |
           python -m pip install --upgrade pip
           pip install -r requirements.txt
           playwright install --with-deps
 
-      # 7️⃣ Ejecutar el bot
+      # 8️⃣ Ejecutar el bot
       - name: Ejecutar bot con Telegram
         run: python bot_telegram_marketplace.py
 
-      # 8️⃣ Guardar nueva versión de la DB
+      # 9️⃣ Guardar nueva versión de la DB
       - name: Copiar DB al branch data
         run: cp "${{ env.DB_PATH }}" data/anuncios.db
 
-      # 9️⃣ Commit & push DB actualizada
+      # 🔟 Commit & push DB actualizada
       - name: Commit & push DB actualizada
         env:
           PAT_PUSH: ${{ secrets.PAT_PUSH }}
         run: |
           cd data
-          git config user.name  "github-actions[bot]"
+          git config user.name "github-actions[bot]"
           git config user.email "github-actions[bot]@users.noreply.github.com"
           git remote set-url origin https://x-access-token:${PAT_PUSH}@github.com/${{ github.repository }}
           git add anuncios.db
@@ -106,19 +106,14 @@ jobs:
             echo "📁 Sin cambios detectados en la base, se omite push"
           fi
 
-      # 🔟 Resumen final del run
+      # 🧾 Resumen final del run
       - name: Resumen final del run
         run: |
+          sudo apt-get update && sudo apt-get install -y sqlite3
           echo "✅ Bot ejecutado con éxito"
-      
           echo "📊 Anuncios antes del run: ${{ steps.db_prev.outputs.count }}"
-      
           FINAL=$(sqlite3 "${{ env.DB_PATH }}" "SELECT COUNT(*) FROM anuncios;")
           echo "📦 Total actual: $FINAL"
-      
-          echo "➕ Anuncios nuevos agregados: $((FINAL - ${{ steps.db_prev.outputs.count }}))"
-      
-          echo "🔎 Último anuncio registrado:"
+          echo "➕ Nuevos anuncios agregados: $((FINAL - ${{ steps.db_prev.outputs.count }}))"
+          echo "🔍 Último anuncio registrado:"
           sqlite3 "${{ env.DB_PATH }}" "SELECT link, fecha_scrape FROM anuncios ORDER BY fecha_scrape DESC, rowid DESC LIMIT 1;"
-
-
