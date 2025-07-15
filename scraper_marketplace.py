@@ -98,6 +98,7 @@ async def procesar_modelo(page: Page, modelo: str,
         nuevos = set()
 
         while scrolls_realizados < 25:
+            nuevos_en_scroll = 0
             items = await extraer_items_pagina(page)
             for itm in items:
                 url = limpiar_link(itm["url"])
@@ -160,9 +161,9 @@ async def procesar_modelo(page: Page, modelo: str,
                 )
 
                 insertar_anuncio_db(
-                    link=url,
+                    url=url,
                     modelo=modelo,
-                    año=anio,
+                    anio=anio,
                     precio=precio,
                     km="",
                     roi=roi_data["roi"],
