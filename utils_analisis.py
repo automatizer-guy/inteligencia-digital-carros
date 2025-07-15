@@ -179,22 +179,37 @@ def coincide_modelo(texto: str, modelo: str) -> bool:
     texto_limpio = unicodedata.normalize("NFKD", texto_l).encode("ascii", "ignore").decode("ascii")
     return any(v in texto_limpio for v in variantes)
 
+import re
+
 def extraer_anio(texto: str) -> Optional[int]:
-    texto_l = texto.lower()
-    candidatos = []
-    patterns = [r"año\s*(\d{4})", r"modelo\s*(\d{4})", r"del\s*(\d{4})", r"(\d{4})\s*model"]
-    for pattern in patterns:
-        matches = re.findall(pattern, texto_l)
-        for match in matches:
-            a = int(match)
-            if 1990 <= a <= datetime.now().year:
-                candidatos.append(a)
-    if not candidatos:
-        for match in re.finditer(r"\b(\d{4})\b", texto_l):
-            a = int(match.group(1))
-            if 1990 <= a <= datetime.now().year:
-                candidatos.append(a)
-    return candidatos[0] if candidatos else None
+    """
+    Detecta el año del vehículo solo si aparece acompañado de palabras clave
+    como 'año', 'modelo', 'del', o si aparece en contexto válido.
+    Descarta años futuros o incoherentes.
+    """
+    texto = texto.lower()
+
+    patrones = [
+        r"(?:año|modelo|del)\s*[:\-]?\s*(19[9]\d|20[0-3]\d)",   # "año 2014", "modelo: 2018"
+        r"(19[9]\d|20[0-3]\d)\s*(?:modelo|año)",               # "2016 modelo"
+    ]
+
+    for patron in patrones:
+        match = re.search(patron, texto)
+        if match:
+            año = int(match.group(1))
+            if 1990 <= año <= 2030:
+                return año
+
+    # Si no se encontró patrón contextual, buscar últimos 4 dígitos aislados pero con más control
+    posibles = re.findall(r"\b(19[9]\d|20[0-3]\d)\b", texto)
+    for p in posibles:
+        año = int(p)
+        if 1990 <= año <= 2030:
+            return año
+
+    return None
+
 
 @timeit
 def get_precio_referencia(modelo: str, anio: int, tolerancia: Optional[int] = None) -> Dict[str, Any]:
