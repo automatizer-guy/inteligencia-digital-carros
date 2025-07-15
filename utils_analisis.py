@@ -75,35 +75,49 @@ def get_conn():
 def inicializar_tabla_anuncios():
     with get_db_connection() as conn:
         cur = conn.cursor()
+        
+        # Verificar si la tabla existe
         cur.execute("""
-            CREATE TABLE IF NOT EXISTS anuncios (
-                id INTEGER PRIMARY KEY AUTOINCREMENT,
-                link TEXT UNIQUE,
-                modelo TEXT,
-                anio INTEGER,
-                precio INTEGER,
-                km TEXT,
-                fecha_scrape TEXT,
-                roi REAL,
-                score INTEGER,
-                relevante BOOLEAN DEFAULT 0,
-                confianza_precio TEXT DEFAULT 'baja',
-                muestra_precio INTEGER DEFAULT 0
-            )
+            SELECT name FROM sqlite_master 
+            WHERE type='table' AND name='anuncios'
         """)
+        tabla_existe = cur.fetchone() is not None
+        
+        if not tabla_existe:
+            # Crear tabla con estructura básica
+            cur.execute("""
+                CREATE TABLE anuncios (
+                    link TEXT PRIMARY KEY,
+                    modelo TEXT,
+                    anio INTEGER,
+                    precio INTEGER,
+                    km TEXT,
+                    fecha_scrape DATE,
+                    roi REAL,
+                    score INTEGER
+                )
+            """)
+            print("✅ Tabla anuncios creada con estructura básica")
+        
+        # Verificar columnas existentes
+        cur.execute("PRAGMA table_info(anuncios)")
+        columnas_existentes = {row[1] for row in cur.fetchall()}
+        
+        # Agregar columnas adicionales si no existen
         nuevas_columnas = {
             "relevante": "BOOLEAN DEFAULT 0",
             "confianza_precio": "TEXT DEFAULT 'baja'",
-            "muestra_precio": "INTEGER DEFAULT 0",
-            "created_at": "TIMESTAMP DEFAULT CURRENT_TIMESTAMP"
+            "muestra_precio": "INTEGER DEFAULT 0"
         }
         
         for nombre, definicion in nuevas_columnas.items():
-            try:
-                cur.execute(f"ALTER TABLE anuncios ADD COLUMN {nombre} {definicion};")
-            except sqlite3.OperationalError:
-                pass
-
+            if nombre not in columnas_existentes:
+                try:
+                    cur.execute(f"ALTER TABLE anuncios ADD COLUMN {nombre} {definicion}")
+                    print(f"✅ Columna '{nombre}' agregada")
+                except sqlite3.OperationalError as e:
+                    print(f"⚠️ Error al agregar columna '{nombre}': {e}")
+        
         conn.commit()
 
 def limpiar_link(link: Optional[str]) -> str:
@@ -242,23 +256,30 @@ def puntuar_anuncio(texto: str, roi_info: Optional[Dict] = None) -> int:
     return max(0, min(score, 10))
 
 @timeit
-def insertar_anuncio_db(link, modelo, anio, precio, km, roi, score, relevante,
+def insertar_anuncio_db(link, modelo, anio, precio, km, roi, score, relevante=False,
                         confianza_precio=None, muestra_precio=None):
     conn = get_conn()
     cur = conn.cursor()
-    cur.execute("""
-    INSERT INTO anuncios (link, modelo, anio, precio, km, roi, score, relevante,
-                          confianza_precio, muestra_precio, fecha_scrape, created_at)
-    VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, CURRENT_DATE, CURRENT_TIMESTAMP)
-    ON CONFLICT(link) DO UPDATE SET
-        roi = excluded.roi,
-        score = excluded.score,
-        relevante = excluded.relevante,
-        confianza_precio = excluded.confianza_precio,
-        muestra_precio = excluded.muestra_precio,
-        fecha_scrape = CURRENT_DATE
-    """, (link, modelo, anio, precio, km, roi, score, relevante,
-          confianza_precio, muestra_precio))
+    
+    # Verificar si existen las columnas adicionales
+    cur.execute("PRAGMA table_info(anuncios)")
+    columnas_existentes = {row[1] for row in cur.fetchall()}
+    
+    if all(col in columnas_existentes for col in ["relevante", "confianza_precio", "muestra_precio"]):
+        # Insertar con columnas adicionales
+        cur.execute("""
+        INSERT OR REPLACE INTO anuncios 
+        (link, modelo, anio, precio, km, roi, score, relevante, confianza_precio, muestra_precio, fecha_scrape)
+        VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, DATE('now'))
+        """, (link, modelo, anio, precio, km, roi, score, relevante, confianza_precio, muestra_precio))
+    else:
+        # Insertar solo con columnas básicas
+        cur.execute("""
+        INSERT OR REPLACE INTO anuncios 
+        (link, modelo, anio, precio, km, roi, score, fecha_scrape)
+        VALUES (?, ?, ?, ?, ?, ?, ?, DATE('now'))
+        """, (link, modelo, anio, precio, km, roi, score))
+    
     conn.commit()
 
 def existe_en_db(link: str) -> bool:
@@ -275,7 +296,8 @@ def get_rendimiento_modelo(modelo: str, dias: int = 7) -> float:
             SELECT SUM(CASE WHEN score >= ? THEN 1 ELSE 0 END) * 1.0 / COUNT(*)
             FROM anuncios WHERE modelo = ? AND fecha_scrape >= date('now', ?)
         """, (SCORE_MIN_DB, modelo, f"-{dias} days"))
-        return round(cur.fetchone()[0] or 0.0, 3)
+        result = cur.fetchone()[0]
+        return round(result or 0.0, 3)
 
 @timeit
 def modelos_bajo_rendimiento(threshold: float = 0.005, dias: int = 7) -> List[str]:
@@ -286,15 +308,26 @@ def get_estadisticas_db() -> Dict[str, Any]:
         cur = conn.cursor()
         cur.execute("SELECT COUNT(*) FROM anuncios")
         total = cur.fetchone()[0]
-        cur.execute("SELECT COUNT(*) FROM anuncios WHERE confianza_precio = 'alta'")
-        alta_conf = cur.fetchone()[0]
-        cur.execute("SELECT COUNT(*) FROM anuncios WHERE confianza_precio = 'baja'")
-        baja_conf = cur.fetchone()[0]
+        
+        # Verificar si existe la columna confianza_precio
+        cur.execute("PRAGMA table_info(anuncios)")
+        columnas_existentes = {row[1] for row in cur.fetchall()}
+        
+        if "confianza_precio" in columnas_existentes:
+            cur.execute("SELECT COUNT(*) FROM anuncios WHERE confianza_precio = 'alta'")
+            alta_conf = cur.fetchone()[0]
+            cur.execute("SELECT COUNT(*) FROM anuncios WHERE confianza_precio = 'baja'")
+            baja_conf = cur.fetchone()[0]
+        else:
+            alta_conf = 0
+            baja_conf = total
+        
         cur.execute("""
             SELECT modelo, COUNT(*) FROM anuncios 
             GROUP BY modelo ORDER BY COUNT(*) DESC
         """)
         por_modelo = dict(cur.fetchall())
+        
         return {
             "total_anuncios": total,
             "alta_confianza": alta_conf,
@@ -315,9 +348,9 @@ def analizar_mensaje(texto: str) -> Optional[Dict[str, Any]]:
     score = puntuar_anuncio(texto, roi_data)
     url = next((l for l in texto.split() if l.startswith("http")), "")
     return {
-        "link": limpiar_link(url),
+        "url": limpiar_link(url),  # Cambié link por url para mantener consistencia
         "modelo": modelo,
-        "anio": anio,
+        "año": anio,  # Cambié anio por año para mantener consistencia
         "precio": precio,
         "roi": roi_data["roi"],
         "score": score,
