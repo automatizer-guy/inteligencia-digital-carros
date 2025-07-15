@@ -1,3 +1,5 @@
+# bot_telegram_marketplace.py (mejorado)
+
 import asyncio
 import os
 import sqlite3
@@ -13,7 +15,6 @@ from utils_analisis import (
     modelos_bajo_rendimiento, MODELOS_INTERES, escapar_multilinea
 )
 
-# Configuración del logger
 logging.basicConfig(
     level=logging.INFO,
     format="%(asctime)s [%(levelname)s] %(message)s",
@@ -22,7 +23,6 @@ logging.basicConfig(
 logger = logging.getLogger(__name__)
 inicializar_tabla_anuncios()
 
-# Configuración del bot
 BOT_TOKEN = os.environ["BOT_TOKEN"].strip()
 CHAT_ID = int(os.environ["CHAT_ID"].strip())
 DB_PATH = os.environ.get("DB_PATH", "upload-artifact/anuncios.db")
@@ -67,8 +67,12 @@ async def enviar_ofertas():
     buenos, potenciales = [], []
     resumen_relevantes, resumen_potenciales = [], []
     motivos = {
-        "incompleto": 0, "extranjero": 0, "modelo no detectado": 0,
-        "año fuera de rango": 0, "precio fuera de rango": 0, "roi bajo": 0
+        "incompleto": 0,
+        "extranjero": 0,
+        "modelo no detectado": 0,
+        "año fuera de rango": 0,
+        "precio fuera de rango": 0,
+        "roi bajo": 0
     }
 
     for txt in brutos:
@@ -103,7 +107,7 @@ async def enviar_ofertas():
                 motivo = "modelo no detectado"
             motivos[motivo] = motivos.get(motivo, 0) + 1
 
-        if relevante and score >= SCORE_MIN_TELEGRAM:
+        if relevante:
             buenos.append(mensaje)
             resumen_relevantes.append((modelo, url, roi, score))
         elif score >= SCORE_MIN_DB and roi >= ROI_MINIMO:
@@ -115,8 +119,7 @@ async def enviar_ofertas():
         )
 
     total = len(brutos)
-    resumen_txt = f"📊 Procesados: {total} | Relevantes: {len(buenos)} | Potenciales: {len(potenciales)}"
-    await safe_send(resumen_txt)
+    await safe_send(f"📊 Procesados: {total} | Relevantes: {len(buenos)} | Potenciales: {len(potenciales)}")
 
     desc_total = sum(motivos.values())
     if desc_total:
@@ -131,7 +134,7 @@ async def enviar_ofertas():
     for bloque in dividir_y_enviar("📦 *Ofertas destacadas:*", buenos):
         await safe_send(bloque)
 
-    for bloque in dividir_y_enviar("🟡 *Potenciales (score≥4 & roi≥10):*", potenciales):
+    for bloque in dividir_y_enviar("🟡 *Potenciales (score≥4 & ROI≥10):*", potenciales):
         await safe_send(bloque)
 
     for bloque in dividir_y_enviar("📌 *Pendientes manuales:*", pendientes):
@@ -141,9 +144,8 @@ async def enviar_ofertas():
         cur = conn.cursor()
         cur.execute("SELECT COUNT(*) FROM anuncios")
         total_db = cur.fetchone()[0]
-    await safe_send(f"📦 Total acumulado en base: {total_db} anuncios")
+        await safe_send(f"📦 Total acumulado en base: {total_db} anuncios")
 
-    # 🧾 Auditoría en GitHub Logs
     logger.info("\n📋 Resumen final del scraping (para revisión manual):")
     logger.info(f"Guardados totales: {len(buenos) + len(potenciales)}")
     logger.info(f"Relevantes: {len(resumen_relevantes)}")
