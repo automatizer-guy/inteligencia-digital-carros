@@ -281,21 +281,14 @@ def calcular_roi_real(modelo: str, precio_compra: int, año: int,
 
 @timeit
 def puntuar_anuncio(texto: str, roi_info: Optional[Dict] = None) -> int:
-    """
-    Puntúa anuncio de forma más sistemática
-    """
     precio = limpiar_precio(texto)
     anio = extraer_anio(texto)
     modelo = next((m for m in MODELOS_INTERES if coincide_modelo(texto, m)), None)
-    
     if not (modelo and anio and precio):
         return 0
-    
-    # Validar coherencia del precio
     if not validar_precio_coherente(precio, modelo, anio):
         return 0
-    
-    # Usar ROI precalculado o calcularlo
+
     if roi_info:
         roi = roi_info["roi"]
         confianza = roi_info["confianza"]
@@ -303,39 +296,45 @@ def puntuar_anuncio(texto: str, roi_info: Optional[Dict] = None) -> int:
         roi_data = calcular_roi_real(modelo, precio, anio)
         roi = roi_data["roi"]
         confianza = roi_data["confianza"]
-    
-    # Score base
-    score = 5
-    
-    # Ajustes por ROI
+
+    score = 4  # base
+
+    # ROI
     if roi >= 25:
-        score += 3
+        score += 4
     elif roi >= 15:
-        score += 2
+        score += 3
     elif roi >= 10:
-        score += 1
+        score += 2
     elif roi >= 5:
-        score += 0
+        score += 1
     else:
         score -= 2
-    
-    # Ajustes por confianza del precio
+
+    # Confianza
     if confianza == "alta":
+        score += 2
+    elif confianza == "media":
         score += 1
-    elif confianza == "baja":
-        score -= 1
-    
-    # Ajustes por precio
+    else:
+        score -= 2
+
+    # Precio
     if precio <= 25000:
         score += 1
     elif precio >= 80000:
         score -= 1
-    
-    # Ajustes por completitud del anuncio
+
+    # Texto completo
     if len(texto.split()) >= 8:
         score += 1
-    
+
+    # Palabras clave positivas
+    if any(p in texto.lower() for p in PALABRAS_POSITIVAS):
+        score += 1
+
     return max(0, min(score, 10))
+
 
 # ---- DB Insert mejorado ----
 @timeit
