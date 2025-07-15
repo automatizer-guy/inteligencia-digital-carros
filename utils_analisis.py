@@ -86,7 +86,7 @@ def inicializar_tabla_anuncios():
         cur.execute("""
             CREATE TABLE IF NOT EXISTS anuncios (
                 id INTEGER PRIMARY KEY AUTOINCREMENT,
-                link TEXT UNIQUE,
+                url TEXT UNIQUE,
                 modelo TEXT,
                 anio INTEGER,
                 precio INTEGER,
