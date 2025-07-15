@@ -161,7 +161,7 @@ async def procesar_modelo(page: Page, modelo: str,
                 )
                 
                 insertar_anuncio_db(
-                    link=url,  # <--- aquí se corrige el nombre del parámetro
+                    link=url,  # <-- aquí solo cambié de url a link para la base
                     modelo=modelo,
                     anio=anio,
                     precio=precio,
