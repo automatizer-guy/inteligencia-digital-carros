@@ -78,7 +78,7 @@ def inicializar_tabla_anuncios():
         cur.execute("""
             CREATE TABLE IF NOT EXISTS anuncios (
                 id INTEGER PRIMARY KEY AUTOINCREMENT,
-                url TEXT UNIQUE,
+                link TEXT UNIQUE,
                 modelo TEXT,
                 anio INTEGER,
                 precio INTEGER,
@@ -245,10 +245,10 @@ def insertar_anuncio_db(link, modelo, anio, precio, km, roi, score, relevante,
     conn = get_conn()
     cur = conn.cursor()
     cur.execute("""
-    INSERT INTO anuncios (url, modelo, anio, precio, km, roi, score, relevante,
+    INSERT INTO anuncios (link, modelo, anio, precio, km, roi, score, relevante,
                           confianza_precio, muestra_precio, fecha_scrape, created_at)
     VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, CURRENT_DATE, CURRENT_TIMESTAMP)
-    ON CONFLICT(url) DO UPDATE SET
+    ON CONFLICT(link) DO UPDATE SET
         roi = excluded.roi,
         score = excluded.score,
         relevante = excluded.relevante,
@@ -262,7 +262,7 @@ def insertar_anuncio_db(link, modelo, anio, precio, km, roi, score, relevante,
 def existe_en_db(link: str) -> bool:
     with get_db_connection() as conn:
         cur = conn.cursor()
-        cur.execute("SELECT 1 FROM anuncios WHERE url = ?", (limpiar_link(link),))
+        cur.execute("SELECT 1 FROM anuncios WHERE link = ?", (limpiar_link(link),))
         return cur.fetchone() is not None
 
 @timeit
@@ -313,7 +313,7 @@ def analizar_mensaje(texto: str) -> Optional[Dict[str, Any]]:
     score = puntuar_anuncio(texto, roi_data)
     url = next((l for l in texto.split() if l.startswith("http")), "")
     return {
-        "url": limpiar_link(url),
+        "link": limpiar_link(url),
         "modelo": modelo,
         "anio": anio,
         "precio": precio,
