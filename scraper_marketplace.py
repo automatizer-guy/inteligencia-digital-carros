@@ -290,54 +290,66 @@ async def procesar_modelo_optimizado(page: Page, modelo: str,
             for item in items:
                 url = item["url"]
                 texto = item["texto"]
-                
+            
                 # Filtro de URL duplicada
                 if url in urls_vistas:
                     stats["duplicados_url"] += 1
                     continue
                 urls_vistas.add(url)
-                
+            
                 # Filtro de contenido duplicado
                 hash_contenido = generar_hash_contenido(texto)
                 if hash_contenido in contenido_visto:
                     stats["duplicados_contenido"] += 1
                     continue
                 contenido_visto.add(hash_contenido)
-                
+            
                 # Filtro rápido inicial
                 if not es_anuncio_valido_rapido(texto, modelo):
                     stats["filtro_rapido"] += 1
                     continue
-                
-                # Análisis completo usando la función mejorada
-                resultado = analizar_mensaje(f"{texto} {url}")
-                
+            
+                # ✅ Entrar al anuncio y extraer descripción
+                try:
+                    await page.goto(url, timeout=10000)
+                    await asyncio.sleep(random.uniform(1.5, 2.5))  # Pausa natural
+                    descripcion = ""
+                    try:
+                        await page.wait_for_selector('div[aria-label="Descripción"]', timeout=4000)
+                        descripcion = await page.inner_text('div[aria-label="Descripción"]')
+                    except:
+                        pass
+                except Exception as e:
+                    logger.warning(f"⚠️ No se pudo acceder al anuncio: {e}")
+                    descripcion = ""
+            
+                # 🧠 Análisis completo con descripción incluida
+                resultado = analizar_mensaje(f"{texto} {descripcion} {url}")
                 if not resultado:
                     stats["datos_incompletos"] += 1
                     continue
-                
-                # Verificar que el modelo coincida exactamente
+            
+                # Verificar coincidencia de modelo exacto
                 if resultado["modelo"] != modelo:
                     continue
-                
-                # Extraer datos del resultado
+            
                 precio = resultado["precio"]
                 anio = resultado["año"]
                 roi = resultado["roi"]
                 score = resultado["score"]
                 es_relevante = resultado["relevante"]
-                
-                # Crear mensaje formateado
+            
+                # 🧾 Formar mensaje
                 mensaje = (
-                    f"🚘 *{modelo.title()}*\n"
+                    f"🚗 *{modelo.title()}*\n"
                     f"• Año: {anio}\n"
                     f"• Precio: Q{precio:,}\n"
                     f"• ROI: {roi:.1f}%\n"
                     f"• Score: {score}/10\n"
                     f"🔗 {url}"
                 )
-                
-                # Guardar en base de datos
+            
+                # 🧠 Guardar en base
                 try:
                     insertar_anuncio_db(
                         link=url,
@@ -350,28 +362,28 @@ async def procesar_modelo_optimizado(page: Page, modelo: str,
                         relevante=es_relevante,
                         confianza_precio=resultado["confianza_precio"],
                         muestra_precio=resultado["muestra_precio"]
+                        # Podés agregar `descripcion=descripcion` si tenés esa columna
                     )
                     stats["guardados"] += 1
                     nuevos_en_scroll += 1
                     items_en_ordenamiento += 1
-                    
                 except Exception as e:
                     logger.error(f"❌ Error guardando {url}: {e}")
                     continue
-                
-                # Agregar a listas correspondientes
+            
+                # Agregar a listas
                 procesados.append(mensaje)
-                
                 if es_relevante:
                     relevantes.append(mensaje)
                     stats["relevantes"] += 1
-                    logger.info(f"✅ RELEVANTE: {modelo} {anio} Q{precio:,} ROI:{roi:.1f}%")
+                    logger.info(f"✅ RELEVANTE: {modelo} {anio} Q{precio:,} ROI: {roi:.1f}%")
                 elif roi >= ROI_POTENCIAL_MIN:
                     potenciales.append(mensaje)
                     stats["potenciales"] += 1
-                    logger.info(f"🟡 POTENCIAL: {modelo} {anio} Q{precio:,} ROI:{roi:.1f}%")
+                    logger.info(f"🟡 POTENCIAL: {modelo} {anio} Q{precio:,} ROI: {roi:.1f}%")
                 else:
-                    logger.info(f"💾 GUARDADO: {modelo} {anio} Q{precio:,} ROI:{roi:.1f}%")
+                    logger.info(f"💾 GUARDADO: {modelo} {anio} Q{precio:,} ROI: {roi:.1f}%")
+
             
             # Control de scroll
             scrolls_realizados += 1
