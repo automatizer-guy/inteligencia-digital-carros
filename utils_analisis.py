@@ -338,19 +338,25 @@ def puntuar_anuncio(texto: str, roi_info: Optional[Dict] = None) -> int:
 
 # ---- DB Insert mejorado ----
 @timeit
-def insertar_anuncio_db(url: str, modelo: str, año: int, precio: int, km: str,
-                         roi: float, score: int, relevante: bool = False,
-                         confianza_precio: str = "baja", muestra_precio: int = 0):
-    with get_db_connection() as conn:
-        cur = conn.cursor()
-        cur.execute("""
-            INSERT OR IGNORE INTO anuncios
-            (link, modelo, anio, precio, km, fecha_scrape, roi, score, relevante, 
-             confianza_precio, muestra_precio)
-            VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
-        """, (url, modelo, año, precio, km, date.today().isoformat(), 
-              roi, score, int(relevante), confianza_precio, muestra_precio))
-        conn.commit()
+def insertar_anuncio_db(url, modelo, año, precio, km, roi, score, relevante,
+                        confianza_precio=None, muestra_precio=None):
+    conn = get_conn()
+    cur = conn.cursor()
+
+    cur.execute("""
+    INSERT INTO anuncios (url, modelo, año, precio, km, roi, score, relevante,
+                          confianza_precio, muestra_precio, fecha_scrape, created_at)
+    VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, CURRENT_DATE, CURRENT_TIMESTAMP)
+    ON CONFLICT(url) DO UPDATE SET
+        roi = excluded.roi,
+        score = excluded.score,
+        relevante = excluded.relevante,
+        confianza_precio = excluded.confianza_precio,
+        muestra_precio = excluded.muestra_precio,
+        fecha_scrape = CURRENT_DATE
+    """, (url, modelo, año, precio, km, roi, score, relevante,
+          confianza_precio, muestra_precio))
+    conn.commit()
 
 def existe_en_db(link: str) -> bool:
     with get_db_connection() as conn:
