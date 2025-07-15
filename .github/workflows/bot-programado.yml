@@ -60,6 +60,12 @@ jobs:
               score INTEGER
             );
           "
+      - name: Contar anuncios antes del run
+        id: db_prev
+        run: |
+          echo "📊 Contando anuncios previos..."
+          echo "count=$(sqlite3 '${{ env.DB_PATH }}' 'SELECT COUNT(*) FROM anuncios;')" >> $GITHUB_OUTPUT
+ 
 
       # 5️⃣ Ver estado previo de DB
       - name: Volumen previo en DB
@@ -103,11 +109,16 @@ jobs:
       # 🔟 Resumen final del run
       - name: Resumen final del run
         run: |
-          sudo apt-get update && sudo apt-get install -y sqlite3
           echo "✅ Bot ejecutado con éxito"
-          echo "📦 Total de anuncios registrados:"
-          sqlite3 "${{ env.DB_PATH }}" "SELECT COUNT(*) FROM anuncios;"
-          echo "🔍 Último anuncio registrado:"
-          sqlite3 "${{ env.DB_PATH }}" \
-            "SELECT link, fecha_scrape FROM anuncios ORDER BY fecha_scrape DESC, rowid DESC LIMIT 1;"
+      
+          echo "📊 Anuncios antes del run: ${{ steps.db_prev.outputs.count }}"
+      
+          FINAL=$(sqlite3 "${{ env.DB_PATH }}" "SELECT COUNT(*) FROM anuncios;")
+          echo "📦 Total actual: $FINAL"
+      
+          echo "➕ Anuncios nuevos agregados: $((FINAL - ${{ steps.db_prev.outputs.count }}))"
+      
+          echo "🔎 Último anuncio registrado:"
+          sqlite3 "${{ env.DB_PATH }}" "SELECT link, fecha_scrape FROM anuncios ORDER BY fecha_scrape DESC, rowid DESC LIMIT 1;"
+
 
