@@ -72,14 +72,31 @@ async def enviar_ofertas():
         "modelo no detectado": 0,
         "año fuera de rango": 0,
         "precio fuera de rango": 0,
+        "precio-año incoherente": 0,
         "roi bajo": 0
     }
+
 
     for txt in brutos:
         res = analizar_mensaje(txt)
         if not res:
             motivos["incompleto"] += 1
             continue
+    logger.info(f"\n📝 TEXTO CRUDO:\n{txt[:500]}")
+
+url, modelo, anio, precio, roi, score, relevante = (
+    res["url"], res["modelo"], res["año"], res["precio"],
+    res["roi"], res["score"], res["relevante"]
+)
+
+logger.info(f"📅 Año detectado: {anio}")
+logger.info(f"💰 Precio detectado: Q{precio:,}")
+
+from utils_analisis import validar_coherencia_precio_año
+if not validar_coherencia_precio_año(precio, anio):
+    motivos["precio-año incoherente"] = motivos.get("precio-año incoherente", 0) + 1
+    continue
+
 
         url, modelo, anio, precio, roi, score, relevante = (
             res["url"], res["modelo"], res["año"], res["precio"],
