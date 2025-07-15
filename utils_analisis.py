@@ -92,16 +92,19 @@ def inicializar_tabla_anuncios():
                 created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
             )
         """)
-        for columna in [
-            "relevante BOOLEAN DEFAULT 0",
-            "confianza_precio TEXT DEFAULT 'baja'",
-            "muestra_precio INTEGER DEFAULT 0",
-            "created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP"
-        ]:
+        nuevas_columnas = {
+            "relevante": "BOOLEAN DEFAULT 0",
+            "confianza_precio": "TEXT DEFAULT 'baja'",
+            "muestra_precio": "INTEGER DEFAULT 0",
+            "created_at": "TIMESTAMP DEFAULT CURRENT_TIMESTAMP"
+        }
+        
+        for nombre, definicion in nuevas_columnas.items():
             try:
-                cur.execute(f"ALTER TABLE anuncios ADD COLUMN {columna};")
+                cur.execute(f"ALTER TABLE anuncios ADD COLUMN {nombre} {definicion};")
             except sqlite3.OperationalError:
                 pass
+
         conn.commit()
 
 def limpiar_link(link: Optional[str]) -> str:
