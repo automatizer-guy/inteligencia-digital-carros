@@ -88,8 +88,7 @@ def inicializar_tabla_anuncios():
                 score INTEGER,
                 relevante BOOLEAN DEFAULT 0,
                 confianza_precio TEXT DEFAULT 'baja',
-                muestra_precio INTEGER DEFAULT 0,
-                created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
+                muestra_precio INTEGER DEFAULT 0
             )
         """)
         nuevas_columnas = {
