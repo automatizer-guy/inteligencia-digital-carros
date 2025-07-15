@@ -39,8 +39,12 @@ MODELOS_INTERES = list(PRECIOS_POR_DEFECTO.keys())
 PALABRAS_NEGATIVAS = [
     "repuesto", "repuestos", "solo repuestos", "para repuestos", "piezas",
     "desarme", "motor fundido", "no arranca", "no enciende", "papeles atrasados",
-    "sin motor", "para partes", "no funciona", "chocado", "accidentado"
+    "sin motor", "para partes", "no funciona", "accidentado"
 ]
+
+PALABRAS_POSITIVAS = ["automático", "mecánico", "motor impecable", "sin detalles", "nuevo"]
+
+
 LUGARES_EXTRANJEROS = [
     "mexico", "ciudad de méxico", "monterrey", "usa", "estados unidos",
     "honduras", "el salvador", "panamá", "costa rica", "colombia", "ecuador"
@@ -280,6 +284,7 @@ def calcular_roi_real(modelo: str, precio_compra: int, año: int,
     }
 
 @timeit
+@timeit
 def puntuar_anuncio(texto: str, roi_info: Optional[Dict] = None) -> int:
     precio = limpiar_precio(texto)
     anio = extraer_anio(texto)
@@ -291,15 +296,12 @@ def puntuar_anuncio(texto: str, roi_info: Optional[Dict] = None) -> int:
 
     if roi_info:
         roi = roi_info["roi"]
-        confianza = roi_info["confianza"]
     else:
-        roi_data = calcular_roi_real(modelo, precio, anio)
-        roi = roi_data["roi"]
-        confianza = roi_data["confianza"]
+        roi = calcular_roi_real(modelo, precio, anio)["roi"]
 
     score = 4  # base
 
-    # ROI
+    # ROI escalonado
     if roi >= 25:
         score += 4
     elif roi >= 15:
@@ -309,31 +311,20 @@ def puntuar_anuncio(texto: str, roi_info: Optional[Dict] = None) -> int:
     elif roi >= 5:
         score += 1
     else:
-        score -= 2
+        score -= 1  # leve castigo si ROI muy bajo
 
-    # Confianza
-    if confianza == "alta":
-        score += 2
-    elif confianza == "media":
-        score += 1
-    else:
-        score -= 2
-
-    # Precio
+    # Precio bajo es buena oportunidad
     if precio <= 25000:
+        score += 2
+    elif precio <= 35000:
         score += 1
-    elif precio >= 80000:
-        score -= 1
 
-    # Texto completo
+    # Texto detallado indica vendedor serio
     if len(texto.split()) >= 8:
         score += 1
 
-    # Palabras clave positivas
-    if any(p in texto.lower() for p in PALABRAS_POSITIVAS):
-        score += 1
-
     return max(0, min(score, 10))
+
 
 
 # ---- DB Insert mejorado ----
