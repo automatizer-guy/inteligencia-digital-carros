@@ -42,8 +42,6 @@ PALABRAS_NEGATIVAS = [
     "sin motor", "para partes", "no funciona", "accidentado"
 ]
 
-PALABRAS_POSITIVAS = ["automático", "mecánico", "motor impecable", "sin detalles", "nuevo"]
-
 
 LUGARES_EXTRANJEROS = [
     "mexico", "ciudad de méxico", "monterrey", "usa", "estados unidos",
