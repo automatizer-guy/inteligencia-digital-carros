@@ -160,7 +160,7 @@ async def procesar_modelo(page: Page, modelo: str,
                 )
 
                 insertar_anuncio_db(
-                    url=url,
+                    link=url,
                     modelo=modelo,
                     año=anio,
                     precio=precio,
