@@ -160,8 +160,9 @@ async def procesar_modelo(page: Page, modelo: str,
                     f"🔗 {url}"
                 )
                 
+                # Insertar en base de datos
                 insertar_anuncio_db(
-                    link=url,  # <-- aquí solo cambié de url a link para la base
+                    link=url,
                     modelo=modelo,
                     anio=anio,
                     precio=precio,
@@ -172,7 +173,6 @@ async def procesar_modelo(page: Page, modelo: str,
                     confianza_precio=roi_data["confianza"],
                     muestra_precio=roi_data["muestra"]
                 )
-
 
                 logger.info(f"💾 Guardado: {modelo} | ROI={roi_data['roi']:.2f}% | Score={score} | Relevante={relevante}")
                 contador["guardado"] += 1
@@ -260,9 +260,5 @@ if __name__ == "__main__":
         logger.info("\n🟢 Relevantes con buen ROI:")
         for r in relevantes:
             logger.info(r.replace("*", "").replace("\\n", "\n"))
-
-        logger.info("\n🟡 Potenciales cercanos:")
-        for pot in potenciales:
-            logger.info(pot.replace("*", "").replace("\\n", "\n"))
 
     asyncio.run(main())
