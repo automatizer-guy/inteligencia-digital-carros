@@ -210,6 +210,18 @@ def extraer_anio(texto: str) -> Optional[int]:
 
     return None
 
+def validar_coherencia_precio_año(precio: int, año: int) -> bool:
+    """
+    Descarta precios incoherentes para ciertos rangos de años.
+    """
+    if año >= 2020 and precio < 100_000:
+        return False
+    if año >= 2016 and precio < 50_000:
+        return False
+    if año >= 2010 and precio < 30_000:
+        return False
+    return True
+
 
 @timeit
 def get_precio_referencia(modelo: str, anio: int, tolerancia: Optional[int] = None) -> Dict[str, Any]:
