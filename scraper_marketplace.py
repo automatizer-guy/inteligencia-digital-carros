@@ -99,22 +99,18 @@ async def procesar_modelo(page: Page, modelo: str,
 
         while scrolls_realizados < 25:
             items = await extraer_items_pagina(page)
-            logger.info(f"🧹 {modelo} ({sort}) — Scroll #{scrolls_realizados+1}: {len(items)} ítems encontrados")
-
-            nuevos_en_scroll = 0
-
             for itm in items:
                 url = limpiar_link(itm["url"])
-                texto = itm["texto"]
+                texto = itm["texto"].strip()
                 contador["total"] += 1
 
                 if not url.startswith("https://www.facebook.com/marketplace/item/"):
                     continue
-                if url in vistos_globales or existe_en_db(url):
+
+                if url in vistos_globales:
                     contador["duplicado"] += 1
-                    consec_repetidos += 1
-                    vistos_globales.add(url)
                     continue
+                vistos_globales.add(url)
 
                 try:
                     await page.goto(url)
@@ -124,7 +120,6 @@ async def procesar_modelo(page: Page, modelo: str,
                     texto = itm["texto"]
 
                 texto = texto.strip()
-
                 if not coincide_modelo(texto, modelo):
                     contador["filtro_modelo"] += 1
                     continue
@@ -139,7 +134,6 @@ async def procesar_modelo(page: Page, modelo: str,
                 if not m:
                     contador["sin_precio"] += 1
                     continue
-
                 precio = limpiar_precio(m.group())
                 if precio < MIN_PRECIO_VALIDO:
                     contador["precio_bajo"] += 1
@@ -154,6 +148,7 @@ async def procesar_modelo(page: Page, modelo: str,
 
                 roi_data = calcular_roi_real(modelo, precio, anio)
                 score = puntuar_anuncio(texto, roi_data)
+                relevante = score >= SCORE_MIN_TELEGRAM and roi_data["roi"] >= ROI_MINIMO
 
                 mensaje_base = (
                     f"🚘 *{modelo.title()}*\n"
@@ -172,17 +167,18 @@ async def procesar_modelo(page: Page, modelo: str,
                     km="",
                     roi=roi_data["roi"],
                     score=score,
-                    relevante=(score >= SCORE_MIN_TELEGRAM and roi_data["roi"] >= ROI_MINIMO),
+                    relevante=relevante,
                     confianza_precio=roi_data["confianza"],
                     muestra_precio=roi_data["muestra"]
                 )
 
+                logger.info(f"💾 Guardado: {modelo} | ROI={roi_data['roi']:.2f}% | Score={score} | Relevante={relevante}")
                 contador["guardado"] += 1
                 nuevos.add(url)
                 nuevos_en_scroll += 1
                 procesados.append(mensaje_base)
 
-                if score >= SCORE_MIN_TELEGRAM and roi_data["roi"] >= ROI_MINIMO:
+                if relevante:
                     relevantes.append(mensaje_base)
                 elif ROI_POTENCIAL_MIN <= roi_data["roi"] < ROI_MINIMO:
                     potenciales.append(mensaje_base)
