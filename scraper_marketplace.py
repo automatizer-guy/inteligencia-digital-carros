@@ -24,7 +24,7 @@ logging.basicConfig(level=logging.INFO, format="%(asctime)s [%(levelname)s] %(me
 MIN_PRECIO_VALIDO = 5000
 MAX_PRECIO_VALIDO = 250000
 MAX_SCROLLS_POR_MODELO = 15  # Reducido para mayor eficiencia
-MAX_TIMEOUT_MODELO = 240  # 4 minutos por modelo
+MAX_TIMEOUT_MODELO = 340  #  minutos por modelo
 MAX_REPETIDOS_CONSECUTIVOS = 3
 MIN_NUEVOS_PARA_CONTINUAR = 2
 ROI_POTENCIAL_MIN = ROI_MINIMO - 5
