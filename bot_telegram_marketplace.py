@@ -189,6 +189,12 @@ async def enviar_ofertas():
     total_brutos = len(brutos)
     duplicados_totales = motivos["duplicados"] + (total_brutos - total_procesados)
     
+    # 🛡️ Calcular tasa de relevancia de forma segura
+    if total_procesados == 0:
+        tasa_relevancia = "0.0"
+    else:
+        tasa_relevancia = f"{(len(buenos)/total_procesados*100):.1f}"
+    
     reporte_inicial = (
         f"📊 *Resumen de procesamiento:*\n"
         f"• Anuncios encontrados: {total_brutos}\n"
@@ -196,10 +202,11 @@ async def enviar_ofertas():
         f"• Procesados únicos: {total_procesados}\n"
         f"• Relevantes: {len(buenos)}\n"
         f"• Potenciales: {len(potenciales)}\n"
-        f"• Tasa de relevancia: {(len(buenos)/total_procesados*100):.1f}%"
+        f"• Tasa de relevancia: {tasa_relevancia}%"
     )
     
     await safe_send(reporte_inicial)
+
 
     # Reporte de motivos de descarte
     desc_total = sum(motivos.values())
