@@ -86,7 +86,7 @@ def inicializar_tabla_anuncios():
         cur.execute("""
             CREATE TABLE IF NOT EXISTS anuncios (
                 id INTEGER PRIMARY KEY AUTOINCREMENT,
-                url TEXT UNIQUE,
+                link TEXT UNIQUE,
                 modelo TEXT,
                 anio INTEGER,
                 precio INTEGER,
@@ -333,19 +333,20 @@ def insertar_anuncio_db(link, modelo, año, precio, km, roi, score, relevante,
     cur = conn.cursor()
 
     cur.execute("""
-    INSERT INTO anuncios (url, modelo, año, precio, km, roi, score, relevante,
+    INSERT INTO anuncios (link, modelo, año, precio, km, roi, score, relevante,
                           confianza_precio, muestra_precio, fecha_scrape, created_at)
     VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, CURRENT_DATE, CURRENT_TIMESTAMP)
-    ON CONFLICT(url) DO UPDATE SET
+    ON CONFLICT(link) DO UPDATE SET
         roi = excluded.roi,
         score = excluded.score,
         relevante = excluded.relevante,
         confianza_precio = excluded.confianza_precio,
         muestra_precio = excluded.muestra_precio,
         fecha_scrape = CURRENT_DATE
-    """, (url, modelo, año, precio, km, roi, score, relevante,
+    """, (link, modelo, año, precio, km, roi, score, relevante,
           confianza_precio, muestra_precio))
     conn.commit()
+
 
 def existe_en_db(link: str) -> bool:
     with get_db_connection() as conn:
