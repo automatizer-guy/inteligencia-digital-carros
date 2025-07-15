@@ -327,7 +327,7 @@ def puntuar_anuncio(texto: str, roi_info: Optional[Dict] = None) -> int:
 
 # ---- DB Insert mejorado ----
 @timeit
-def insertar_anuncio_db(url, modelo, año, precio, km, roi, score, relevante,
+def insertar_anuncio_db(link, modelo, año, precio, km, roi, score, relevante,
                         confianza_precio=None, muestra_precio=None):
     conn = get_conn()
     cur = conn.cursor()
@@ -416,7 +416,7 @@ def analizar_mensaje(texto: str) -> Optional[Dict[str, Any]]:
     url = next((l for l in texto.split() if l.startswith("http")), "")
     
     return {
-        "url": limpiar_link(url),
+        "link": limpiar_link(url),
         "modelo": modelo,
         "año": anio,
         "precio": precio,
