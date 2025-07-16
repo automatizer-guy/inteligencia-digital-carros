@@ -1,4 +1,4 @@
-import os
+import oimport os
 import re
 import sqlite3
 import time
@@ -7,6 +7,8 @@ import statistics
 from datetime import datetime
 from typing import Optional, Dict, Any, List
 from contextlib import contextmanager
+
+AÑO_ACTUAL = datetime.now().year
 
 def escapar_multilinea(texto: str) -> str:
     return re.sub(r'([_*\[\]()~`>#+=|{}.!\\-])', r'\\\1', texto)
@@ -75,16 +77,14 @@ def get_conn():
 def inicializar_tabla_anuncios():
     with get_db_connection() as conn:
         cur = conn.cursor()
-        
-        # Verificar si la tabla existe
+
         cur.execute("""
             SELECT name FROM sqlite_master 
             WHERE type='table' AND name='anuncios'
         """)
         tabla_existe = cur.fetchone() is not None
-        
+
         if not tabla_existe:
-            # Crear tabla con estructura básica
             cur.execute("""
                 CREATE TABLE anuncios (
                     link TEXT PRIMARY KEY,
@@ -98,18 +98,16 @@ def inicializar_tabla_anuncios():
                 )
             """)
             print("✅ Tabla anuncios creada con estructura básica")
-        
-        # Verificar columnas existentes
+
         cur.execute("PRAGMA table_info(anuncios)")
         columnas_existentes = {row[1] for row in cur.fetchall()}
-        
-        # Agregar columnas adicionales si no existen
+
         nuevas_columnas = {
             "relevante": "BOOLEAN DEFAULT 0",
             "confianza_precio": "TEXT DEFAULT 'baja'",
             "muestra_precio": "INTEGER DEFAULT 0"
         }
-        
+
         for nombre, definicion in nuevas_columnas.items():
             if nombre not in columnas_existentes:
                 try:
@@ -117,7 +115,7 @@ def inicializar_tabla_anuncios():
                     print(f"✅ Columna '{nombre}' agregada")
                 except sqlite3.OperationalError as e:
                     print(f"⚠️ Error al agregar columna '{nombre}': {e}")
-        
+
         conn.commit()
 
 def limpiar_link(link: Optional[str]) -> str:
@@ -140,8 +138,7 @@ def validar_precio_coherente(precio: int, modelo: str, anio: int) -> bool:
 def limpiar_precio(texto: str) -> int:
     s = re.sub(r"[Qq\$\.,]", "", texto.lower())
     matches = re.findall(r"\b\d{3,7}\b", s)
-    año_actual = datetime.now().year
-    candidatos = [int(x) for x in matches if int(x) < 1990 or int(x) > año_actual + 1]
+    candidatos = [int(x) for x in matches if int(x) >= 3000 and (int(x) < 1990 or int(x) > AÑO_ACTUAL + 1)]
     return candidatos[0] if candidatos else 0
 
 def filtrar_outliers(precios: List[int]) -> List[int]:
@@ -179,49 +176,33 @@ def coincide_modelo(texto: str, modelo: str) -> bool:
     texto_limpio = unicodedata.normalize("NFKD", texto_l).encode("ascii", "ignore").decode("ascii")
     return any(v in texto_limpio for v in variantes)
 
-import re
-
 def extraer_anio(texto: str) -> Optional[int]:
-    """
-    Detecta el año del vehículo solo si aparece acompañado de palabras clave
-    como 'año', 'modelo', 'del', o si aparece en contexto válido.
-    Descarta años futuros o incoherentes.
-    """
     texto = texto.lower()
-
     patrones = [
-        r"(?:año|modelo|del)\s*[:\-]?\s*(19[9]\d|20[0-3]\d)",   # "año 2014", "modelo: 2018"
-        r"(19[9]\d|20[0-3]\d)\s*(?:modelo|año)",               # "2016 modelo"
+        r"(?:año|modelo|del)\s*[:\-]?\s*(19[9]\d|20[0-3]\d)",
+        r"(19[9]\d|20[0-3]\d)\s*(?:modelo|año)",
     ]
-
     for patron in patrones:
         match = re.search(patron, texto)
         if match:
-            año = int(match.group(1))
-            if 1990 <= año <= 2030:
-                return año
-
-    # Si no se encontró patrón contextual, buscar últimos 4 dígitos aislados pero con más control
+            anio = int(match.group(1))
+            if 1990 <= anio <= 2030:
+                return anio
     posibles = re.findall(r"\b(19[9]\d|20[0-3]\d)\b", texto)
     for p in posibles:
-        año = int(p)
-        if 1990 <= año <= 2030:
-            return año
-
+        anio = int(p)
+        if 1990 <= anio <= 2030:
+            return anio
     return None
 
-def validar_coherencia_precio_año(precio: int, año: int) -> bool:
-    """
-    Descarta precios incoherentes para ciertos rangos de años.
-    """
-    if año >= 2020 and precio < 100_000:
+def validar_coherencia_precio_año(precio: int, anio: int) -> bool:
+    if anio >= 2020 and precio < 100_000:
         return False
-    if año >= 2016 and precio < 50_000:
+    if anio >= 2016 and precio < 50_000:
         return False
-    if año >= 2010 and precio < 30_000:
+    if anio >= 2010 and precio < 30_000:
         return False
     return True
-
 
 @timeit
 def get_precio_referencia(modelo: str, anio: int, tolerancia: Optional[int] = None) -> Dict[str, Any]:
@@ -246,7 +227,7 @@ def get_precio_referencia(modelo: str, anio: int, tolerancia: Optional[int] = No
 @timeit
 def calcular_roi_real(modelo: str, precio_compra: int, anio: int, costo_extra: int = 2000) -> Dict[str, Any]:
     ref = get_precio_referencia(modelo, anio)
-    años_ant = max(0, datetime.now().year - anio)
+    años_ant = max(0, AÑO_ACTUAL - anio)
     f_dep = (1 - DEPRECIACION_ANUAL) ** años_ant
     p_dep = ref["precio"] * f_dep
     inv_total = precio_compra + costo_extra
@@ -287,26 +268,22 @@ def insertar_anuncio_db(link, modelo, anio, precio, km, roi, score, relevante=Fa
                         confianza_precio=None, muestra_precio=None):
     conn = get_conn()
     cur = conn.cursor()
-    
-    # Verificar si existen las columnas adicionales
     cur.execute("PRAGMA table_info(anuncios)")
     columnas_existentes = {row[1] for row in cur.fetchall()}
-    
+
     if all(col in columnas_existentes for col in ["relevante", "confianza_precio", "muestra_precio"]):
-        # Insertar con columnas adicionales
         cur.execute("""
         INSERT OR REPLACE INTO anuncios 
         (link, modelo, anio, precio, km, roi, score, relevante, confianza_precio, muestra_precio, fecha_scrape)
         VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, DATE('now'))
         """, (link, modelo, anio, precio, km, roi, score, relevante, confianza_precio, muestra_precio))
     else:
-        # Insertar solo con columnas básicas
         cur.execute("""
         INSERT OR REPLACE INTO anuncios 
         (link, modelo, anio, precio, km, roi, score, fecha_scrape)
         VALUES (?, ?, ?, ?, ?, ?, ?, DATE('now'))
         """, (link, modelo, anio, precio, km, roi, score))
-    
+
     conn.commit()
 
 def existe_en_db(link: str) -> bool:
@@ -335,11 +312,8 @@ def get_estadisticas_db() -> Dict[str, Any]:
         cur = conn.cursor()
         cur.execute("SELECT COUNT(*) FROM anuncios")
         total = cur.fetchone()[0]
-        
-        # Verificar si existe la columna confianza_precio
         cur.execute("PRAGMA table_info(anuncios)")
         columnas_existentes = {row[1] for row in cur.fetchall()}
-        
         if "confianza_precio" in columnas_existentes:
             cur.execute("SELECT COUNT(*) FROM anuncios WHERE confianza_precio = 'alta'")
             alta_conf = cur.fetchone()[0]
@@ -348,13 +322,11 @@ def get_estadisticas_db() -> Dict[str, Any]:
         else:
             alta_conf = 0
             baja_conf = total
-        
         cur.execute("""
             SELECT modelo, COUNT(*) FROM anuncios 
             GROUP BY modelo ORDER BY COUNT(*) DESC
         """)
         por_modelo = dict(cur.fetchall())
-        
         return {
             "total_anuncios": total,
             "alta_confianza": alta_conf,
@@ -375,7 +347,7 @@ def analizar_mensaje(texto: str) -> Optional[Dict[str, Any]]:
     score = puntuar_anuncio(texto, roi_data)
     url = next((l for l in texto.split() if l.startswith("http")), "")
     return {
-        "url": limpiar_link(url),  # Cambié link por url para mantener consistencia
+        "url": limpiar_link(url),
         "modelo": modelo,
         "año": anio,  # Cambié anio por año para mantener consistencia
         "precio": precio,
