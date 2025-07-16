@@ -208,7 +208,7 @@ def es_anuncio_valido_rapido(texto: str, modelo: str) -> bool:
     #     return False  ← esto lo quitamos para suavizar
 
     # 🌍 Filtrar extranjeros solo si no dice “Guatemala” explícitamente
-    if es_extranjero(texto) and "guatemala" not in texto_lower:
+    if es_extranjero(texto):
         return False
 
     # 💸 Verificar precios válidos
