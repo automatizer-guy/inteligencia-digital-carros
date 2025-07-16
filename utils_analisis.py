@@ -1,4 +1,4 @@
-import oimport os
+import os
 import re
 import sqlite3
 import time
