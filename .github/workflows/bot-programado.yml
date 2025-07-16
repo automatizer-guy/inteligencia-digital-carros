@@ -56,7 +56,8 @@ jobs:
             km TEXT,
             fecha_scrape DATE,
             roi REAL,
-            score INTEGER
+            score INTEGER,
+            updated_at DATE DEFAULT DATE('now')
           );
           "
 
@@ -65,12 +66,13 @@ jobs:
         id: db_prev
         run: |
           echo "🕒 Contando anuncios previos..."
-          echo "count=$(sqlite3 '${{ env.DB_PATH }}' 'SELECT COUNT(*) FROM anuncios;')" >> $GITHUB_OUTPUT
+          BEFORE=$(sqlite3 "${{ env.DB_PATH }}" 'SELECT COUNT(*) FROM anuncios;')
+          echo "before=$BEFORE" >> $GITHUB_OUTPUT
 
-      # 6️⃣ Ver estado previo por modelo
+      # 6️⃣ Volumen previo por modelo
       - name: Volumen previo en DB
         run: |
-          echo "📊 Anuncios por modelo:"
+          echo "📊 Anuncios por modelo (previo):"
           sqlite3 "${{ env.DB_PATH }}" \
             "SELECT modelo, COUNT(*) FROM anuncios GROUP BY modelo ORDER BY COUNT(*) DESC;"
 
@@ -83,7 +85,16 @@ jobs:
 
       # 8️⃣ Ejecutar el bot
       - name: Ejecutar bot con Telegram
-        run: python bot_telegram_marketplace.py
+        id: run_bot
+        run: |
+          # Ejecuta y captura en stdout las líneas:
+          #   NUEVOS=<nuevos>
+          #   ACTUALIZADOS=<actualizados>
+          python bot_telegram_marketplace.py | tee resultado.log
+          NUEVOS=$(grep '^NUEVOS=' resultado.log | cut -d= -f2)
+          ACTUALIZADOS=$(grep '^ACTUALIZADOS=' resultado.log | cut -d= -f2)
+          echo "nuevos=$NUEVOS" >> $GITHUB_OUTPUT
+          echo "actualizados=$ACTUALIZADOS" >> $GITHUB_OUTPUT
 
       # 9️⃣ Guardar nueva versión de la DB
       - name: Copiar DB al branch data
@@ -106,14 +117,17 @@ jobs:
             echo "📁 Sin cambios detectados en la base, se omite push"
           fi
 
-      # 🧾 Resumen final del run
+      # 1️⃣1️⃣ Resumen final del run
       - name: Resumen final del run
         run: |
           sudo apt-get update && sudo apt-get install -y sqlite3
           echo "✅ Bot ejecutado con éxito"
-          echo "📊 Anuncios antes del run: ${{ steps.db_prev.outputs.count }}"
+          echo "📊 Anuncios antes del run: ${{ steps.db_prev.outputs.before }}"
           FINAL=$(sqlite3 "${{ env.DB_PATH }}" "SELECT COUNT(*) FROM anuncios;")
           echo "📦 Total actual: $FINAL"
-          echo "➕ Nuevos anuncios agregados: $((FINAL - ${{ steps.db_prev.outputs.count }}))"
+          echo "➕ Nuevos anuncios agregados: $((FINAL - ${{ steps.db_prev.outputs.before }}))"
+          echo "📈 Reporte de inserciones:"
+          echo "   • Nuevos: ${{ steps.run_bot.outputs.nuevos }}"
+          echo "   • Actualizados: ${{ steps.run_bot.outputs.actualizados }}"
           echo "🔍 Último anuncio registrado:"
-          sqlite3 "${{ env.DB_PATH }}" "SELECT link, fecha_scrape FROM anuncios ORDER BY fecha_scrape DESC, rowid DESC LIMIT 1;"
+          sqlite3 "${{ env.DB_PATH }}" "SELECT link, fecha_scrape FROM anuncios ORDER BY updated_at DESC, rowid DESC LIMIT 1;"
