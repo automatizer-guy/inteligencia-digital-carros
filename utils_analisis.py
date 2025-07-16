@@ -74,17 +74,18 @@ def get_conn():
     return _conn
 
 @timeit
+
 def inicializar_tabla_anuncios():
     with get_db_connection() as conn:
         cur = conn.cursor()
 
+        # Verificar si la tabla existe
         cur.execute("""
             SELECT name FROM sqlite_master 
             WHERE type='table' AND name='anuncios'
         """)
-        tabla_existe = cur.fetchone() is not None
-
-        if not tabla_existe:
+        if cur.fetchone() is None:
+            # Crear tabla con estructura básica + columna updated_at
             cur.execute("""
                 CREATE TABLE anuncios (
                     link TEXT PRIMARY KEY,
@@ -94,29 +95,71 @@ def inicializar_tabla_anuncios():
                     km TEXT,
                     fecha_scrape DATE,
                     roi REAL,
-                    score INTEGER
+                    score INTEGER,
+                    updated_at DATE DEFAULT DATE('now')
                 )
             """)
-            print("✅ Tabla anuncios creada con estructura básica")
-
+            print("✅ Tabla anuncios creada con updated_at")
+        # Agregar updated_at si no existe
         cur.execute("PRAGMA table_info(anuncios)")
-        columnas_existentes = {row[1] for row in cur.fetchall()}
+        cols = {row[1] for row in cur.fetchall()}
+        if 'updated_at' not in cols:
+            try:
+                cur.execute("ALTER TABLE anuncios ADD COLUMN updated_at DATE DEFAULT DATE('now')")
+                print("✅ Columna 'updated_at' agregada")
+            except sqlite3.OperationalError:
+                pass
 
-        nuevas_columnas = {
-            "relevante": "BOOLEAN DEFAULT 0",
-            "confianza_precio": "TEXT DEFAULT 'baja'",
-            "muestra_precio": "INTEGER DEFAULT 0"
-        }
-
-        for nombre, definicion in nuevas_columnas.items():
-            if nombre not in columnas_existentes:
-                try:
-                    cur.execute(f"ALTER TABLE anuncios ADD COLUMN {nombre} {definicion}")
-                    print(f"✅ Columna '{nombre}' agregada")
-                except sqlite3.OperationalError as e:
-                    print(f"⚠️ Error al agregar columna '{nombre}': {e}")
+        # Verificar y agregar otras columnas
+        # ... tu lógica de relevancia, confianza_precio, muestra_precio...
 
         conn.commit()
+```
+
+```python
+# Nueva función UPSERT en lugar de insertar_anuncio_db
+
+def insertar_o_actualizar_anuncio_db(
+    conn,
+    link: str,
+    modelo: str,
+    anio: int,
+    precio: int,
+    km: str,
+    roi: float,
+    score: int,
+    relevante: bool,
+    confianza_precio: str,
+    muestra_precio: int
+) -> str:
+    """
+    Inserta o actualiza un anuncio y devuelve 'nuevo' o 'actualizado'.
+    """
+    cur = conn.cursor()
+    cur.execute("""
+        INSERT INTO anuncios (
+          link, modelo, anio, precio, km, roi, score,
+          relevante, confianza_precio, muestra_precio,
+          fecha_scrape, updated_at
+        ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, DATE('now'), DATE('now'))
+        ON CONFLICT(link) DO UPDATE SET
+          modelo=excluded.modelo,
+          anio=excluded.anio,
+          precio=excluded.precio,
+          km=excluded.km,
+          roi=excluded.roi,
+          score=excluded.score,
+          relevante=excluded.relevante,
+          confianza_precio=excluded.confianza_precio,
+          muestra_precio=excluded.muestra_precio,
+          updated_at=DATE('now')
+    """, (
+        link, modelo, anio, precio, km, roi, score,
+        int(relevante), confianza_precio, muestra_precio
+    ))
+    conn.commit()
+    return "nuevo" if cur.lastrowid else "actualizado"
+
 
 def limpiar_link(link: Optional[str]) -> str:
     if not link:
