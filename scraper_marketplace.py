@@ -195,35 +195,34 @@ async def scroll_inteligente(page: Page) -> bool:
         return False
 
 def es_anuncio_valido_rapido(texto: str, modelo: str) -> bool:
-    """Filtro inicial ultra-rápido para descartar anuncios obviamente irrelevantes"""
+    """Filtro rápido con tolerancia mejorada para evitar descartar anuncios útiles"""
     texto_lower = texto.lower()
     
-    # Verificar que coincida con el modelo
+    # Verificar coincidencia más flexible
     if not coincide_modelo(texto, modelo):
         return False
-    
-    # Filtrar negativos obvios
-    if contiene_negativos(texto):
+
+    # ⚠️ No descartar por negativos: solo marcar para penalización futura
+    # (mantener `contiene_negativos()` para usarlo en `puntuar_anuncio()` o `score`)
+    # if contiene_negativos(texto):
+    #     return False  ← esto lo quitamos para suavizar
+
+    # 🌍 Filtrar extranjeros solo si no dice “Guatemala” explícitamente
+    if es_extranjero(texto) and "guatemala" not in texto_lower:
         return False
-    
-    # Filtrar extranjeros
-    if es_extranjero(texto):
-        return False
-    
-    # Verificar que tenga algún precio válido
+
+    # 💸 Verificar precios válidos
     precios = re.findall(r'q\s?[\d\.,]+', texto_lower)
-    if not precios:
-        return False
-    
-    # Verificar precio en rango básico
     for precio_str in precios:
         precio_num = re.sub(r'[^\d]', '', precio_str)
         if precio_num.isdigit():
             precio = int(precio_num)
             if MIN_PRECIO_VALIDO <= precio <= MAX_PRECIO_VALIDO:
                 return True
-    
+
+    # ⛔ Si no hay ningún precio válido, sí lo descartamos
     return False
+
 
 async def procesar_modelo_optimizado(page: Page, modelo: str,
                                    procesados: List[str],
