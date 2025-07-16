@@ -176,23 +176,39 @@ def coincide_modelo(texto: str, modelo: str) -> bool:
     texto_limpio = unicodedata.normalize("NFKD", texto_l).encode("ascii", "ignore").decode("ascii")
     return any(v in texto_limpio for v in variantes)
 
-def extraer_anio(texto: str) -> Optional[int]:
+def extraer_anio(texto: str, anio_actual: int = None) -> Optional[int]:
+    if anio_actual is None:
+        anio_actual = datetime.now().year
+
     texto = texto.lower()
-    patrones = [
-        r"(?:año|modelo|del)\s*[:\-]?\s*(19[9]\d|20[0-3]\d)",
-        r"(19[9]\d|20[0-3]\d)\s*(?:modelo|año)",
+    
+    # 1. Detectar años de 2 dígitos tipo "modelo 98"
+    match_modelo = re.search(r"(modelo|año)\s?(\d{2})\b", texto)
+    if match_modelo:
+        anio = int(match_modelo.group(2))
+        if anio >= 90:
+            return 1900 + anio  # ejemplo: 98 → 1998
+        else:
+            return 2000 + anio  # ejemplo: 05 → 2005
+
+    # 2. Detectar años de 4 dígitos que NO estén en frases irrelevantes
+    # Frases a ignorar
+    patrones_ignorar = [
+        r"se unió a facebook en \d{4}",
+        r"miembro desde \d{4}",
+        r"en facebook desde \d{4}",
+        r"perfil creado en \d{4}",
     ]
-    for patron in patrones:
-        match = re.search(patron, texto)
-        if match:
-            anio = int(match.group(1))
-            if 1990 <= anio <= 2030:
-                return anio
-    posibles = re.findall(r"\b(19[9]\d|20[0-3]\d)\b", texto)
-    for p in posibles:
-        anio = int(p)
-        if 1990 <= anio <= 2030:
-            return anio
+    for patron in patrones_ignorar:
+        texto = re.sub(patron, '', texto)
+
+    # 3. Extraer años válidos
+    posibles = re.findall(r"\b(19\d{2}|20[0-3]\d)\b", texto)
+    for anio in posibles:
+        anio_int = int(anio)
+        if 1990 <= anio_int <= anio_actual:
+            return anio_int
+
     return None
 
 def validar_coherencia_precio_año(precio: int, anio: int) -> bool:
