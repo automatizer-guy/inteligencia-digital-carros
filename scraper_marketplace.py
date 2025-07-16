@@ -304,9 +304,9 @@ async def procesar_modelo_optimizado(page: Page, modelo: str,
                 contenido_visto.add(hash_contenido)
             
                 # Filtro rápido inicial
-                if not es_anuncio_valido_rapido(texto, modelo):
-                    stats["filtro_rapido"] += 1
-                    continue
+                #if not es_anuncio_valido_rapido(texto, modelo):
+                 #   stats["filtro_rapido"] += 1
+                  #  continue
             
                 # ✅ Entrar al anuncio y extraer descripción
                 try:
