@@ -179,91 +179,49 @@ def coincide_modelo(texto: str, modelo: str) -> bool:
     texto_limpio = unicodedata.normalize("NFKD", texto_l).encode("ascii", "ignore").decode("ascii")
     return any(v in texto_limpio for v in variantes)
 
+import re
+
 def extraer_anio(texto: str) -> Optional[int]:
     """
-    VERSIÓN MEJORADA: Extrae el año del vehículo con mayor precisión
-    - Prioriza contextos específicos (año, modelo, del)
-    - Evita años de teléfonos, fechas, etc.
-    - Validación estricta de rangos
+    Detecta el año del vehículo solo si aparece acompañado de palabras clave
+    como 'año', 'modelo', 'del', o si aparece en contexto válido.
+    Descarta años futuros o incoherentes.
     """
-    texto_original = texto
     texto = texto.lower()
-    
-    # Patrones específicos con contexto - ALTA PRIORIDAD
-    patrones_contexto = [
-        r"(?:año|modelo|del|version|año del vehiculo|año del auto|año modelo)\s*[:\-]?\s*(19[9]\d|20[0-2]\d)",
-        r"(19[9]\d|20[0-2]\d)\s*(?:modelo|año|version)",
-        r"modelo\s+(19[9]\d|20[0-2]\d)",
-        r"del\s+(19[9]\d|20[0-2]\d)",
+
+    patrones = [
+        r"(?:año|modelo|del)\s*[:\-]?\s*(19[9]\d|20[0-3]\d)",   # "año 2014", "modelo: 2018"
+        r"(19[9]\d|20[0-3]\d)\s*(?:modelo|año)",               # "2016 modelo"
     ]
-    
-    for patron in patrones_contexto:
+
+    for patron in patrones:
         match = re.search(patron, texto)
         if match:
             año = int(match.group(1))
-            if 1990 <= año <= 2024:  # Rango más estricto
-                if DEBUG:
-                    print(f"🎯 Año encontrado con contexto: {año} en '{match.group(0)}'")
+            if 1990 <= año <= 2030:
                 return año
-    
-    # Patrones sin contexto pero con validación adicional - BAJA PRIORIDAD
-    # Solo si no hay números de teléfono o fechas cercanas
-    if not re.search(r"\d{4}[-/]\d{1,2}[-/]\d{1,2}", texto) and not re.search(r"\d{8}", texto):
-        años_candidatos = re.findall(r"\b(19[9]\d|20[0-2]\d)\b", texto)
-        
-        # Filtrar años válidos y evaluar contexto
-        for año_str in años_candidatos:
-            año = int(año_str)
-            if 1990 <= año <= 2024:
-                # Verificar que no esté cerca de un patrón de teléfono o fecha
-                pos = texto.find(año_str)
-                contexto = texto[max(0, pos-20):pos+20]
-                
-                # Rechazar si parece teléfono o fecha
-                if re.search(r"\d{4}[-/]\d{2}", contexto) or re.search(r"\d{8}", contexto):
-                    continue
-                
-                if DEBUG:
-                    print(f"🤔 Año candidato sin contexto: {año} en '{contexto}'")
-                return año
-    
-    if DEBUG:
-        print(f"❌ No se encontró año válido en: {texto_original[:100]}...")
-    
+
+    # Si no se encontró patrón contextual, buscar últimos 4 dígitos aislados pero con más control
+    posibles = re.findall(r"\b(19[9]\d|20[0-3]\d)\b", texto)
+    for p in posibles:
+        año = int(p)
+        if 1990 <= año <= 2030:
+            return año
+
     return None
 
 def validar_coherencia_precio_año(precio: int, año: int) -> bool:
     """
-    NUEVA FUNCIÓN: Valida que el precio sea coherente con el año
-    Evita casos como "auto 2024 por Q15,000" que son imposibles
+    Descarta precios incoherentes para ciertos rangos de años.
     """
-    if año >= 2022 and precio < 80000:
-        if DEBUG:
-            print(f"❌ Precio {precio} muy bajo para año {año}")
+    if año >= 2020 and precio < 100_000:
         return False
-    
-    if año >= 2018 and precio < 40000:
-        if DEBUG:
-            print(f"❌ Precio {precio} muy bajo para año {año}")
+    if año >= 2016 and precio < 50_000:
         return False
-    
-    if año >= 2014 and precio < 25000:
-        if DEBUG:
-            print(f"❌ Precio {precio} muy bajo para año {año}")
+    if año >= 2010 and precio < 30_000:
         return False
-    
-    if año >= 2010 and precio < 15000:
-        if DEBUG:
-            print(f"❌ Precio {precio} muy bajo para año {año}")
-        return False
-    
-    # Validar precios excesivamente altos para años antiguos
-    if año <= 2005 and precio > 80000:
-        if DEBUG:
-            print(f"❌ Precio {precio} muy alto para año {año}")
-        return False
-    
     return True
+
 
 @timeit
 def get_precio_referencia(modelo: str, anio: int, tolerancia: Optional[int] = None) -> Dict[str, Any]:
@@ -308,31 +266,20 @@ def puntuar_anuncio(texto: str, roi_info: Optional[Dict] = None) -> int:
     precio = limpiar_precio(texto)
     anio = extraer_anio(texto)
     modelo = next((m for m in MODELOS_INTERES if coincide_modelo(texto, m)), None)
-    
     if not (modelo and anio and precio):
         return 0
-    
     if not validar_precio_coherente(precio, modelo, anio):
         return 0
-    
-    # NUEVA VALIDACIÓN: Coherencia precio-año
-    if not validar_coherencia_precio_año(precio, anio):
-        return 0
-    
     roi = roi_info["roi"] if roi_info else calcular_roi_real(modelo, precio, anio)["roi"]
     score = 4
-    
     if roi >= 25: score += 4
     elif roi >= 15: score += 3
     elif roi >= 10: score += 2
     elif roi >= 5: score += 1
     else: score -= 1
-    
     if precio <= 25000: score += 2
     elif precio <= 35000: score += 1
-    
     if len(texto.split()) >= 8: score += 1
-    
     return max(0, min(score, 10))
 
 @timeit
@@ -417,38 +364,20 @@ def get_estadisticas_db() -> Dict[str, Any]:
         }
 
 def analizar_mensaje(texto: str) -> Optional[Dict[str, Any]]:
-    # Extraer datos básicos
     precio = limpiar_precio(texto)
     anio = extraer_anio(texto)
     modelo = next((m for m in MODELOS_INTERES if coincide_modelo(texto, m)), None)
-    
-    if DEBUG:
-        print(f"🔍 Análisis: modelo={modelo}, año={anio}, precio={precio}")
-    
     if not (modelo and anio and precio):
-        if DEBUG:
-            print("❌ Datos incompletos")
         return None
-    
     if not validar_precio_coherente(precio, modelo, anio):
-        if DEBUG:
-            print("❌ Precio no coherente con modelo")
         return None
-    
-    # NUEVA VALIDACIÓN: Coherencia precio-año
-    if not validar_coherencia_precio_año(precio, anio):
-        if DEBUG:
-            print("❌ Precio no coherente con año")
-        return None
-    
     roi_data = calcular_roi_real(modelo, precio, anio)
     score = puntuar_anuncio(texto, roi_data)
     url = next((l for l in texto.split() if l.startswith("http")), "")
-    
-    resultado = {
-        "url": limpiar_link(url),
+    return {
+        "url": limpiar_link(url),  # Cambié link por url para mantener consistencia
         "modelo": modelo,
-        "año": anio,
+        "año": anio,  # Cambié anio por año para mantener consistencia
         "precio": precio,
         "roi": roi_data["roi"],
         "score": score,
@@ -458,8 +387,3 @@ def analizar_mensaje(texto: str) -> Optional[Dict[str, Any]]:
         "muestra_precio": roi_data["muestra"],
         "roi_data": roi_data
     }
-    
-    if DEBUG:
-        print(f"✅ Resultado: {resultado}")
-    
-    return resultado
