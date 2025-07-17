@@ -43,7 +43,7 @@ jobs:
             touch "${{ env.DB_PATH }}"
           fi
 
-      # 4️⃣ Crear tabla si no existe y asegurar columna updated_at
+      # 4️⃣ Crear tabla si no existe y asegurar columna updated_at (sin default)
       - name: Inicializar estructura de la base
         run: |
           sudo apt-get update && sudo apt-get install -y sqlite3
@@ -62,12 +62,12 @@ jobs:
             );
           "
 
-          # Agregar columna updated_at si falta
+          # Agregar columna updated_at si falta (sin DEFAULT)
           if ! sqlite3 "${{ env.DB_PATH }}" "PRAGMA table_info(anuncios);" | grep -q updated_at; then
             echo "✅ Agregando columna updated_at"
             sqlite3 "${{ env.DB_PATH }}" "
               ALTER TABLE anuncios
-              ADD COLUMN updated_at DATE DEFAULT CURRENT_DATE;
+              ADD COLUMN updated_at DATE;
             "
           else
             echo "ℹ️ Columna updated_at ya existe"
@@ -99,9 +99,6 @@ jobs:
       - name: Ejecutar bot con Telegram
         id: run_bot
         run: |
-          # Ejecuta y registra en stdout:
-          #   NUEVOS=<nuevos>
-          #   ACTUALIZADOS=<actualizados>
           python bot_telegram_marketplace.py | tee resultado.log
           NUEVOS=$(grep '^NUEVOS=' resultado.log | cut -d= -f2)
           ACTUALIZADOS=$(grep '^ACTUALIZADOS=' resultado.log | cut -d= -f2)
