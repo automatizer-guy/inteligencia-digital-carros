@@ -49,16 +49,17 @@ jobs:
           sudo apt-get update && sudo apt-get install -y sqlite3
           sqlite3 "${{ env.DB_PATH }}" "
           CREATE TABLE IF NOT EXISTS anuncios (
-            link TEXT PRIMARY KEY,
-            modelo TEXT,
-            anio INTEGER,
-            precio INTEGER,
-            km TEXT,
-            fecha_scrape DATE,
-            roi REAL,
-            score INTEGER,
-            updated_at DATE DEFAULT DATE('now')
+             link TEXT PRIMARY KEY,
+             modelo TEXT,
+             anio INTEGER,
+             precio INTEGER,
+             km TEXT,
+             fecha_scrape DATE,
+             roi REAL,
+             score INTEGER,
+             updated_at TEXT DEFAULT CURRENT_DATE
           );
+
           "
 
       # 5️⃣ Contar anuncios antes del run
