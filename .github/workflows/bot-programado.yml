@@ -50,8 +50,7 @@ jobs:
       - name: Inicializar estructura DB
         run: |
           sudo apt-get update && sudo apt-get install -y sqlite3
-          
-          # Script SQL completo en una sola transacción
+
           sqlite3 "$DB_PATH" <<EOF
           BEGIN;
           CREATE TABLE IF NOT EXISTS anuncios (
@@ -72,7 +71,7 @@ jobs:
           CREATE INDEX IF NOT EXISTS idx_fecha ON anuncios(fecha_scrape);
           COMMIT;
           EOF
-          
+
           echo "✅ Estructura de DB verificada"
 
       # 5️⃣ Métricas iniciales
@@ -101,24 +100,23 @@ jobs:
           set +e
           python -u bot_telegram_marketplace.py 2>&1 | tee -a resultado.log
           echo "exit_code=${PIPESTATUS[0]}" >> $GITHUB_OUTPUT
-          
+
           # Procesar resultados
           NUEVOS=$(grep -oP 'NUEVOS=\K\d+' resultado.log || echo 0)
           ACTUALIZADOS=$(grep -oP 'ACTUALIZADOS=\K\d+' resultado.log || echo 0)
           ERRORES=$(grep -ci "ERROR\|FAILED" resultado.log || echo 0)
-          
+
           echo "nuevos=$NUEVOS" >> $GITHUB_OUTPUT
           echo "actualizados=$ACTUALIZADOS" >> $GITHUB_OUTPUT
           echo "errores=$ERRORES" >> $GITHUB_OUTPUT
-          
-          # Subir logs como artefacto
+
           echo "resultado.log" > artifact_files.txt
           echo "anuncios.db" >> artifact_files.txt
 
       # 8️⃣ Manejo de resultados
       - name: Subir artefactos
         if: always()
-        uses: actions/upload-artifact@v3
+        uses: actions/upload-artifact@v4
         with:
           name: bot-results-${{ github.run_number }}
           path: |
@@ -134,14 +132,10 @@ jobs:
         run: |
           git config --global user.name "github-actions[bot]"
           git config --global user.email "github-actions[bot]@users.noreply.github.com"
-          
-          # Clonar branch data
+
           git clone --branch data https://x-access-token:$PAT_PUSH@github.com/$GITHUB_REPOSITORY data-repo
-          
-          # Actualizar DB
           cp "$DB_PATH" data-repo/anuncios.db
-          
-          # Commit y push
+
           cd data-repo
           if ! git diff --quiet; then
             git add anuncios.db
@@ -152,7 +146,7 @@ jobs:
             echo "ℹ️ No hay cambios en la base de datos"
           fi
 
-      # 🔟 Notificación de resultados
+      # 🔟 Notificación de resultados (solo si hay novedades)
       - name: Enviar resumen a Telegram
         if: steps.run_bot.outputs.nuevos != '0' || steps.run_bot.outputs.actualizados != '0'
         env:
@@ -165,9 +159,9 @@ jobs:
           RESULTADO+="• 📥 Nuevos: ${{ steps.run_bot.outputs.nuevos }}\n"
           RESULTADO+="• 🔄 Actualizados: ${{ steps.run_bot.outputs.actualizados }}\n"
           RESULTADO+="• ❌ Errores: ${{ steps.run_bot.outputs.errores }}\n"
-          RESULTADO+="• 📦 Total en DB: ${{ steps.db_metrics.outputs.total }} → $(sqlite3 "$DB_PATH" "SELECT COUNT(*) FROM anuncios;")\n"
+          RESULTADO+="• 📦 Total en DB: ${{ steps.db_metrics.outputs.total }} → $(sqlite3 \"$DB_PATH\" \"SELECT COUNT(*) FROM anuncios;\")\n"
           RESULTADO+="\n🔗 [Ver Logs](${{ github.server_url }}/${{ github.repository }}/actions/runs/${{ github.run_id }})"
-          
+
           curl -s -X POST "https://api.telegram.org/bot$BOT_TOKEN/sendMessage" \
             -d chat_id="$CHAT_ID" \
             -d text="$RESULTADO" \
