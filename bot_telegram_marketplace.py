@@ -1,5 +1,3 @@
-# bot_telegram_marketplace.py (corregido)
-
 import asyncio
 import os
 import sqlite3
@@ -7,38 +5,40 @@ import logging
 from datetime import datetime
 from zoneinfo import ZoneInfo
 from telegram import Bot
-from scraper_marketplace import buscar_autos_marketplace
+from scraper_marketplace import main_scraper as buscar_autos_marketplace
 from telegram.helpers import escape_markdown
 from utils_analisis import (
     inicializar_tabla_anuncios,
     analizar_mensaje,
     limpiar_link,
     es_extranjero,
-    SCORE_MIN_DB,
-    ROI_MINIMO,
     modelos_bajo_rendimiento,
     MODELOS_INTERES,
     escapar_multilinea,
     validar_coherencia_precio_año,
-    Config  # ✅ Agregado
+    Config
 )
 
-
+# Configuración de logging
 logging.basicConfig(
     level=logging.INFO,
     format="%(asctime)s [%(levelname)s] %(message)s",
     datefmt="%Y-%m-%d %H:%M:%S"
 )
 logger = logging.getLogger(__name__)
+
+# Inicializar la tabla de anuncios
 inicializar_tabla_anuncios()
 
+# Configuración del bot
 BOT_TOKEN = os.environ["BOT_TOKEN"].strip()
 CHAT_ID = int(os.environ["CHAT_ID"].strip())
-DB_PATH = os.environ.get("DB_PATH", "upload-artifact/anuncios.db")
+DB_PATH = Config.DB_PATH  # Usar la misma ruta que en utils_analisis
 os.makedirs(os.path.dirname(DB_PATH), exist_ok=True)
 bot = Bot(token=BOT_TOKEN)
 
 async def safe_send(text: str, parse_mode="MarkdownV2"):
+    """Enviar mensaje a Telegram con reintentos y manejo de errores"""
     for _ in range(3):
         try:
             return await bot.send_message(
@@ -52,6 +52,7 @@ async def safe_send(text: str, parse_mode="MarkdownV2"):
             await asyncio.sleep(1)
 
 def dividir_y_enviar(titulo: str, items: list[str]) -> list[str]:
+    """Dividir mensajes largos en bloques de 3000 caracteres"""
     if not items:
         return []
     texto = titulo + "\n\n" + "\n\n".join(items)
@@ -59,15 +60,18 @@ def dividir_y_enviar(titulo: str, items: list[str]) -> list[str]:
     return bloques
 
 async def enviar_ofertas():
+    """Función principal para buscar y enviar ofertas"""
     logger.info("📡 Iniciando bot de Telegram")
     now_local = datetime.now(ZoneInfo("America/Guatemala"))
 
+    # Identificar modelos con bajo rendimiento
     bajos = modelos_bajo_rendimiento()
     activos = [m for m in MODELOS_INTERES if m not in bajos]
     logger.info(f"✅ Modelos activos: {activos}")
 
     try:
-        brutos, pendientes, _ = await buscar_autos_marketplace(modelos_override=activos)
+        # Ejecutar el scraper principal
+        brutos, pendientes, _ = await buscar_autos_marketplace()
     except Exception as e:
         logger.error(f"❌ Error en scraper: {e}")
         await safe_send("❌ Error ejecutando scraper, revisa logs.")
@@ -93,18 +97,24 @@ async def enviar_ofertas():
 
         logger.info(f"\n📝 TEXTO CRUDO:\n{txt[:500]}")
 
-        url, modelo, anio, precio, roi, score, relevante = (
-            res["url"], res["modelo"], res["año"], res["precio"],
-            res["roi"], res["score"], res["relevante"]
-        )
+        # Extraer datos del análisis
+        url = res["url"]
+        modelo = res["modelo"]
+        anio = res["año"]
+        precio = res["precio"]
+        roi = res["roi"]
+        score = res["score"]
+        relevante = res["relevante"]
 
         logger.info(f"📅 Año detectado: {anio}")
         logger.info(f"💰 Precio detectado: Q{precio:,}")
 
+        # Validar coherencia precio-año
         if not validar_coherencia_precio_año(precio, anio):
             motivos["precio-año incoherente"] += 1
             continue
 
+        # Construir mensaje
         mensaje = (
             f"🚘 *{modelo.title()}*\n"
             f"• Año: {anio}\n"
@@ -116,20 +126,23 @@ async def enviar_ofertas():
 
         motivo = None
         if not relevante:
+            # Determinar motivo de descarte
             if es_extranjero(txt):
                 motivo = "extranjero"
-            elif roi < ROI_MINIMO:
+            elif roi < Config.ROI_MINIMO:
                 motivo = "roi bajo"
             elif score < Config.SCORE_MIN_TELEGRAM:
-                motivo = "precio fuera de rango"
+                motivo = "score insuficiente"
             else:
                 motivo = "modelo no detectado"
             motivos[motivo] = motivos.get(motivo, 0) + 1
-
-        if relevante:
+        else:
+            # Agregar a ofertas relevantes
             buenos.append(mensaje)
             resumen_relevantes.append((modelo, url, roi, score))
-        elif score >= SCORE_MIN_DB and roi >= ROI_MINIMO:
+
+        # Agregar a potenciales si cumple criterios mínimos
+        if not relevante and score >= Config.SCORE_MIN_DB and roi >= Config.ROI_MINIMO:
             potenciales.append(mensaje)
             resumen_potenciales.append((modelo, url, roi, score))
 
@@ -140,31 +153,41 @@ async def enviar_ofertas():
     total = len(brutos)
     await safe_send(f"📊 Procesados: {total} | Relevantes: {len(buenos)} | Potenciales: {len(potenciales)}")
 
+    # Enviar resumen de descartes
     desc_total = sum(motivos.values())
     if desc_total:
         detalles = "\n".join(f"• {k}: {v}" for k, v in motivos.items() if v)
         await safe_send(f"📉 Descartados:\n{detalles}")
 
+    # Enviar mensaje si no hay ofertas
     if not buenos and not potenciales:
         if now_local.hour == 18:
             await safe_send(f"📡 Ejecución a las {now_local.strftime('%H:%M')}, sin ofertas.")
         return
 
-    for bloque in dividir_y_enviar("📦 *Ofertas destacadas:*", buenos):
-        await safe_send(bloque)
+    # Enviar ofertas destacadas
+    if buenos:
+        for bloque in dividir_y_enviar("📦 *Ofertas destacadas:*", buenos):
+            await safe_send(bloque)
 
-    for bloque in dividir_y_enviar("🟡 *Potenciales (score≥4 & ROI≥10):*", potenciales):
-        await safe_send(bloque)
+    # Enviar ofertas potenciales
+    if potenciales:
+        for bloque in dividir_y_enviar("🟡 *Potenciales (score≥4 & ROI≥10):*", potenciales):
+            await safe_send(bloque)
 
-    for bloque in dividir_y_enviar("📌 *Pendientes manuales:*", pendientes):
-        await safe_send(bloque)
+    # Enviar pendientes manuales
+    if pendientes:
+        for bloque in dividir_y_enviar("📌 *Pendientes manuales:*", pendientes):
+            await safe_send(bloque)
 
+    # Reportar total en base de datos
     with sqlite3.connect(DB_PATH) as conn:
         cur = conn.cursor()
         cur.execute("SELECT COUNT(*) FROM anuncios")
         total_db = cur.fetchone()[0]
         await safe_send(f"📦 Total acumulado en base: {total_db} anuncios")
 
+    # Generar resumen detallado en logs
     logger.info("\n📋 Resumen final del scraping (para revisión manual):")
     logger.info(f"Guardados totales: {len(buenos) + len(potenciales)}")
     logger.info(f"Relevantes: {len(resumen_relevantes)}")
