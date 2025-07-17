@@ -17,16 +17,13 @@ from utils_analisis import (
     calcular_roi_real,
     coincide_modelo,
     extraer_anio,
-    insertar_o_actualizar_anuncio_db,
     inicializar_tabla_anuncios,
     limpiar_link,
     modelos_bajo_rendimiento,
     MODELOS_INTERES,
     Config,
     validar_anuncio_completo,
-    get_db_connection,
-    es_extranjero,
-    validar_precio_coherente
+    insertar_anuncio_en_db
 )
 
 logger = logging.getLogger(__name__)
@@ -35,10 +32,13 @@ logging.basicConfig(
     format="%(asctime)s [%(levelname)s] %(message)s"
 )
 
+# Sincronizar ruta de la base de datos
+DB_PATH = os.path.abspath(os.environ.get("DB_PATH", "upload-artifact/anuncios.db"))
+Config.DB_PATH = DB_PATH
+
 MIN_PRECIO_VALIDO = 3000
 MAX_EJEMPLOS_SIN_ANIO = 5
 ROI_POTENCIAL_MIN = Config.ROI_MINIMO - 10
-DB_PATH = Config.DB_PATH
 
 
 def limpiar_url(link: str) -> str:
@@ -118,6 +118,7 @@ async def analizar_enlace(context: BrowserContext, link: str, modelo: str) -> Op
     anio = extraer_anio(texto)
     texto_lower = texto.lower()
 
+    # Crear estructura básica del anuncio
     anuncio = {
         "link": link,
         "precio": precio,
@@ -125,46 +126,55 @@ async def analizar_enlace(context: BrowserContext, link: str, modelo: str) -> Op
         "anio": anio,
         "descripcion": datos.get("descripcion", ""),
         "texto_crudo": datos.get("texto_crudo", ""),
-        "km": "",  # Agregar campo km que falta
         "score": 0,
         "roi": 0,
         "motivo": "",
-        "relevante": False,
+        "km": "",
         "confianza_precio": "baja",
-        "muestra_precio": 0
+        "muestra_precio": 0,
+        "relevante": 0
     }
 
-    # Validación usando la función corregida
-    if not anio or not precio:
-        anuncio["motivo"] = "datos incompletos"
+    # Validación básica del anuncio
+    valido, motivo = validar_anuncio_completo(
+        texto=anuncio["texto_crudo"],
+        precio=precio,
+        anio=anio,
+        modelo=modelo
+    )
+    if not valido:
+        anuncio["motivo"] = motivo
         return anuncio
 
-    es_valido, razon = validar_anuncio_completo(texto, precio, anio, modelo)
-    if not es_valido:
-        anuncio["motivo"] = razon
+    # Filtros adicionales
+    if contiene_negativos(texto_lower):
+        anuncio["motivo"] = "contiene palabras negativas"
         return anuncio
 
     if not coincide_modelo(texto_lower, modelo):
         anuncio["motivo"] = "no coincide modelo"
         return anuncio
 
-    # Calcular ROI y score
+    # Calcular ROI y puntuación
     roi_data = calcular_roi_real(modelo, precio, anio)
-    anuncio["roi"] = roi_data["roi"]
-    anuncio["confianza_precio"] = roi_data["confianza"]
-    anuncio["muestra_precio"] = roi_data["muestra"]
+    score = puntuar_anuncio(anuncio["texto_crudo"], roi_data)
 
-    # Puntuar usando la función corregida
-    anuncio["score"] = puntuar_anuncio(texto, roi_data)
+    # Actualizar anuncio con los datos calculados
+    anuncio.update({
+        "score": score,
+        "roi": roi_data["roi"],
+        "confianza_precio": roi_data["confianza"],
+        "muestra_precio": roi_data["muestra"],
+        "relevante": 1 if score >= Config.SCORE_MIN_TELEGRAM and roi_data["roi"] >= Config.ROI_MINIMO else 0
+    })
 
-    # Determinar relevancia
-    if anuncio["score"] < Config.SCORE_MIN_TELEGRAM:
+    # Determinar motivo final
+    if score < Config.SCORE_MIN_TELEGRAM:
         anuncio["motivo"] = "score insuficiente"
-    elif anuncio["roi"] < ROI_POTENCIAL_MIN:
+    elif roi_data["roi"] < ROI_POTENCIAL_MIN:
         anuncio["motivo"] = "ROI bajo"
     else:
         anuncio["motivo"] = "candidato válido"
-        anuncio["relevante"] = True
 
     return anuncio
 
@@ -191,6 +201,7 @@ async def main_scraper():
         browser = await p.chromium.launch(headless=False)
         context = await cargar_contexto_con_cookies(browser)
 
+        # Inicializar la tabla de anuncios
         inicializar_tabla_anuncios()
         anuncios_procesados = []
         metricas = {
@@ -199,44 +210,25 @@ async def main_scraper():
             "descartados": 0
         }
 
-        # Procesar en lotes para mejorar performance
-        anuncios_para_insertar = []
-        
         for link in enlaces:
             metricas["total"] += 1
             anuncio = await analizar_enlace(context, link, modelo)
             if anuncio:
-                anuncios_para_insertar.append(anuncio)
-                anuncios_procesados.append(anuncio)
-                
-                if anuncio["motivo"] == "candidato válido":
-                    metricas["validos"] += 1
-                else:
-                    metricas["descartados"] += 1
+                try:
+                    # Insertar en la base de datos
+                    insertar_anuncio_en_db(anuncio)
+                    anuncios_procesados.append(anuncio)
                     
-                logger.info(f"{link} → {anuncio['motivo']} | ROI={anuncio['roi']} | Score={anuncio['score']}")
-
-        # Insertar todos los anuncios en lote
-        if anuncios_para_insertar:
-            try:
-                with get_db_connection() as conn:
-                    for anuncio in anuncios_para_insertar:
-                        resultado = insertar_o_actualizar_anuncio_db(
-                            conn,
-                            anuncio["link"],
-                            anuncio["modelo"],
-                            anuncio["anio"] or 0,
-                            anuncio["precio"],
-                            anuncio["km"],
-                            anuncio["roi"],
-                            anuncio["score"],
-                            anuncio["relevante"],
-                            anuncio["confianza_precio"],
-                            anuncio["muestra_precio"]
-                        )
-                        logger.debug(f"Anuncio {resultado}: {anuncio['link']}")
-            except Exception as e:
-                logger.error(f"Error insertando anuncios: {e}")
+                    if anuncio["motivo"] == "candidato válido":
+                        metricas["validos"] += 1
+                    else:
+                        metricas["descartados"] += 1
+                        
+                    logger.info(f"{link} → {anuncio['motivo']} | ROI={anuncio['roi']} | Score={anuncio['score']}")
+                except Exception as e:
+                    logger.error(f"Error insertando anuncio {link}: {e}")
+            else:
+                metricas["descartados"] += 1
 
         await browser.close()
         logger.info(f"Scraping finalizado. Total procesados: {len(anuncios_procesados)}")
