@@ -2,23 +2,36 @@ import os
 import re
 import json
 import random
-import asyncio     
+import asyncio
 import logging
 import sqlite3
 from urllib.parse import urlparse
 from datetime import datetime
 from typing import List, Dict, Optional, Tuple
 from playwright.async_api import async_playwright, Browser, Page, BrowserContext
+
 from utils_analisis import (
-    limpiar_precio, contiene_negativos, puntuar_anuncio,
-    calcular_roi_real, coincide_modelo, extraer_anio,
-    insertar_o_actualizar_anuncio_db, inicializar_tabla_anuncios,
-    limpiar_link, modelos_bajo_rendimiento, MODELOS_INTERES,
-    SCORE_MIN_TELEGRAM, ROI_MINIMO
+    limpiar_precio,
+    contiene_negativos,
+    puntuar_anuncio,
+    calcular_roi_real,
+    coincide_modelo,
+    extraer_anio,
+    insertar_o_actualizar_anuncio_db,
+    inicializar_tabla_anuncios,
+    limpiar_link,
+    modelos_bajo_rendimiento,
+    MODELOS_INTERES,
+    ROI_MINIMO,
+    Config,
+    validar_anuncio_completo
 )
 
 logger = logging.getLogger(__name__)
-logging.basicConfig(level=logging.INFO, format="%(asctime)s [%(levelname)s] %(message)s")
+logging.basicConfig(
+    level=logging.INFO,
+    format="%(asctime)s [%(levelname)s] %(message)s"
+)
 
 MIN_PRECIO_VALIDO = 3000
 MAX_EJEMPLOS_SIN_ANIO = 5
@@ -34,246 +47,161 @@ def limpiar_url(link: str) -> str:
 
 
 async def cargar_contexto_con_cookies(browser: Browser) -> BrowserContext:
-    logger.info("🔐 Cargando cookies desde entorno…")
-    cj = os.environ.get("FB_COOKIES_JSON", "")
-    if not cj:
-        logger.warning("⚠️ Sin cookies encontradas. Usando sesión anónima.")
-        return await browser.new_context(locale="es-ES")
-    try:
-        cookies = json.loads(cj)
-    except Exception as e:
-        logger.error(f"❌ Error al parsear FB_COOKIES_JSON: {e}")
-        return await browser.new_context(locale="es-ES")
-
-    context = await browser.new_context(
-        locale="es-ES",
-        user_agent="Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 Chrome/124.0.0.0 Safari/537.36"
-    )
-    await context.add_cookies(cookies)
+    context = await browser.new_context()
+    cookies_path = "cookies_marketplace.json"
+    if os.path.exists(cookies_path):
+        with open(cookies_path, "r") as f:
+            cookies = json.load(f)
+            await context.add_cookies(cookies)
+            logger.info("Cookies cargadas correctamente.")
+    else:
+        logger.warning("No se encontraron cookies.")
     return context
 
 
-async def extraer_items_pagina(page: Page) -> List[Dict[str, str]]:
-    try:
-        items = await page.query_selector_all("a[href*='/marketplace/item']")
-        resultados = []
-        for a in items:
-            titulo = (await a.inner_text()).strip()
-            aria_label = await a.get_attribute("aria-label") or ""
-            texto_completo = f"{titulo} {aria_label}".strip()
-            href = await a.get_attribute("href") or ""
-            resultados.append({"texto": texto_completo, "url": limpiar_url(href)})
-        return resultados
-    except Exception as e:
-        logger.error(f"❌ Error al extraer items: {e}")
-        return []
-
-
-async def scroll_hasta(page: Page) -> bool:
-    prev = await page.evaluate("document.body.scrollHeight")
-    await page.mouse.wheel(0, 400)
-    await asyncio.sleep(random.uniform(0.8, 1.2))
-    now = await page.evaluate("document.body.scrollHeight")
-    return now > prev
-
-
-async def procesar_modelo(
-    page: Page,
-    modelo: str,
-    procesados: List[str],
-    potenciales: List[str],
-    relevantes: List[str],
-    conn: sqlite3.Connection
-) -> int:
-    vistos_globales = set()
-    sin_anio_ejemplos = []
-    contador = {k: 0 for k in [
-        "total", "duplicado", "negativo", "sin_precio", "sin_anio",
-        "filtro_modelo", "nuevos_ins", "actualizados", "precio_bajo", "extranjero"
-    ]}
-    SORT_OPTS = ["best_match", "newest", "price_asc"]
-    inicio = datetime.now()
-
-    for sort in SORT_OPTS:
-        url_busq = (
-            f"https://www.facebook.com/marketplace/guatemala/search/"
-            f"?query={modelo.replace(' ', '%20')}&minPrice=1000&maxPrice=60000&sortBy={sort}"
-        )
-        await page.goto(url_busq)
+async def extraer_enlaces(page: Page, modelo: str, max_scrolls: int = 10) -> List[str]:
+    enlaces = set()
+    contador_scroll = 0
+    while contador_scroll < max_scrolls:
+        await page.evaluate("window.scrollBy(0, document.body.scrollHeight)")
         await asyncio.sleep(random.uniform(2, 4))
-
-        scrolls = 0
-        consec_repetidos = 0
-        nuevos_set = set()
-
-        while scrolls < 25:
-            nuevos_scroll = 0
-            items = await extraer_items_pagina(page)
-            for itm in items:
-                url = limpiar_link(itm["url"])
-                texto = itm["texto"].strip()
-                contador["total"] += 1
-
-                if not url.startswith("https://www.facebook.com/marketplace/item/"):
-                    continue
-                if url in vistos_globales:
-                    contador["duplicado"] += 1
-                    continue
-                vistos_globales.add(url)
-
-                try:
-                    await page.goto(url)
-                    await asyncio.sleep(2)
-                    texto = await page.inner_text("div[role='main']")
-                except (TimeoutError, playwright.async_api.Error) as e:
-                    logger.warning(f"Error accediendo a {url}: {e}")
-                    texto = itm["texto"]
-
-                texto = texto.strip()
-                if not coincide_modelo(texto, modelo):
-                    contador["filtro_modelo"] += 1
-                    continue
-                if contiene_negativos(texto):
-                    contador["negativo"] += 1
-                    continue
-                if "mexico" in texto.lower():
-                    contador["extranjero"] += 1
-                    continue
-
-                m = re.search(r"[Qq\$]\s?[\d\.,]+", texto)
-                if not m:
-                    contador["sin_precio"] += 1
-                    continue
-                precio = limpiar_precio(m.group())
-                if precio < MIN_PRECIO_VALIDO:
-                    contador["precio_bajo"] += 1
-                    continue
-
-                anio = extraer_anio(texto)
-                if not anio or not (1990 <= anio <= datetime.now().year):
-                    contador["sin_anio"] += 1
-                    if len(sin_anio_ejemplos) < MAX_EJEMPLOS_SIN_ANIO:
-                        sin_anio_ejemplos.append((texto, url))
-                    continue
-
-                roi_data = calcular_roi_real(modelo, precio, anio)
-                score = puntuar_anuncio(texto, roi_data)
-                relevante = score >= SCORE_MIN_TELEGRAM and roi_data["roi"] >= ROI_MINIMO
-
-                mensaje_base = (
-                    f"🚘 *{modelo.title()}*\n"
-                    f"• Año: {anio}\n"
-                    f"• Precio: Q{precio:,}\n"
-                    f"• ROI: {roi_data['roi']:.2f}%\n"
-                    f"• Score: {score}/10\n"
-                    f"🔗 {url}"
-                )
-                
-                # Insertar o actualizar en base de datos
-                resultado = insertar_o_actualizar_anuncio_db(
-                    conn,
-                    link=url,
-                    modelo=modelo,
-                    anio=anio,
-                    precio=precio,
-                    km="",
-                    roi=roi_data["roi"],
-                    score=score,
-                    relevante=relevante,
-                    confianza_precio=roi_data["confianza"],
-                    muestra_precio=roi_data["muestra"]
-                )
-                if resultado == "nuevo":
-                    contador["nuevos_ins"] += 1
-                else:
-                    contador["actualizados"] += 1
-
-                logger.info(
-                    f"💾 {resultado.title()}: {modelo} | ROI={roi_data['roi']:.2f}% | Score={score} | Relevante={relevante}"
-                )
-                nuevos_set.add(url)
-                nuevos_scroll += 1
-                procesados.append(mensaje_base)
-
-                if relevante:
-                    relevantes.append(mensaje_base)
-                elif ROI_POTENCIAL_MIN <= roi_data["roi"] < ROI_MINIMO:
-                    potenciales.append(mensaje_base)
-
-            scrolls += 1
-            if nuevos_scroll == 0:
-                consec_repetidos += 1
-            else:
-                consec_repetidos = 0
-            if consec_repetidos >= 5 and len(nuevos_set) < 5:
-                break
-            if not await scroll_hasta(page):
-                break
-
-    duracion = (datetime.now() - inicio).seconds
-    logger.info(f"✨ MODELO: {modelo.upper()} "
-                f"Duración: {duracion}s | Total: {contador['total']} | Guardados: {contador['nuevos_ins'] + contador['actualizados']}"
-                f" | Nuevos: {contador['nuevos_ins']} | Actualizados: {contador['actualizados']} | Duplicados: {contador['duplicado']}")
-
-    return len(nuevos_set)
+        nuevos = await page.query_selector_all("a[href*='/marketplace/item/']")
+        for e in nuevos:
+            href = await e.get_attribute("href")
+            if href:
+                enlaces.add(limpiar_url(href))
+        contador_scroll += 1
+        logger.info(f"Scroll {contador_scroll}/{max_scrolls} - Links acumulados: {len(enlaces)}")
+    return list(enlaces)
 
 
-async def buscar_autos_marketplace(modelos_override: Optional[List[str]] = None) -> Tuple[List[str], List[str], List[str]]:
-    inicializar_tabla_anuncios()
-    modelos = modelos_override or MODELOS_INTERES
-    flops = modelos_bajo_rendimiento()
-    activos = [m for m in modelos if m not in flops]
+async def extraer_datos_del_anuncio(page: Page) -> Dict[str, str]:
+    await asyncio.sleep(2)
+    elementos = await page.query_selector_all("div[aria-label='Contenido de la página']")
+    texto_total = ""
+    for el in elementos:
+        txt = await el.inner_text()
+        texto_total += txt + "\n"
 
-    procesados, potenciales, relevantes = [], [], []
+    patrones = {
+        "precio_texto": r"(Q[\d\.,]+|\$[\d\.,]+)",
+        "titulo": r"^(.*?)\n",
+        "descripcion": r"Descripción\n(.*?)\n",
+        "ubicacion": r"Ubicación\n(.*?)\n"
+    }
 
-    # Abrir conexión SQLite una sola vez
-    conn = sqlite3.connect(DB_PATH, check_same_thread=False)
+    datos = {}
+    for campo, patron in patrones.items():
+        match = re.search(patron, texto_total, re.MULTILINE | re.IGNORECASE | re.DOTALL)
+        datos[campo] = match.group(1).strip() if match else ""
+
+    datos["texto_crudo"] = texto_total
+    return datos
+
+
+async def analizar_enlace(context: BrowserContext, link: str, modelo: str) -> Optional[Dict[str, str]]:
+    page = await context.new_page()
+    try:
+        await page.goto(link)
+        await asyncio.sleep(2)
+        datos = await extraer_datos_del_anuncio(page)
+        await page.close()
+    except Exception as e:
+        logger.warning(f"Error al analizar {link}: {e}")
+        await page.close()
+        return None
+
+    precio = limpiar_precio(datos.get("precio_texto", ""))
+    texto = datos.get("titulo", "") + " " + datos.get("descripcion", "")
+    anio = extraer_anio(texto)
+    texto_lower = texto.lower()
+
+    anuncio = {
+        "link": link,
+        "precio": precio,
+        "modelo": modelo,
+        "anio": anio,
+        "descripcion": datos.get("descripcion", ""),
+        "texto_crudo": datos.get("texto_crudo", ""),
+        "score": 0,
+        "roi": 0,
+        "motivo": "",
+    }
+
+    if not validar_anuncio_completo(anuncio):
+        anuncio["motivo"] = "anuncio incompleto"
+        return anuncio
+
+    if contiene_negativos(texto_lower):
+        anuncio["motivo"] = "contiene palabras negativas"
+        return anuncio
+
+    if not coincide_modelo(texto_lower, modelo):
+        anuncio["motivo"] = "no coincide modelo"
+        return anuncio
+
+    score = puntuar_anuncio(anuncio["precio"], modelo, anio)
+    roi = calcular_roi_real(anuncio["precio"], modelo, anio)
+
+    anuncio["score"] = score
+    anuncio["roi"] = roi
+
+    if score < Config.SCORE_MIN_TELEGRAM:
+        anuncio["motivo"] = "score insuficiente"
+    elif roi < ROI_POTENCIAL_MIN:
+        anuncio["motivo"] = "ROI bajo"
+    else:
+        anuncio["motivo"] = "candidato válido"
+
+    return anuncio
+
+
+async def main_scraper():
+    modelo = os.environ.get("MODELO_OBJETIVO", "civic")
+    max_scrolls = int(os.environ.get("MAX_SCROLLS", "12"))
+
+    logger.info(f"Modelo objetivo: {modelo}")
+    logger.info("Iniciando scraping Marketplace...")
 
     async with async_playwright() as p:
-        browser = await p.chromium.launch(headless=True)
-        ctx = await cargar_contexto_con_cookies(browser)
-        page = await ctx.new_page()
+        browser = await p.chromium.launch(headless=False)
+        context = await cargar_contexto_con_cookies(browser)
+        page = await context.new_page()
 
-        await page.goto("https://www.facebook.com/marketplace")
-        await asyncio.sleep(3)
+        await page.goto(f"https://www.facebook.com/marketplace/search/?query={modelo}")
+        logger.info("Cargando página principal Marketplace...")
+        enlaces = await extraer_enlaces(page, modelo, max_scrolls=max_scrolls)
 
-        if "login" in page.url or "recover" in page.url:
-            alerta = (
-                "🚨 Sesión inválida: redirigido a la página de inicio"
-                "Verifica las cookies (FB_COOKIES_JSON)."
-            )
-            logger.warning(alerta)
-            conn.close()
-            return [], [], [alerta]
-
-        logger.info("✅ Sesión activa detectada correctamente en Marketplace.")
-
-        for m in random.sample(activos, len(activos)):
-            try:
-                await asyncio.wait_for(
-                    procesar_modelo(page, m, procesados, potenciales, relevantes, conn),
-                    timeout=420
-                )
-            except asyncio.TimeoutError:
-                logger.warning(f"⏳ {m} → Excedió tiempo máximo. Se aborta.")
-
+        logger.info(f"Se encontraron {len(enlaces)} enlaces únicos.")
         await browser.close()
 
-    # Cerrar conexión
-    conn.close()
+        browser = await p.chromium.launch(headless=False)
+        context = await cargar_contexto_con_cookies(browser)
 
-    return procesados, potenciales, relevantes
+        inicializar_tabla_anuncios(DB_PATH)
+        anuncios_procesados = []
+        metricas = {
+            "total": 0,
+            "validos": 0,
+            "descartados": 0
+        }
+
+        for link in enlaces:
+            metricas["total"] += 1
+            anuncio = await analizar_enlace(context, link, modelo)
+            if anuncio:
+                insertar_o_actualizar_anuncio_db(anuncio, DB_PATH)
+                anuncios_procesados.append(anuncio)
+                if anuncio["motivo"] == "candidato válido":
+                    metricas["validos"] += 1
+                else:
+                    metricas["descartados"] += 1
+                logger.info(f"{link} → {anuncio['motivo']} | ROI={anuncio['roi']} | Score={anuncio['score']}")
+
+        await browser.close()
+        logger.info(f"Scraping finalizado. Total procesados: {len(anuncios_procesados)}")
+        logger.info(f"Métricas de sesión: {metricas}")
 
 
 if __name__ == "__main__":
-    async def main():
-        procesados, potenciales, relevantes = await buscar_autos_marketplace()
-
-        logger.info("📦 Resumen final del scraping")
-        logger.info(f"Guardados totales: {len(procesados)}")
-        logger.info(f"Relevantes: {len(relevantes)}")
-        logger.info(f"Potenciales: {len(potenciales)}")
-
-        # Enviar resumen por Telegram o procesar según tu bot
-
-    asyncio.run(main())
+    asyncio.run(main_scraper())
