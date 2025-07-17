@@ -43,24 +43,35 @@ jobs:
             touch "${{ env.DB_PATH }}"
           fi
 
-      # 4️⃣ Crear tabla si no existe
+      # 4️⃣ Crear tabla si no existe y asegurar columna updated_at
       - name: Inicializar estructura de la base
         run: |
           sudo apt-get update && sudo apt-get install -y sqlite3
-          sqlite3 "${{ env.DB_PATH }}" "
-          CREATE TABLE IF NOT EXISTS anuncios (
-             link TEXT PRIMARY KEY,
-             modelo TEXT,
-             anio INTEGER,
-             precio INTEGER,
-             km TEXT,
-             fecha_scrape DATE,
-             roi REAL,
-             score INTEGER,
-             updated_at TEXT DEFAULT CURRENT_DATE
-          );
 
+          # Crear la tabla si no existía (sin updated_at)
+          sqlite3 "${{ env.DB_PATH }}" "
+            CREATE TABLE IF NOT EXISTS anuncios (
+              link TEXT PRIMARY KEY,
+              modelo TEXT,
+              anio INTEGER,
+              precio INTEGER,
+              km TEXT,
+              fecha_scrape DATE,
+              roi REAL,
+              score INTEGER
+            );
           "
+
+          # Agregar columna updated_at si falta
+          if ! sqlite3 "${{ env.DB_PATH }}" "PRAGMA table_info(anuncios);" | grep -q updated_at; then
+            echo "✅ Agregando columna updated_at"
+            sqlite3 "${{ env.DB_PATH }}" "
+              ALTER TABLE anuncios
+              ADD COLUMN updated_at DATE DEFAULT CURRENT_DATE;
+            "
+          else
+            echo "ℹ️ Columna updated_at ya existe"
+          fi
 
       # 5️⃣ Contar anuncios antes del run
       - name: Contar anuncios antes del run
@@ -84,11 +95,11 @@ jobs:
           pip install -r requirements.txt
           playwright install --with-deps
 
-      # 8️⃣ Ejecutar el bot
+      # 8️⃣ Ejecutar el bot y capturar inserciones
       - name: Ejecutar bot con Telegram
         id: run_bot
         run: |
-          # Ejecuta y captura en stdout las líneas:
+          # Ejecuta y registra en stdout:
           #   NUEVOS=<nuevos>
           #   ACTUALIZADOS=<actualizados>
           python bot_telegram_marketplace.py | tee resultado.log
@@ -118,26 +129,34 @@ jobs:
             echo "📁 Sin cambios detectados en la base, se omite push"
           fi
 
-      # 1️⃣1️⃣ Resumen final del run
+      # 1️⃣1️⃣ Resumen final del run (robusto con o sin updated_at)
       - name: Resumen final del run
-      run: |
-        sudo apt-get update && sudo apt-get install -y sqlite3
-        echo "✅ Bot ejecutado con éxito"
-        echo "📊 Anuncios antes del run: ${{ steps.db_prev.outputs.before }}"
-        FINAL=$(sqlite3 "${{ env.DB_PATH }}" "SELECT COUNT(*) FROM anuncios;")
-        echo "📦 Total actual: $FINAL"
-        echo "➕ Nuevos anuncios agregados: $((FINAL - ${{ steps.db_prev.outputs.before }}))"
-        echo "📈 Reporte de inserciones:"
-        echo "   • Nuevos: ${{ steps.run_bot.outputs.nuevos }}"
-        echo "   • Actualizados: ${{ steps.run_bot.outputs.actualizados }}"
-        echo "🔍 Último anuncio registrado:"
-    
-        # Intentar usar updated_at si existe, fallback si no
-        if sqlite3 "${{ env.DB_PATH }}" "PRAGMA table_info(anuncios);" | grep -q updated_at; then
-          sqlite3 "${{ env.DB_PATH }}" \
-            "SELECT link, fecha_scrape FROM anuncios ORDER BY updated_at DESC, rowid DESC LIMIT 1;"
-        else
-          sqlite3 "${{ env.DB_PATH }}" \
-            "SELECT link, fecha_scrape FROM anuncios ORDER BY fecha_scrape DESC, rowid DESC LIMIT 1;"
-        fi
-    
+        run: |
+          sudo apt-get update && sudo apt-get install -y sqlite3
+
+          echo "✅ Bot ejecutado con éxito"
+          echo "📊 Anuncios antes del run: ${{ steps.db_prev.outputs.before }}"
+          FINAL=$(sqlite3 "${{ env.DB_PATH }}" "SELECT COUNT(*) FROM anuncios;")
+          echo "📦 Total actual: $FINAL"
+          echo "➕ Nuevos anuncios agregados: $((FINAL - ${{ steps.db_prev.outputs.before }}))"
+
+          echo "📈 Reporte de inserciones:"
+          echo "   • Nuevos: ${{ steps.run_bot.outputs.nuevos }}"
+          echo "   • Actualizados: ${{ steps.run_bot.outputs.actualizados }}"
+
+          # Último anuncio registrado, usando updated_at si existe
+          if sqlite3 "${{ env.DB_PATH }}" "PRAGMA table_info(anuncios);" | grep -q updated_at; then
+            echo "🔍 Último anuncio registrado (por updated_at):"
+            sqlite3 "${{ env.DB_PATH }}" \
+              "SELECT link, fecha_scrape, updated_at \
+               FROM anuncios \
+               ORDER BY updated_at DESC, rowid DESC \
+               LIMIT 1;"
+          else
+            echo "🔍 Último anuncio registrado (por fecha_scrape):"
+            sqlite3 "${{ env.DB_PATH }}" \
+              "SELECT link, fecha_scrape \
+               FROM anuncios \
+               ORDER BY fecha_scrape DESC, rowid DESC \
+               LIMIT 1;"
+          fi
