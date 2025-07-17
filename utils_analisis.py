@@ -306,30 +306,53 @@ def insertar_o_actualizar_anuncio_db(
     """Inserta o actualiza un anuncio y devuelve 'nuevo' o 'actualizado'"""
     try:
         cur = conn.cursor()
-        
-        # Verificar si ya existe
-        cur.execute("SELECT COUNT(*) FROM anuncios WHERE link = ?", (link,))
-        existe = cur.fetchone()[0] > 0
-        
         cur.execute("""
-            INSERT OR REPLACE INTO anuncios (
+            INSERT INTO anuncios (
               link, modelo, anio, precio, km, roi, score,
               relevante, confianza_precio, muestra_precio,
               fecha_scrape, updated_at
             ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, DATE('now'), DATE('now'))
+            ON CONFLICT(link) DO UPDATE SET
+              modelo=excluded.modelo,
+              anio=excluded.anio,
+              precio=excluded.precio,
+              km=excluded.km,
+              roi=excluded.roi,
+              score=excluded.score,
+              relevante=excluded.relevante,
+              confianza_precio=excluded.confianza_precio,
+              muestra_precio=excluded.muestra_precio,
+              updated_at=DATE('now')
         """, (
             link, modelo, anio, precio, km, roi, score,
             int(relevante), confianza_precio, muestra_precio
         ))
         conn.commit()
         
-        resultado = "actualizado" if existe else "nuevo"
+        resultado = "nuevo" if cur.lastrowid else "actualizado"
         metricas.incrementar(f"anuncio_{resultado}")
         return resultado
         
     except sqlite3.Error as e:
         metricas.error(f"Error insertando/actualizando anuncio {link}", e)
         raise
+
+def insertar_anuncio_en_db(anuncio: Dict[str, Any]):
+    """Inserta anuncio usando conexión manejada"""
+    with get_db_connection() as conn:
+        return insertar_o_actualizar_anuncio_db(
+            conn,
+            anuncio['link'],
+            anuncio['modelo'],
+            anuncio['anio'],
+            anuncio['precio'],
+            anuncio.get('km', ''),
+            anuncio['roi'],
+            anuncio['score'],
+            anuncio.get('relevante', False),
+            anuncio.get('confianza_precio', 'baja'),
+            anuncio.get('muestra_precio', 0)
+        )
 
 def limpiar_anuncios_antiguos(dias: int = 30) -> int:
     """Eliminar anuncios muy antiguos para mantener DB limpia"""
@@ -460,8 +483,8 @@ def extraer_anio(texto: str, anio_actual: int = None) -> Optional[int]:
 
     try:
         texto = texto.lower()
-
-# 1. Detectar años de 2 dígitos tipo "modelo 98"
+        
+        # 1. Detectar años de 2 dígitos tipo "modelo 98"
         match_modelo = re.search(r"(modelo|año)\s?(\d{2})\b", texto)
         if match_modelo:
             anio = int(match_modelo.group(2))
@@ -600,7 +623,10 @@ def puntuar_anuncio(texto: str, roi_info: Optional[Dict] = None) -> int:
         if not validar_precio_coherente(precio, modelo, anio):
             return 0
             
-        roi = roi_info["roi"] if roi_info else calcular_roi_real(modelo, precio, anio)["roi"]
+        # Si no se proporciona roi_info, calcularlo
+        if roi_info is None:
+            roi_info = calcular_roi_real(modelo, precio, anio)
+        roi = roi_info["roi"]
         
         score = 4  # Score base
         
@@ -693,19 +719,15 @@ def get_rendimiento_modelo(modelo: str, dias: int = 7) -> float:
 
 @timeit
 def modelos_bajo_rendimiento(threshold: float = 0.005, dias: int = 7) -> List[str]:
-    """Obtener modelos con bajo rendimiento"""
     return [m for m in MODELOS_INTERES if get_rendimiento_modelo(m, dias) < threshold]
 
 def get_estadisticas_db() -> Dict[str, Any]:
-    """Obtener estadísticas de la base de datos"""
     with get_db_connection() as conn:
         cur = conn.cursor()
         cur.execute("SELECT COUNT(*) FROM anuncios")
         total = cur.fetchone()[0]
-        
         cur.execute("PRAGMA table_info(anuncios)")
         columnas_existentes = {row[1] for row in cur.fetchall()}
-        
         if "confianza_precio" in columnas_existentes:
             cur.execute("SELECT COUNT(*) FROM anuncios WHERE confianza_precio = 'alta'")
             alta_conf = cur.fetchone()[0]
@@ -714,13 +736,11 @@ def get_estadisticas_db() -> Dict[str, Any]:
         else:
             alta_conf = 0
             baja_conf = total
-            
         cur.execute("""
             SELECT modelo, COUNT(*) FROM anuncios 
             GROUP BY modelo ORDER BY COUNT(*) DESC
         """)
         por_modelo = dict(cur.fetchall())
-        
         return {
             "total_anuncios": total,
             "alta_confianza": alta_conf,
@@ -730,25 +750,20 @@ def get_estadisticas_db() -> Dict[str, Any]:
         }
 
 def analizar_mensaje(texto: str) -> Optional[Dict[str, Any]]:
-    """Analizar mensaje de texto y extraer información del anuncio"""
     precio = limpiar_precio(texto)
     anio = extraer_anio(texto)
     modelo = next((m for m in MODELOS_INTERES if coincide_modelo(texto, m)), None)
-    
     if not (modelo and anio and precio):
         return None
-        
     if not validar_precio_coherente(precio, modelo, anio):
         return None
-        
     roi_data = calcular_roi_real(modelo, precio, anio)
     score = puntuar_anuncio(texto, roi_data)
     url = next((l for l in texto.split() if l.startswith("http")), "")
-    
     return {
         "url": limpiar_link(url),
         "modelo": modelo,
-        "anio": anio,  # Mantengo consistencia con el resto del código
+        "año": anio,
         "precio": precio,
         "roi": roi_data["roi"],
         "score": score,
