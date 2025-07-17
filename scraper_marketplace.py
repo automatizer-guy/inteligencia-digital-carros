@@ -125,7 +125,8 @@ async def procesar_modelo(
                     await page.goto(url)
                     await asyncio.sleep(2)
                     texto = await page.inner_text("div[role='main']")
-                except:
+                except (TimeoutError, playwright.async_api.Error) as e:
+                    logger.warning(f"Error accediendo a {url}: {e}")
                     texto = itm["texto"]
 
                 texto = texto.strip()
