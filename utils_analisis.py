@@ -115,9 +115,7 @@ def inicializar_tabla_anuncios():
         # ... tu lógica de relevancia, confianza_precio, muestra_precio...
 
         conn.commit()
-```
 
-```python
 # Nueva función UPSERT en lugar de insertar_anuncio_db
 
 def insertar_o_actualizar_anuncio_db(
