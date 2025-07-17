@@ -120,15 +120,24 @@ jobs:
 
       # 1️⃣1️⃣ Resumen final del run
       - name: Resumen final del run
-        run: |
-          sudo apt-get update && sudo apt-get install -y sqlite3
-          echo "✅ Bot ejecutado con éxito"
-          echo "📊 Anuncios antes del run: ${{ steps.db_prev.outputs.before }}"
-          FINAL=$(sqlite3 "${{ env.DB_PATH }}" "SELECT COUNT(*) FROM anuncios;")
-          echo "📦 Total actual: $FINAL"
-          echo "➕ Nuevos anuncios agregados: $((FINAL - ${{ steps.db_prev.outputs.before }}))"
-          echo "📈 Reporte de inserciones:"
-          echo "   • Nuevos: ${{ steps.run_bot.outputs.nuevos }}"
-          echo "   • Actualizados: ${{ steps.run_bot.outputs.actualizados }}"
-          echo "🔍 Último anuncio registrado:"
-          sqlite3 "${{ env.DB_PATH }}" "SELECT link, fecha_scrape FROM anuncios ORDER BY updated_at DESC, rowid DESC LIMIT 1;"
+      run: |
+        sudo apt-get update && sudo apt-get install -y sqlite3
+        echo "✅ Bot ejecutado con éxito"
+        echo "📊 Anuncios antes del run: ${{ steps.db_prev.outputs.before }}"
+        FINAL=$(sqlite3 "${{ env.DB_PATH }}" "SELECT COUNT(*) FROM anuncios;")
+        echo "📦 Total actual: $FINAL"
+        echo "➕ Nuevos anuncios agregados: $((FINAL - ${{ steps.db_prev.outputs.before }}))"
+        echo "📈 Reporte de inserciones:"
+        echo "   • Nuevos: ${{ steps.run_bot.outputs.nuevos }}"
+        echo "   • Actualizados: ${{ steps.run_bot.outputs.actualizados }}"
+        echo "🔍 Último anuncio registrado:"
+    
+        # Intentar usar updated_at si existe, fallback si no
+        if sqlite3 "${{ env.DB_PATH }}" "PRAGMA table_info(anuncios);" | grep -q updated_at; then
+          sqlite3 "${{ env.DB_PATH }}" \
+            "SELECT link, fecha_scrape FROM anuncios ORDER BY updated_at DESC, rowid DESC LIMIT 1;"
+        else
+          sqlite3 "${{ env.DB_PATH }}" \
+            "SELECT link, fecha_scrape FROM anuncios ORDER BY fecha_scrape DESC, rowid DESC LIMIT 1;"
+        fi
+    
