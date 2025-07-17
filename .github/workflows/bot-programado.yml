@@ -1,4 +1,4 @@
-name: Ejecutar Bot Automáticamente
+name: Ejecutar Bot Automatizado
 
 on:
   schedule:
@@ -14,146 +14,162 @@ jobs:
       CHAT_ID: ${{ secrets.CHAT_ID }}
       FB_COOKIES_JSON: ${{ secrets.FB_COOKIES_JSON }}
       DB_PATH: upload-artifact/anuncios.db
+      HEADLESS: 'true'  # Modo headless activado
 
     steps:
-      # 1️⃣ Clonar main
-      - name: Checkout main
+      # 1️⃣ Configuración inicial
+      - name: Checkout repositorio
         uses: actions/checkout@v3
         with:
           fetch-depth: 0
 
-      # 2️⃣ Clonar el branch 'data'
-      - name: Checkout branch de datos
-        uses: actions/checkout@v3
+      # 2️⃣ Configurar caché para Playwright
+      - name: Cache Playwright browsers
+        uses: actions/cache@v3
+        id: playwright-cache
         with:
-          repository: ${{ github.repository }}
-          ref: data
-          token: ${{ secrets.PAT_PUSH }}
-          path: data
+          path: |
+            ~/.cache/ms-playwright
+          key: ${{ runner.os }}-playwright-${{ hashFiles('**/package-lock.json') }}
+          restore-keys: |
+            ${{ runner.os }}-playwright-
 
-      # 3️⃣ Restaurar o iniciar base
-      - name: Preparar DB histórica
+      # 3️⃣ Manejo de la base de datos
+      - name: Configurar base de datos
         run: |
           mkdir -p upload-artifact
           if [ -f data/anuncios.db ]; then
-            cp data/anuncios.db "${{ env.DB_PATH }}"
-            echo "✅ Base histórica cargada"
+            cp data/anuncios.db "$DB_PATH"
+            echo "✅ Base histórica cargada (Tamaño: $(du -h $DB_PATH | cut -f1))"
           else
-            echo "⚠️ No hay base previa. Se inicia nueva"
-            touch "${{ env.DB_PATH }}"
+            echo "::warning::No hay base previa. Se inicia nueva"
+            touch "$DB_PATH"
           fi
 
-      # 4️⃣ Crear tabla si no existe y asegurar columna updated_at (sin default)
-      - name: Inicializar estructura de la base
+      # 4️⃣ Inicialización de la estructura de la DB
+      - name: Inicializar estructura DB
         run: |
           sudo apt-get update && sudo apt-get install -y sqlite3
+          
+          # Script SQL completo en una sola transacción
+          sqlite3 "$DB_PATH" <<EOF
+          BEGIN;
+          CREATE TABLE IF NOT EXISTS anuncios (
+            link TEXT PRIMARY KEY,
+            modelo TEXT,
+            anio INTEGER,
+            precio INTEGER,
+            km TEXT,
+            fecha_scrape DATE DEFAULT CURRENT_DATE,
+            roi REAL,
+            score INTEGER,
+            updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+            relevante BOOLEAN DEFAULT 0,
+            confianza_precio TEXT CHECK(confianza_precio IN ('baja', 'media', 'alta')) DEFAULT 'baja',
+            muestra_precio INTEGER DEFAULT 0
+          );
+          CREATE INDEX IF NOT EXISTS idx_modelo ON anuncios(modelo);
+          CREATE INDEX IF NOT EXISTS idx_fecha ON anuncios(fecha_scrape);
+          COMMIT;
+          EOF
+          
+          echo "✅ Estructura de DB verificada"
 
-          # Crear la tabla si no existía (sin updated_at)
-          sqlite3 "${{ env.DB_PATH }}" "
-            CREATE TABLE IF NOT EXISTS anuncios (
-              link TEXT PRIMARY KEY,
-              modelo TEXT,
-              anio INTEGER,
-              precio INTEGER,
-              km TEXT,
-              fecha_scrape DATE,
-              roi REAL,
-              score INTEGER
-            );
-          "
-
-          # Agregar columna updated_at si falta (sin DEFAULT)
-          if ! sqlite3 "${{ env.DB_PATH }}" "PRAGMA table_info(anuncios);" | grep -q updated_at; then
-            echo "✅ Agregando columna updated_at"
-            sqlite3 "${{ env.DB_PATH }}" "
-              ALTER TABLE anuncios
-              ADD COLUMN updated_at DATE;
-            "
-          else
-            echo "ℹ️ Columna updated_at ya existe"
-          fi
-
-      # 5️⃣ Contar anuncios antes del run
-      - name: Contar anuncios antes del run
-        id: db_prev
+      # 5️⃣ Métricas iniciales
+      - name: Obtener métricas iniciales
+        id: db_metrics
         run: |
-          echo "🕒 Contando anuncios previos..."
-          BEFORE=$(sqlite3 "${{ env.DB_PATH }}" 'SELECT COUNT(*) FROM anuncios;')
-          echo "before=$BEFORE" >> $GITHUB_OUTPUT
+          echo "📊 Obteniendo métricas iniciales..."
+          TOTAL=$(sqlite3 "$DB_PATH" "SELECT COUNT(*) FROM anuncios;")
+          MODELOS=$(sqlite3 "$DB_PATH" "SELECT modelo, COUNT(*) FROM anuncios GROUP BY modelo ORDER BY COUNT(*) DESC LIMIT 5;" | tr '|' ':')
+          echo "total=$TOTAL" >> $GITHUB_OUTPUT
+          echo "modelos=$MODELOS" >> $GITHUB_OUTPUT
+          echo "📋 Total inicial: $TOTAL"
+          echo "🏆 Top modelos: $MODELOS"
 
-      # 6️⃣ Volumen previo por modelo
-      - name: Volumen previo en DB
-        run: |
-          echo "📊 Anuncios por modelo (previo):"
-          sqlite3 "${{ env.DB_PATH }}" \
-            "SELECT modelo, COUNT(*) FROM anuncios GROUP BY modelo ORDER BY COUNT(*) DESC;"
-
-      # 7️⃣ Instalar dependencias
-      - name: Instalar dependencias Python y Playwright
+      # 6️⃣ Instalación de dependencias optimizada
+      - name: Instalar dependencias
         run: |
           python -m pip install --upgrade pip
-          pip install -r requirements.txt
-          playwright install --with-deps
+          pip install --no-cache-dir -r requirements.txt
+          playwright install --with-deps chromium
 
-      # 8️⃣ Ejecutar el bot y capturar inserciones
-      - name: Ejecutar bot con Telegram
+      # 7️⃣ Ejecución del bot con manejo de errores
+      - name: Ejecutar bot de scraping
         id: run_bot
         run: |
-          python bot_telegram_marketplace.py | tee resultado.log
-          NUEVOS=$(grep '^NUEVOS=' resultado.log | cut -d= -f2)
-          ACTUALIZADOS=$(grep '^ACTUALIZADOS=' resultado.log | cut -d= -f2)
+          set +e
+          python -u bot_telegram_marketplace.py 2>&1 | tee -a resultado.log
+          echo "exit_code=${PIPESTATUS[0]}" >> $GITHUB_OUTPUT
+          
+          # Procesar resultados
+          NUEVOS=$(grep -oP 'NUEVOS=\K\d+' resultado.log || echo 0)
+          ACTUALIZADOS=$(grep -oP 'ACTUALIZADOS=\K\d+' resultado.log || echo 0)
+          ERRORES=$(grep -ci "ERROR\|FAILED" resultado.log || echo 0)
+          
           echo "nuevos=$NUEVOS" >> $GITHUB_OUTPUT
           echo "actualizados=$ACTUALIZADOS" >> $GITHUB_OUTPUT
+          echo "errores=$ERRORES" >> $GITHUB_OUTPUT
+          
+          # Subir logs como artefacto
+          echo "resultado.log" > artifact_files.txt
+          echo "anuncios.db" >> artifact_files.txt
 
-      # 9️⃣ Guardar nueva versión de la DB
-      - name: Copiar DB al branch data
-        run: cp "${{ env.DB_PATH }}" data/anuncios.db
+      # 8️⃣ Manejo de resultados
+      - name: Subir artefactos
+        if: always()
+        uses: actions/upload-artifact@v3
+        with:
+          name: bot-results-${{ github.run_number }}
+          path: |
+            resultado.log
+            ${{ env.DB_PATH }}
+          retention-days: 3
 
-      # 🔟 Commit & push DB actualizada
-      - name: Commit & push DB actualizada
+      # 9️⃣ Actualización de la base de datos
+      - name: Actualizar repositorio de datos
+        if: steps.run_bot.outputs.exit_code == 0
         env:
           PAT_PUSH: ${{ secrets.PAT_PUSH }}
         run: |
-          cd data
-          git config user.name "github-actions[bot]"
-          git config user.email "github-actions[bot]@users.noreply.github.com"
-          git remote set-url origin https://x-access-token:${PAT_PUSH}@github.com/${{ github.repository }}
-          git add anuncios.db
-          if ! git diff --cached --quiet; then
-            git commit -m "🔄 Actualiza DB (run #${{ github.run_number }})"
+          git config --global user.name "github-actions[bot]"
+          git config --global user.email "github-actions[bot]@users.noreply.github.com"
+          
+          # Clonar branch data
+          git clone --branch data https://x-access-token:$PAT_PUSH@github.com/$GITHUB_REPOSITORY data-repo
+          
+          # Actualizar DB
+          cp "$DB_PATH" data-repo/anuncios.db
+          
+          # Commit y push
+          cd data-repo
+          if ! git diff --quiet; then
+            git add anuncios.db
+            git commit -m "🔄 Actualización automática DB (Run #${{ github.run_number }})"
             git push origin data
+            echo "✅ Base de datos actualizada"
           else
-            echo "📁 Sin cambios detectados en la base, se omite push"
+            echo "ℹ️ No hay cambios en la base de datos"
           fi
 
-      # 1️⃣1️⃣ Resumen final del run (robusto con o sin updated_at)
-      - name: Resumen final del run
+      # 🔟 Notificación de resultados
+      - name: Enviar resumen a Telegram
+        if: steps.run_bot.outputs.nuevos != '0' || steps.run_bot.outputs.actualizados != '0'
+        env:
+          BOT_TOKEN: ${{ secrets.BOT_TOKEN }}
+          CHAT_ID: ${{ secrets.CHAT_ID }}
         run: |
-          sudo apt-get update && sudo apt-get install -y sqlite3
-
-          echo "✅ Bot ejecutado con éxito"
-          echo "📊 Anuncios antes del run: ${{ steps.db_prev.outputs.before }}"
-          FINAL=$(sqlite3 "${{ env.DB_PATH }}" "SELECT COUNT(*) FROM anuncios;")
-          echo "📦 Total actual: $FINAL"
-          echo "➕ Nuevos anuncios agregados: $((FINAL - ${{ steps.db_prev.outputs.before }}))"
-
-          echo "📈 Reporte de inserciones:"
-          echo "   • Nuevos: ${{ steps.run_bot.outputs.nuevos }}"
-          echo "   • Actualizados: ${{ steps.run_bot.outputs.actualizados }}"
-
-          # Último anuncio registrado, usando updated_at si existe
-          if sqlite3 "${{ env.DB_PATH }}" "PRAGMA table_info(anuncios);" | grep -q updated_at; then
-            echo "🔍 Último anuncio registrado (por updated_at):"
-            sqlite3 "${{ env.DB_PATH }}" \
-              "SELECT link, fecha_scrape, updated_at \
-               FROM anuncios \
-               ORDER BY updated_at DESC, rowid DESC \
-               LIMIT 1;"
-          else
-            echo "🔍 Último anuncio registrado (por fecha_scrape):"
-            sqlite3 "${{ env.DB_PATH }}" \
-              "SELECT link, fecha_scrape \
-               FROM anuncios \
-               ORDER BY fecha_scrape DESC, rowid DESC \
-               LIMIT 1;"
-          fi
+          RESULTADO="📊 *Resumen Ejecución* #${{ github.run_number }}\n\n"
+          RESULTADO+="• 🕒 Hora: $(date '+%Y-%m-%d %H:%M:%S')\n"
+          RESULTADO+="• ✅ Exit code: ${{ steps.run_bot.outputs.exit_code }}\n"
+          RESULTADO+="• 📥 Nuevos: ${{ steps.run_bot.outputs.nuevos }}\n"
+          RESULTADO+="• 🔄 Actualizados: ${{ steps.run_bot.outputs.actualizados }}\n"
+          RESULTADO+="• ❌ Errores: ${{ steps.run_bot.outputs.errores }}\n"
+          RESULTADO+="• 📦 Total en DB: ${{ steps.db_metrics.outputs.total }} → $(sqlite3 "$DB_PATH" "SELECT COUNT(*) FROM anuncios;")\n"
+          RESULTADO+="\n🔗 [Ver Logs](${{ github.server_url }}/${{ github.repository }}/actions/runs/${{ github.run_id }})"
+          
+          curl -s -X POST "https://api.telegram.org/bot$BOT_TOKEN/sendMessage" \
+            -d chat_id="$CHAT_ID" \
+            -d text="$RESULTADO" \
+            -d parse_mode="Markdown" \
+            -d disable_web_page_preview="true"
