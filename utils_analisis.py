@@ -327,6 +327,20 @@ def puntuar_anuncio(texto: str, roi_info: Optional[Dict] = None) -> int:
     if len(texto.split()) >= 8: score += 1
     return max(0, min(score, 10))
 
+def validar_anuncio_completo(anuncio: Dict[str, Any]) -> bool:
+    """
+    Verifica que un anuncio tenga los campos esenciales para ser analizado.
+    """
+    precio = limpiar_precio(anuncio.get("precio_texto", ""))
+    modelo = anuncio.get("modelo", "").strip().lower()
+    anio = anuncio.get("anio", 0)
+
+    if precio == 0 or not modelo or anio < 2000:
+        return False
+    return True
+
+
+
 @timeit
 def insertar_anuncio_db(link, modelo, anio, precio, km, roi, score, relevante=False,
                         confianza_precio=None, muestra_precio=None):
