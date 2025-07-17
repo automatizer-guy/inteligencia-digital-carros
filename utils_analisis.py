@@ -7,6 +7,7 @@ import statistics
 from datetime import datetime
 from typing import Optional, Dict, Any, List
 from contextlib import contextmanager
+from functools import lru_cache
 
 AÑO_ACTUAL = datetime.now().year
 
@@ -33,6 +34,11 @@ PRECIOS_POR_DEFECTO = {
     "suzuki grand vitara": 52000, "hyundai i10": 34000, "kia rio": 40000,
     "toyota": 48000, "honda": 50000
 }
+
+@lru_cache(maxsize=128)
+def get_precio_referencia_cached(modelo: str, anio: int, tolerancia: int):
+    # Cache por sesión para evitar consultas repetidas
+
 MODELOS_INTERES = list(PRECIOS_POR_DEFECTO.keys())
 
 PALABRAS_NEGATIVAS = [
@@ -174,7 +180,7 @@ def es_extranjero(texto: str) -> bool:
 def validar_precio_coherente(precio: int, modelo: str, anio: int) -> bool:
     if precio < 5000 or precio > 500000:
         return False
-    precio_ref = PRECIOS_POR_DEFECTO.get(modelo, 50000)
+    precio_ref = obtener_precio_referencia(modelo)
     return 0.2 * precio_ref <= precio <= 2.5 * precio_ref
 
 def limpiar_precio(texto: str) -> int:
