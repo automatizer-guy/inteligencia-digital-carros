@@ -96,7 +96,8 @@ def inicializar_tabla_anuncios():
                     fecha_scrape DATE,
                     roi REAL,
                     score INTEGER,
-                    updated_at DATE DEFAULT DATE('now')
+                    updated_at TEXT DEFAULT CURRENT_DATE
+
                 )
             """)
             print("✅ Tabla anuncios creada con updated_at")
