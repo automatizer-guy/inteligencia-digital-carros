@@ -681,6 +681,7 @@ def existe_en_db(link: str) -> bool:
         return False
 
 @timeit
+@timeit
 def get_rendimiento_modelo(modelo: str, dias: int = 7) -> float:
     """Obtener rendimiento de un modelo en los últimos días"""
     try:
@@ -688,10 +689,14 @@ def get_rendimiento_modelo(modelo: str, dias: int = 7) -> float:
             cur = conn.cursor()
             cur.execute("""
                 SELECT SUM(CASE WHEN score >= ? THEN 1 ELSE 0 END) * 1.0 / COUNT(*)
-                FROM anuncios WHERE modelo = ? AND fecha_scrape >= date('now', ?)
-        """, (SCORE_MIN_DB, modelo, f"-{dias} days"))
-        result = cur.fetchone()[0]
-        return round(result or 0.0, 3)
+                FROM anuncios 
+                WHERE modelo = ? AND fecha_scrape >= date('now', ?)
+            """, (SCORE_MIN_DB, modelo, f"-{dias} days"))
+            result = cur.fetchone()[0]
+            return round(result or 0.0, 3)
+    except Exception as e:
+        metricas.error(f"Error calculando rendimiento para {modelo}", e)
+        return 0.0
 
 @timeit
 def modelos_bajo_rendimiento(threshold: float = 0.005, dias: int = 7) -> List[str]:
