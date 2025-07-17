@@ -2,9 +2,27 @@ name: Ejecutar Bot Automatizado
 
 on:
   schedule:
-    # Corre cada 2 horas entre 8 AM y 6 PM (UTC-6 Guatemala)
+    # Corre cada 2 horas entre 8 AM y 6 PM hora de Guatemala (UTC-6)
+    # Convertir a UTC:
+    # 8 AM (GMT-6) -> 14 (2 PM) UTC
+    # 6 PM (GMT-6) -> 0 (12 AM) UTC (del día siguiente, pero en rango 14-23/2, es 22h, 0h, 2h, etc.)
+    # El rango '14-23/2' significa 14, 16, 18, 20, 22 UTC.
+    # Esto equivale a 8 AM, 10 AM, 12 PM, 2 PM, 4 PM (Hora de Guatemala).
+    # Si quieres hasta las 6 PM hora de Guatemala (medianoche UTC), necesitarías ajustar.
+    # Por ejemplo, para 8 AM a 6 PM GT (14:00 - 0:00 UTC):
+    # '0 14-23/2 * * *' cubre 14, 16, 18, 20, 22 UTC.
+    # Para incluir 00:00 UTC (6 PM GT), necesitarías otra entrada o un rango que cruce el día.
+    # Para simplificar y cubrir 8 AM a 6 PM GT:
+    # 0 14 * * * (8 AM GT)
+    # 0 16 * * * (10 AM GT)
+    # 0 18 * * * (12 PM GT)
+    # 0 20 * * * (2 PM GT)
+    # 0 22 * * * (4 PM GT)
+    # 0 0 * * * (6 PM GT) - Esto sería el inicio del día siguiente en UTC
+    # Dada la cron actual '0 14-23/2 * * *', cubrirá 8 AM, 10 AM, 12 PM, 2 PM, 4 PM GT.
+    # Se mantendrá el cron original, pero ten en cuenta la conversión UTC.
     - cron: '0 14-23/2 * * *'
-  workflow_dispatch:
+  workflow_dispatch: # Permite ejecutar el workflow manualmente
 
 jobs:
   run-bot:
@@ -13,157 +31,209 @@ jobs:
       BOT_TOKEN: ${{ secrets.BOT_TOKEN }}
       CHAT_ID: ${{ secrets.CHAT_ID }}
       FB_COOKIES_JSON: ${{ secrets.FB_COOKIES_JSON }}
-      DB_PATH: upload-artifact/anuncios.db
-      HEADLESS: 'true'  # Modo headless activado
+      DB_PATH: upload-artifact/anuncios.db # Ruta donde se guardará la DB en el runner
+      HEADLESS: 'true'  # Modo headless activado para Playwright
 
     steps:
       # 1️⃣ Configuración inicial
       - name: Checkout repositorio
-        uses: actions/checkout@v3
+        uses: actions/checkout@v4 # Usar la última versión estable
         with:
-          fetch-depth: 0
+          fetch-depth: 0 # Necesario para git clone en el paso 9
 
       # 2️⃣ Configurar caché para Playwright
       - name: Cache Playwright browsers
-        uses: actions/cache@v3
+        uses: actions/cache@v4 # Usar la última versión estable
         id: playwright-cache
         with:
           path: |
             ~/.cache/ms-playwright
-          key: ${{ runner.os }}-playwright-${{ hashFiles('**/package-lock.json') }}
+          key: ${{ runner.os }}-playwright-${{ hashFiles('**/requirements.txt') }} # Usar requirements.txt para el hash
           restore-keys: |
             ${{ runner.os }}-playwright-
 
       # 3️⃣ Manejo de la base de datos
       - name: Configurar base de datos
         run: |
-          mkdir -p upload-artifact
+          set -euo pipefail # Modo estricto para scripts
+          mkdir -p $(dirname "$DB_PATH") # Asegura que el directorio exista
+          
+          # Verificar si la DB existe en el repo y copiarla
           if [ -f data/anuncios.db ]; then
             cp data/anuncios.db "$DB_PATH"
-            echo "✅ Base histórica cargada (Tamaño: $(du -h $DB_PATH | cut -f1))"
+            echo "✅ Base de datos histórica cargada desde 'data/anuncios.db'. Tamaño: $(du -h "$DB_PATH" | cut -f1)"
           else
-            echo "::warning::No hay base previa. Se inicia nueva"
-            touch "$DB_PATH"
+            echo "::warning::No se encontró una base de datos previa en 'data/anuncios.db'. Se creará una nueva."
+            touch "$DB_PATH" # Crea un archivo vacío si no existe, para que sqlite3 lo inicialice.
           fi
 
       # 4️⃣ Inicialización de la estructura de la DB
-      - name: Inicializar estructura DB
+      - name: Instalar SQLite y verificar estructura de DB
         run: |
-          sudo apt-get update && sudo apt-get install -y sqlite3
-
+          set -euo pipefail
+          sudo apt-get update && sudo apt-get install -y sqlite3 # Instalar sqlite3
+          
+          # Crear tabla e índices si no existen (operación idempotente)
           sqlite3 "$DB_PATH" <<EOF
-          BEGIN;
+          PRAGMA journal_mode = WAL; -- Mejor rendimiento con concurrencia
+          PRAGMA foreign_keys = ON;  -- Habilitar integridad referencial (si se usa en el futuro)
+          BEGIN TRANSACTION;
           CREATE TABLE IF NOT EXISTS anuncios (
-            link TEXT PRIMARY KEY,
+            link TEXT PRIMARY KEY NOT NULL,
             modelo TEXT,
             anio INTEGER,
             precio INTEGER,
             km TEXT,
-            fecha_scrape DATE DEFAULT CURRENT_DATE,
+            fecha_scrape TEXT DEFAULT (strftime('%Y-%m-%d %H:%M:%S', 'now', 'localtime')), -- Fecha y hora local
             roi REAL,
             score INTEGER,
-            updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+            updated_at TEXT DEFAULT (strftime('%Y-%m-%d %H:%M:%S', 'now', 'localtime')), -- Última actualización local
             relevante BOOLEAN DEFAULT 0,
             confianza_precio TEXT CHECK(confianza_precio IN ('baja', 'media', 'alta')) DEFAULT 'baja',
-            muestra_precio INTEGER DEFAULT 0
+            muestra_precio INTEGER DEFAULT 0,
+            motivo TEXT -- Campo para el motivo de descarte/aceptación
           );
           CREATE INDEX IF NOT EXISTS idx_modelo ON anuncios(modelo);
           CREATE INDEX IF NOT EXISTS idx_fecha ON anuncios(fecha_scrape);
           COMMIT;
           EOF
-
-          echo "✅ Estructura de DB verificada"
+          echo "✅ Estructura de DB verificada y/o creada."
 
       # 5️⃣ Métricas iniciales
       - name: Obtener métricas iniciales
-        id: db_metrics
+        id: db_metrics # ID para referenciar las salidas de este paso
         run: |
+          set -euo pipefail
           echo "📊 Obteniendo métricas iniciales..."
+          
+          # Obtener el total de anuncios
           TOTAL=$(sqlite3 "$DB_PATH" "SELECT COUNT(*) FROM anuncios;")
-          MODELOS=$(sqlite3 "$DB_PATH" "SELECT modelo, COUNT(*) FROM anuncios GROUP BY modelo ORDER BY COUNT(*) DESC LIMIT 5;" | tr '|' ':')
+          
+          # Obtener los top 5 modelos como una cadena separada por comas
+          # Usamos || para concatenar en SQLite y 'paste -sd,' para unir líneas en bash
+          MODELOS_RAW=$(sqlite3 "$DB_PATH" "SELECT modelo || ':' || COUNT(*) FROM anuncios GROUP BY modelo ORDER BY COUNT(*) DESC LIMIT 5;")
+          MODELOS=$(echo "$MODELOS_RAW" | paste -sd, -) # Une las líneas con comas
+          
           echo "total=$TOTAL" >> $GITHUB_OUTPUT
-          echo "modelos=$MODELOS" >> $GITHUB_OUTPUT
-          echo "📋 Total inicial: $TOTAL"
+          echo "modelos=$MODELOS" >> $GITHUB_OUTPUT # Correcto para GITHUB_OUTPUT
+          
+          echo "📋 Total inicial: $TOTAL anuncios"
           echo "🏆 Top modelos: $MODELOS"
 
       # 6️⃣ Instalación de dependencias optimizada
       - name: Instalar dependencias
         run: |
+          set -euo pipefail
           python -m pip install --upgrade pip
-          pip install --no-cache-dir -r requirements.txt
-          playwright install --with-deps chromium
+          pip install --no-cache-dir -r requirements.txt # Instala las dependencias de Python
+          playwright install --with-deps chromium # Instala Chromium y sus dependencias
 
       # 7️⃣ Ejecución del bot con manejo de errores
       - name: Ejecutar bot de scraping
-        id: run_bot
+        id: run_bot # ID para referenciar las salidas de este paso
         run: |
-          set +e
-          python -u bot_telegram_marketplace.py 2>&1 | tee -a resultado.log
-          echo "exit_code=${PIPESTATUS[0]}" >> $GITHUB_OUTPUT
-
-          # Procesar resultados
-          NUEVOS=$(grep -oP 'NUEVOS=\K\d+' resultado.log || echo 0)
-          ACTUALIZADOS=$(grep -oP 'ACTUALIZADOS=\K\d+' resultado.log || echo 0)
-          ERRORES=$(grep -ci "ERROR\|FAILED" resultado.log || echo 0)
-
+          set +e # Permitir que el script continúe aunque haya errores en el python script
+          
+          # Ejecutar el bot, redirigir stdout y stderr a un log y a la consola
+          python -u bot_telegram_marketplace.py 2>&1 | tee resultado.log
+          
+          # Capturar el código de salida del script de Python
+          EXIT_CODE=${PIPESTATUS[0]}
+          echo "exit_code=$EXIT_CODE" >> $GITHUB_OUTPUT
+          
+          # Procesar resultados del log con valores por defecto 0 si no se encuentran
+          NUEVOS=$(grep -oP 'Anuncios relevantes: \K\d+' resultado.log | tail -1 || echo 0)
+          POTENCIALES=$(grep -oP 'Anuncios potenciales: \K\d+' resultado.log | tail -1 || echo 0)
+          ERRORES=$(grep -c "Error crítico" resultado.log || echo 0) # Contar líneas con "Error crítico"
+          
           echo "nuevos=$NUEVOS" >> $GITHUB_OUTPUT
-          echo "actualizados=$ACTUALIZADOS" >> $GITHUB_OUTPUT
-          echo "errores=$ERRORES" >> $GITHUB_OUTPUT
+          echo "potenciales=$POTENCIALES" >> $GITHUB_OUTPUT
+          echo "errores_ejecucion=$ERRORES" >> $GITHUB_OUTPUT # Cambiado a 'errores_ejecucion' para claridad
+          
+          echo "Bot finalizado con exit code: $EXIT_CODE"
+          echo "Resumen de ejecución: Nuevos: $NUEVOS, Potenciales: $POTENCIALES, Errores: $ERRORES"
 
-          echo "resultado.log" > artifact_files.txt
-          echo "anuncios.db" >> artifact_files.txt
-
-      # 8️⃣ Manejo de resultados
+      # 8️⃣ Manejo de resultados y subida de artefactos
       - name: Subir artefactos
-        if: always()
-        uses: actions/upload-artifact@v4
+        if: always() # Siempre ejecutar, incluso si falla el paso anterior
+        uses: actions/upload-artifact@v4 # Usar la última versión estable
         with:
           name: bot-results-${{ github.run_number }}
           path: |
             resultado.log
-            ${{ env.DB_PATH }}
-          retention-days: 3
+            ${{ env.DB_PATH }} # Usar la variable de entorno DB_PATH
+          retention-days: 7 # Aumentar la retención de artefactos a 7 días
 
-      # 9️⃣ Actualización de la base de datos
+      # 9️⃣ Actualización de la base de datos en una rama 'data'
       - name: Actualizar repositorio de datos
-        if: steps.run_bot.outputs.exit_code == 0
+        # Solo ejecutar si el bot de scraping no tuvo un error crítico (exit code 0)
+        if: steps.run_bot.outputs.exit_code == '0'
         env:
-          PAT_PUSH: ${{ secrets.PAT_PUSH }}
+          PAT_PUSH: ${{ secrets.PAT_PUSH }} # Token de acceso personal con permisos de escritura
         run: |
+          set -euo pipefail # Modo estricto para este script
+          git config --global user.name "github-actions[bot]"
           git config --global user.name "github-actions[bot]"
           git config --global user.email "github-actions[bot]@users.noreply.github.com"
-
+          
+          # Clonar la rama 'data' del propio repositorio
+          # Usar el token PAT_PUSH para autenticación
           git clone --branch data https://x-access-token:$PAT_PUSH@github.com/$GITHUB_REPOSITORY data-repo
-          cp "$DB_PATH" data-repo/anuncios.db
-
+          
+          cp "$DB_PATH" data-repo/anuncios.db # Copiar la DB actualizada al repo clonado
+          
           cd data-repo
+          
+          # Verificar si hay cambios antes de hacer commit
           if ! git diff --quiet; then
             git add anuncios.db
-            git commit -m "🔄 Actualización automática DB (Run #${{ github.run_number }})"
+            git commit -m "🔄 Actualización automática DB (Run #${{ github.run_number }}) [skip ci]" # [skip ci] para evitar loops
             git push origin data
-            echo "✅ Base de datos actualizada"
+            echo "✅ Base de datos 'anuncios.db' actualizada en la rama 'data'."
           else
-            echo "ℹ️ No hay cambios en la base de datos"
+            echo "ℹ️ No se detectaron cambios en la base de datos. No se requiere commit."
           fi
+          cd .. # Volver al directorio raíz del runner
 
-      # 🔟 Notificación de resultados (solo si hay novedades)
-      - name: Enviar resumen a Telegram
-        if: steps.run_bot.outputs.nuevos != '0' || steps.run_bot.outputs.actualizados != '0'
+      # 🔟 Notificación de resultados a Telegram (solo si hay novedades o errores)
+      - name: Enviar resumen final a Telegram
+        # Ejecutar si se encontraron nuevos/potenciales anuncios o si hubo errores en la ejecución del bot
+        if: |
+          steps.run_bot.outputs.nuevos != '0' ||
+          steps.run_bot.outputs.potenciales != '0' ||
+          steps.run_bot.outputs.errores_ejecucion != '0' ||
+          failure() # También si el job falla por alguna razón
         env:
           BOT_TOKEN: ${{ secrets.BOT_TOKEN }}
           CHAT_ID: ${{ secrets.CHAT_ID }}
         run: |
-          RESULTADO="📊 *Resumen Ejecución* #${{ github.run_number }}\n\n"
-          RESULTADO+="• 🕒 Hora: $(date '+%Y-%m-%d %H:%M:%S')\n"
-          RESULTADO+="• ✅ Exit code: ${{ steps.run_bot.outputs.exit_code }}\n"
-          RESULTADO+="• 📥 Nuevos: ${{ steps.run_bot.outputs.nuevos }}\n"
-          RESULTADO+="• 🔄 Actualizados: ${{ steps.run_bot.outputs.actualizados }}\n"
-          RESULTADO+="• ❌ Errores: ${{ steps.run_bot.outputs.errores }}\n"
-          RESULTADO+="• 📦 Total en DB: ${{ steps.db_metrics.outputs.total }} → $(sqlite3 \"$DB_PATH\" \"SELECT COUNT(*) FROM anuncios;\")\n"
-          RESULTADO+="\n🔗 [Ver Logs](${{ github.server_url }}/${{ github.repository }}/actions/runs/${{ github.run_id }})"
-
+          set -euo pipefail
+          
+          # Obtener el total final de anuncios en la DB directamente del archivo
+          TOTAL_FINAL=$(sqlite3 "$DB_PATH" "SELECT COUNT(*) FROM anuncios;")
+          
+          RESULTADO="📊 *Resumen de Ejecución* #${{ github.run_number }}\n\n"
+          RESULTADO+="• 🕒 Hora (GT): $(TZ='America/Guatemala' date '+%Y-%m-%d %H:%M:%S')\n" # Hora local de Guatemala
+          RESULTADO+="• ✅ Estado del Bot: ${{ steps.run_bot.outputs.exit_code == '0' && 'Éxito' || 'Fallo' }}\n"
+          RESULTADO+="• 📥 Relevantes: ${{ steps.run_bot.outputs.nuevos }}\n"
+          RESULTADO+="• 🟡 Potenciales: ${{ steps.run_bot.outputs.potenciales }}\n"
+          RESULTADO+="• ❌ Errores en ejecución: ${{ steps.run_bot.outputs.errores_ejecucion }}\n"
+          RESULTADO+="• 📦 Total en DB (inicio): ${{ steps.db_metrics.outputs.total }}\n"
+          RESULTADO+="• 📈 Total en DB (final): $TOTAL_FINAL\n\n"
+          
+          # Añadir top modelos solo si se pudieron obtener (no está vacío)
+          if [ -n "${{ steps.db_metrics.outputs.modelos }}" ]; then
+            RESULTADO+="• 🏆 Top Modelos: ${{ steps.db_metrics.outputs.modelos }}\n\n"
+          fi
+          
+          RESULTADO+="🔗 [Ver Detalles del Run](${{ github.server_url }}/${{ github.repository }}/actions/runs/${{ github.run_id }})"
+          
+          # Escapar caracteres especiales para MarkdownV2 en el resumen
+          ESCAPED_RESULTADO=$(echo "$RESULTADO" | sed -e 's/_/\\_/g' -e 's/\*/\\*/g' -e 's/\[/\\[/g' -e 's/\]/\\]/g' -e 's/\(/\\(/g' -e 's/\)/\\)/g' -e 's/\~/\\~/g' -e 's/\` /\\\`/g' -e 's/\>/\\>/g' -e 's/\#/\\#/g' -e 's/\+/\\+/g' -e 's/\-/\\-/g' -e 's/=/\\=/g' -e 's/|/\\|/g' -e 's/{/\\{/g' -e 's/}/\\}/g' -e 's/\./\\./g' -e 's/!/\\!/g' )
+          
+          # Usar curl para enviar el mensaje a Telegram
           curl -s -X POST "https://api.telegram.org/bot$BOT_TOKEN/sendMessage" \
             -d chat_id="$CHAT_ID" \
-            -d text="$RESULTADO" \
-            -d parse_mode="Markdown" \
+            -d text="$ESCAPED_RESULTADO" \
+            -d parse_mode="MarkdownV2" \
             -d disable_web_page_preview="true"
