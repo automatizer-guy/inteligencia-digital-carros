@@ -1,4 +1,4 @@
-import asyncio
+dimport asyncio
 import os
 import sqlite3
 import logging
@@ -8,10 +8,16 @@ from telegram import Bot
 from scraper_marketplace import buscar_autos_marketplace
 from telegram.helpers import escape_markdown
 from utils_analisis import (
-    inicializar_tabla_anuncios, analizar_mensaje, limpiar_link, es_extranjero,
-    SCORE_MIN_DB, SCORE_MIN_TELEGRAM, ROI_MINIMO, MODELOS_INTERES, escapar_multilinea,
+    inicializar_tabla_anuncios,
+    analizar_mensaje,
+    limpiar_link,
+    es_extranjero,
+    Config,
+    MODELOS_INTERES,
+    escapar_multilinea,
     validar_coherencia_precio_año
 )
+
 
 logging.basicConfig(
     level=logging.INFO,
@@ -107,9 +113,9 @@ async def enviar_ofertas():
         if not relevante:
             if es_extranjero(txt):
                 motivo = "extranjero"
-            elif roi < ROI_MINIMO:
+            elif roi < Config.ROI_MINIMO:
                 motivo = "roi bajo"
-            elif score < SCORE_MIN_DB:
+            elif score < Config.SCORE_MIN_DB:
                 motivo = "precio fuera de rango"
             else:
                 motivo = "modelo no detectado"
