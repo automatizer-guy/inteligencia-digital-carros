@@ -14,7 +14,7 @@ from utils_analisis import (
     limpiar_precio, contiene_negativos, puntuar_anuncio,
     calcular_roi_real, coincide_modelo, extraer_anio,
     insertar_o_actualizar_anuncio_db, inicializar_tabla_anuncios,
-    limpiar_link, modelos_bajo_rendimiento, MODELOS_INTERES,
+    limpiar_link, MODELOS_INTERES,
     SCORE_MIN_TELEGRAM, ROI_MINIMO
 )
 
