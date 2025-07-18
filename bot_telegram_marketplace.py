@@ -122,11 +122,10 @@ async def enviar_ofertas():
             motivos[motivo] = motivos.get(motivo, 0) + 1
 
         if relevante:
-            buenos.append(mensaje)
-            resumen_relevantes.append((modelo, url, roi, score))
-        elif score >= SCORE_MIN_DB and roi >= ROI_MINIMO:
-            potenciales.append(mensaje)
-            resumen_potenciales.append((modelo, url, roi, score))
+        buenos.append(mensaje)
+        resumen_relevantes.append((modelo, url, roi, score))
+        continue
+
 
         logger.info(
             f"🔍 {modelo} | Año {anio} | Precio {precio} | ROI {roi:.1f}% | Score {score}/10 | Relevante: {relevante}"
