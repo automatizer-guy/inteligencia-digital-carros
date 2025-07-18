@@ -12,12 +12,12 @@ from datetime import datetime
 from typing import List, Dict, Optional, Tuple
 from playwright.async_api import async_playwright, Browser, Page, BrowserContext
 from utils_analisis import (
-    limpiar_precio, contiene_negativos, puntuar_anuncio,
-    calcular_roi_real, coincide_modelo, extraer_anio,
-    insertar_o_actualizar_anuncio_db, inicializar_tabla_anuncios,
-    limpiar_link, modelos_bajo_rendimiento, MODELOS_INTERES,
-    SCORE_MIN_TELEGRAM, ROI_MINIMO
+    limpiar_precio, contiene_negativos, puntuar_anuncio, calcular_roi_real,
+    coincide_modelo, extraer_anio, insertar_o_actualizar_anuncio_db, 
+    inicializar_tabla_anuncios, limpiar_link, modelos_bajo_rendimiento, 
+    MODELOS_INTERES, ROI_MINIMO, Config
 )
+
 
 logger = logging.getLogger(__name__)
 logging.basicConfig(level=logging.INFO, format="%(asctime)s [%(levelname)s] %(message)s")
@@ -160,7 +160,7 @@ async def procesar_modelo(
 
                 roi_data = calcular_roi_real(modelo, precio, anio)
                 score = puntuar_anuncio(texto, roi_data)
-                relevante = score >= SCORE_MIN_TELEGRAM and roi_data["roi"] >= ROI_MINIMO
+                relevante = score >= Config.SCORE_MIN_TELEGRAM and roi_data["roi"] >= ROI_MINIMO
 
                 mensaje_base = (
                     f"🚘 *{modelo.title()}*\n"
