@@ -15,7 +15,7 @@ from utils_analisis import (
     inicializar_tabla_anuncios, analizar_mensaje, limpiar_link, es_extranjero,
     SCORE_MIN_DB, SCORE_MIN_TELEGRAM, ROI_MINIMO,
     modelos_bajo_rendimiento, MODELOS_INTERES, escapar_multilinea,
-    validar_precio_coherente, Config
+    validar_precio_coherente
 )
 
 logging.basicConfig(
