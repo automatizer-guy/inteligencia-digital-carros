@@ -1,4 +1,4 @@
-# bot_telegram_marketplace.py (corregido)
+# bot_telegram_marketplace.py 
 
 import asyncio
 import os
