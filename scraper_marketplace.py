@@ -161,8 +161,7 @@ async def procesar_modelo(page: Page, modelo: str,
                     f"• Score: {score}/10\n"
                     f"🔗 {url}"
                 )
-                
-                # Insertar en base de datos
+
                 insertar_anuncio_db(
                     link=url,
                     modelo=modelo,
