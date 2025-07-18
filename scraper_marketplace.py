@@ -29,7 +29,7 @@ logging.basicConfig(level=logging.INFO, format="%(asctime)s [%(levelname)s] %(me
 
 MIN_PRECIO_VALIDO = 3000
 MAX_EJEMPLOS_SIN_ANIO = 5
-ROI_POTENCIAL_MIN = ROI_MINIMO - 10
+ROI_POTENCIAL_MIN = Config.ROI_MINIMO - 10
 DB_PATH = os.environ.get("DB_PATH", "upload-artifact/anuncios.db")
 
 
@@ -158,7 +158,7 @@ async def procesar_modelo(
 
                 roi_data = calcular_roi_real(modelo, precio, anio)
                 score = calcular_score_desde_texto(texto, roi_data)
-                relevante = score >= Config.SCORE_MIN_TELEGRAM and roi_data["roi"] >= ROI_MINIMO
+                relevante = score >= Config.SCORE_MIN_TELEGRAM and roi_data["roi"] >= Config.ROI_MINIMO
 
                 mensaje_base = (
                     f"🚘 *{modelo.title()}*\n"
