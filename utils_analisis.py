@@ -692,7 +692,7 @@ def calcular_roi_real(modelo: str, precio_compra: int, anio: int, costo_extra: i
         inversion_total = precio_compra + costo_extra
         roi = ((precio_depreciado - inversion_total) / inversion_total) * 100 if inversion_total > 0
 
-    else:
+        else:
             roi = 0.0
         
         metricas.incrementar("roi_calculado")
