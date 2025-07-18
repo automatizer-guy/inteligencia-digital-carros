@@ -1,5 +1,7 @@
 # bot_telegram_marketplace.py (corregido)
 
+# bot_telegram_marketplace.py (mejorado)
+
 import asyncio
 import os
 import sqlite3
@@ -12,8 +14,7 @@ from telegram.helpers import escape_markdown
 from utils_analisis import (
     inicializar_tabla_anuncios, analizar_mensaje, limpiar_link, es_extranjero,
     SCORE_MIN_DB, SCORE_MIN_TELEGRAM, ROI_MINIMO,
-    modelos_bajo_rendimiento, MODELOS_INTERES, escapar_multilinea,
-    validar_coherencia_precio_año
+    modelos_bajo_rendimiento, MODELOS_INTERES, escapar_multilinea
 )
 
 logging.basicConfig(
@@ -77,25 +78,32 @@ async def enviar_ofertas():
         "roi bajo": 0
     }
 
+
     for txt in brutos:
         res = analizar_mensaje(txt)
         if not res:
             motivos["incompleto"] += 1
             continue
+    logger.info(f"\n📝 TEXTO CRUDO:\n{txt[:500]}")
 
-        logger.info(f"\n📝 TEXTO CRUDO:\n{txt[:500]}")
+url, modelo, anio, precio, roi, score, relevante = (
+    res["url"], res["modelo"], res["año"], res["precio"],
+    res["roi"], res["score"], res["relevante"]
+)
+
+logger.info(f"📅 Año detectado: {anio}")
+logger.info(f"💰 Precio detectado: Q{precio:,}")
+
+from utils_analisis import validar_coherencia_precio_año
+if not validar_coherencia_precio_año(precio, anio):
+    motivos["precio-año incoherente"] = motivos.get("precio-año incoherente", 0) + 1
+    continue
+
 
         url, modelo, anio, precio, roi, score, relevante = (
             res["url"], res["modelo"], res["año"], res["precio"],
             res["roi"], res["score"], res["relevante"]
         )
-
-        logger.info(f"📅 Año detectado: {anio}")
-        logger.info(f"💰 Precio detectado: Q{precio:,}")
-
-        if not validar_coherencia_precio_año(precio, anio):
-            motivos["precio-año incoherente"] += 1
-            continue
 
         mensaje = (
             f"🚘 *{modelo.title()}*\n"
