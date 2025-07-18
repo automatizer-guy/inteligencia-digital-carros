@@ -11,8 +11,9 @@ from scraper_marketplace import buscar_autos_marketplace
 from telegram.helpers import escape_markdown
 from utils_analisis import (
     inicializar_tabla_anuncios, analizar_mensaje, limpiar_link, es_extranjero,
-    modelos_bajo_rendimiento, escapar_multilinea,
-    validar_coherencia_precio_año, Config
+    SCORE_MIN_DB, SCORE_MIN_TELEGRAM, ROI_MINIMO,
+    modelos_bajo_rendimiento, MODELOS_INTERES, escapar_multilinea,
+    validar_coherencia_precio_año
 )
 
 logging.basicConfig(
@@ -54,7 +55,7 @@ async def enviar_ofertas():
     now_local = datetime.now(ZoneInfo("America/Guatemala"))
 
     bajos = modelos_bajo_rendimiento()
-    activos = [m for m in Config.MODELOS_INTERES if m not in bajos]
+    activos = [m for m in MODELOS_INTERES if m not in bajos]
     logger.info(f"✅ Modelos activos: {activos}")
 
     try:
@@ -109,9 +110,9 @@ async def enviar_ofertas():
         if not relevante:
             if es_extranjero(txt):
                 motivo = "extranjero"
-            elif roi < Config.ROI_MINIMO:
+            elif roi < ROI_MINIMO:
                 motivo = "roi bajo"
-            elif score < Config.SCORE_MIN_DB:
+            elif score < SCORE_MIN_DB:
                 motivo = "precio fuera de rango"
             else:
                 motivo = "modelo no detectado"
@@ -120,7 +121,7 @@ async def enviar_ofertas():
         if relevante:
             buenos.append(mensaje)
             resumen_relevantes.append((modelo, url, roi, score))
-        elif score >= Config.SCORE_MIN_DB and roi >= Config.ROI_MINIMO:
+        elif score >= SCORE_MIN_DB and roi >= ROI_MINIMO:
             potenciales.append(mensaje)
             resumen_potenciales.append((modelo, url, roi, score))
 
