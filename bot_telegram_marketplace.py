@@ -94,51 +94,57 @@ url, modelo, anio, precio, roi, score, relevante = (
 logger.info(f"📅 Año detectado: {anio}")
 logger.info(f"💰 Precio detectado: Q{precio:,}")
 
-from utils_analisis import validar_coherencia_precio_año
-if not validar_coherencia_precio_año(precio, anio):
-    motivos["precio-año incoherente"] = motivos.get("precio-año incoherente", 0) + 1
-    continue
+from utils_analisis import validar_coherencia_precio_año, es_extranjero, Config
 
+for txt in brutos:
+    res = analizar_mensaje(txt)
+    if not res:
+        motivos["incompleto"] = motivos.get("incompleto", 0) + 1
+        continue
 
-        url, modelo, anio, precio, roi, score, relevante = (
-            res["url"], res["modelo"], res["año"], res["precio"],
-            res["roi"], res["score"], res["relevante"]
-        )
+    url, modelo, anio, precio, roi, score, relevante = (
+        res["url"], res["modelo"], res["año"], res["precio"],
+        res["roi"], res["score"], res["relevante"]
+    )
 
-        mensaje = (
-            f"🚘 *{modelo.title()}*\n"
-            f"• Año: {anio}\n"
-            f"• Precio: Q{precio:,}\n"
-            f"• ROI: {roi:.1f}%\n"
-            f"• Score: {score}/10\n"
-            f"🔗 {url}"
-        )
+    if not validar_coherencia_precio_año(precio, anio):
+        motivos["precio-año incoherente"] = motivos.get("precio-año incoherente", 0) + 1
+        continue
 
-        motivo = None
-        if not relevante:
-            if es_extranjero(txt):
-                motivo = "extranjero"
-            elif roi < ROI_MINIMO:
-                motivo = "roi bajo"
-            elif score < SCORE_MIN_DB:
-                motivo = "precio fuera de rango"
-            else:
-                motivo = "modelo no detectado"
-            motivos[motivo] = motivos.get(motivo, 0) + 1
+    mensaje = (
+        f"🚘 *{modelo.title()}*\n"
+        f"• Año: `{anio}`\n"
+        f"• Precio: `Q{precio:,}`\n"
+        f"• ROI: `{roi:.1f}%`\n"
+        f"• Score: `{score}/10`\n"
+        f"🔗 {url}"
+    )
 
-        if relevante:
-            buenos.append(mensaje)
-            resumen_relevantes.append((modelo, url, roi, score))
-        elif score >= SCORE_MIN_DB and roi >= ROI_MINIMO:
-            potenciales.append(mensaje)
-            resumen_potenciales.append((modelo, url, roi, score))
+    motivo = None
+    if not relevante:
+        if es_extranjero(txt):
+            motivo = "extranjero"
+        elif roi < Config.ROI_MINIMO:
+            motivo = "roi bajo"
+        elif score < Config.SCORE_MIN_DB:
+            motivo = "score bajo"
+        else:
+            motivo = "modelo no detectado"
+        motivos[motivo] = motivos.get(motivo, 0) + 1
 
-        logger.info(
-            f"🔍 {modelo} | Año {anio} | Precio {precio} | ROI {roi:.1f}% | Score {score}/10 | Relevante: {relevante}"
-        )
+    if relevante:
+        buenos.append(mensaje)
+        resumen_relevantes.append((modelo, url, roi, score))
+    elif score >= Config.SCORE_MIN_DB and roi >= Config.ROI_MINIMO:
+        potenciales.append(mensaje)
+        resumen_potenciales.append((modelo, url, roi, score))
 
-    total = len(brutos)
-    await safe_send(f"📊 Procesados: {total} | Relevantes: {len(buenos)} | Potenciales: {len(potenciales)}")
+    logger.info(
+        f"🔍 {modelo} | Año {anio} | Precio Q{precio:,} | ROI {roi:.1f}% | Score {score}/10 | Relevante: {relevante}"
+    )
+
+total = len(brutos)
+await safe_send(f"📊 Procesados: {total} | Relevantes: {len(buenos)} | Potenciales: {len(potenciales)}")
 
     desc_total = sum(motivos.values())
     if desc_total:
