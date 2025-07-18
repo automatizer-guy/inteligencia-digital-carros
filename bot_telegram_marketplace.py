@@ -1,6 +1,6 @@
-# bot_telegram_marketplace.py (corregido)
+# bot_telegram_marketplace.py 
 
-# bot_telegram_marketplace.py (mejorado)
+# bot_telegram_marketplace.py (corregido)
 
 import asyncio
 import os
@@ -14,7 +14,8 @@ from telegram.helpers import escape_markdown
 from utils_analisis import (
     inicializar_tabla_anuncios, analizar_mensaje, limpiar_link, es_extranjero,
     SCORE_MIN_DB, SCORE_MIN_TELEGRAM, ROI_MINIMO,
-    modelos_bajo_rendimiento, MODELOS_INTERES, escapar_multilinea
+    modelos_bajo_rendimiento, MODELOS_INTERES, escapar_multilinea,
+    validar_coherencia_precio_año, Config
 )
 
 logging.basicConfig(
@@ -78,73 +79,60 @@ async def enviar_ofertas():
         "roi bajo": 0
     }
 
-
     for txt in brutos:
         res = analizar_mensaje(txt)
         if not res:
             motivos["incompleto"] += 1
             continue
-    logger.info(f"\n📝 TEXTO CRUDO:\n{txt[:500]}")
 
-url, modelo, anio, precio, roi, score, relevante = (
-    res["url"], res["modelo"], res["año"], res["precio"],
-    res["roi"], res["score"], res["relevante"]
-)
+        logger.info(f"\n📝 TEXTO CRUDO:\n{txt[:500]}")
 
-logger.info(f"📅 Año detectado: {anio}")
-logger.info(f"💰 Precio detectado: Q{precio:,}")
+        url, modelo, anio, precio, roi, score, relevante = (
+            res["url"], res["modelo"], res["año"], res["precio"],
+            res["roi"], res["score"], res["relevante"]
+        )
 
-from utils_analisis import validar_coherencia_precio_año, es_extranjero, Config
+        logger.info(f"📅 Año detectado: {anio}")
+        logger.info(f"💰 Precio detectado: Q{precio:,}")
 
-for txt in brutos:
-    res = analizar_mensaje(txt)
-    if not res:
-        motivos["incompleto"] = motivos.get("incompleto", 0) + 1
-        continue
+        if not validar_coherencia_precio_año(precio, anio):
+            motivos["precio-año incoherente"] += 1
+            continue
 
-    url, modelo, anio, precio, roi, score, relevante = (
-        res["url"], res["modelo"], res["año"], res["precio"],
-        res["roi"], res["score"], res["relevante"]
-    )
+        mensaje = (
+            f"🚘 *{modelo.title()}*\n"
+            f"• Año: `{anio}`\n"
+            f"• Precio: `Q{precio:,}`\n"
+            f"• ROI: `{roi:.1f}%`\n"
+            f"• Score: `{score}/10`\n"
+            f"🔗 {url}"
+        )
 
-    if not validar_coherencia_precio_año(precio, anio):
-        motivos["precio-año incoherente"] = motivos.get("precio-año incoherente", 0) + 1
-        continue
+        motivo = None
+        if not relevante:
+            if es_extranjero(txt):
+                motivo = "extranjero"
+            elif roi < Config.ROI_MINIMO:
+                motivo = "roi bajo"
+            elif score < Config.SCORE_MIN_DB:
+                motivo = "score bajo"
+            else:
+                motivo = "modelo no detectado"
+            motivos[motivo] += 1
 
-    mensaje = (
-        f"🚘 *{modelo.title()}*\n"
-        f"• Año: `{anio}`\n"
-        f"• Precio: `Q{precio:,}`\n"
-        f"• ROI: `{roi:.1f}%`\n"
-        f"• Score: `{score}/10`\n"
-        f"🔗 {url}"
-    )
+        if relevante:
+            buenos.append(mensaje)
+            resumen_relevantes.append((modelo, url, roi, score))
+        elif score >= Config.SCORE_MIN_DB and roi >= Config.ROI_MINIMO:
+            potenciales.append(mensaje)
+            resumen_potenciales.append((modelo, url, roi, score))
 
-    motivo = None
-    if not relevante:
-        if es_extranjero(txt):
-            motivo = "extranjero"
-        elif roi < Config.ROI_MINIMO:
-            motivo = "roi bajo"
-        elif score < Config.SCORE_MIN_DB:
-            motivo = "score bajo"
-        else:
-            motivo = "modelo no detectado"
-        motivos[motivo] = motivos.get(motivo, 0) + 1
+        logger.info(
+            f"🔍 {modelo} | Año {anio} | Precio Q{precio:,} | ROI {roi:.1f}% | Score {score}/10 | Relevante: {relevante}"
+        )
 
-    if relevante:
-        buenos.append(mensaje)
-        resumen_relevantes.append((modelo, url, roi, score))
-    elif score >= Config.SCORE_MIN_DB and roi >= Config.ROI_MINIMO:
-        potenciales.append(mensaje)
-        resumen_potenciales.append((modelo, url, roi, score))
-
-    logger.info(
-        f"🔍 {modelo} | Año {anio} | Precio Q{precio:,} | ROI {roi:.1f}% | Score {score}/10 | Relevante: {relevante}"
-    )
-
-total = len(brutos)
-await safe_send(f"📊 Procesados: {total} | Relevantes: {len(buenos)} | Potenciales: {len(potenciales)}")
+    total = len(brutos)
+    await safe_send(f"📊 Procesados: {total} | Relevantes: {len(buenos)} | Potenciales: {len(potenciales)}")
 
     desc_total = sum(motivos.values())
     if desc_total:
