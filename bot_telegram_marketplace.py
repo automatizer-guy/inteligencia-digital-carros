@@ -1,3 +1,5 @@
+# bot_telegram_marketplace.py (corregido)
+
 import asyncio
 import os
 import sqlite3
@@ -8,16 +10,11 @@ from telegram import Bot
 from scraper_marketplace import buscar_autos_marketplace
 from telegram.helpers import escape_markdown
 from utils_analisis import (
-    inicializar_tabla_anuncios,
-    analizar_mensaje,
-    limpiar_link,
-    es_extranjero,
-    Config,
-    MODELOS_INTERES,
-    escapar_multilinea,
+    inicializar_tabla_anuncios, analizar_mensaje, limpiar_link, es_extranjero,
+    SCORE_MIN_DB, SCORE_MIN_TELEGRAM, ROI_MINIMO,
+    modelos_bajo_rendimiento, MODELOS_INTERES, escapar_multilinea,
     validar_coherencia_precio_año
 )
-
 
 logging.basicConfig(
     level=logging.INFO,
@@ -54,7 +51,7 @@ def dividir_y_enviar(titulo: str, items: list[str]) -> list[str]:
     return bloques
 
 async def enviar_ofertas():
-    logger.info("📱 Iniciando bot de Telegram")
+    logger.info("📡 Iniciando bot de Telegram")
     now_local = datetime.now(ZoneInfo("America/Guatemala"))
 
     bajos = modelos_bajo_rendimiento()
@@ -86,14 +83,14 @@ async def enviar_ofertas():
             motivos["incompleto"] += 1
             continue
 
-        logger.info(f"\n📜 TEXTO CRUDO:\n{txt[:500]}")
+        logger.info(f"\n📝 TEXTO CRUDO:\n{txt[:500]}")
 
         url, modelo, anio, precio, roi, score, relevante = (
             res["url"], res["modelo"], res["año"], res["precio"],
             res["roi"], res["score"], res["relevante"]
         )
 
-        logger.info(f"🗕️ Año detectado: {anio}")
+        logger.info(f"📅 Año detectado: {anio}")
         logger.info(f"💰 Precio detectado: Q{precio:,}")
 
         if not validar_coherencia_precio_año(precio, anio):
@@ -113,9 +110,9 @@ async def enviar_ofertas():
         if not relevante:
             if es_extranjero(txt):
                 motivo = "extranjero"
-            elif roi < Config.ROI_MINIMO:
+            elif roi < ROI_MINIMO:
                 motivo = "roi bajo"
-            elif score < Config.SCORE_MIN_DB:
+            elif score < SCORE_MIN_DB:
                 motivo = "precio fuera de rango"
             else:
                 motivo = "modelo no detectado"
@@ -124,13 +121,9 @@ async def enviar_ofertas():
         if relevante:
             buenos.append(mensaje)
             resumen_relevantes.append((modelo, url, roi, score))
-            continue
-
-        elif score >= Config.SCORE_MIN_DB and roi >= Config.ROI_MINIMO:
+        elif score >= SCORE_MIN_DB and roi >= ROI_MINIMO:
             potenciales.append(mensaje)
             resumen_potenciales.append((modelo, url, roi, score))
-
-
 
         logger.info(
             f"🔍 {modelo} | Año {anio} | Precio {precio} | ROI {roi:.1f}% | Score {score}/10 | Relevante: {relevante}"
@@ -146,13 +139,13 @@ async def enviar_ofertas():
 
     if not buenos and not potenciales:
         if now_local.hour == 18:
-            await safe_send(f"📱 Ejecución a las {now_local.strftime('%H:%M')}, sin ofertas.")
+            await safe_send(f"📡 Ejecución a las {now_local.strftime('%H:%M')}, sin ofertas.")
         return
 
     for bloque in dividir_y_enviar("📦 *Ofertas destacadas:*", buenos):
         await safe_send(bloque)
 
-    for bloque in dividir_y_enviar("🔹 *Potenciales (score≥4 & ROI≥10):*", potenciales):
+    for bloque in dividir_y_enviar("🟡 *Potenciales (score≥4 & ROI≥10):*", potenciales):
         await safe_send(bloque)
 
     for bloque in dividir_y_enviar("📌 *Pendientes manuales:*", pendientes):
