@@ -95,7 +95,7 @@ async def enviar_ofertas():
         logger.info(f"📅 Año detectado: {anio}")
         logger.info(f"💰 Precio detectado: Q{precio:,}")
 
-        if not validar_precio_coherente(precio, anio):
+        if not validar_precio_coherente(precio, modelo, anio):
             motivos["precio-año incoherente"] += 1
             continue
 
