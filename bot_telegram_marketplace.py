@@ -15,7 +15,7 @@ from utils_analisis import (
     inicializar_tabla_anuncios, analizar_mensaje, limpiar_link, es_extranjero,
     SCORE_MIN_DB, SCORE_MIN_TELEGRAM, ROI_MINIMO,
     modelos_bajo_rendimiento, MODELOS_INTERES, escapar_multilinea,
-    validar_coherencia_precio_año, Config
+    validar_precio_coherente, Config
 )
 
 logging.basicConfig(
@@ -95,7 +95,7 @@ async def enviar_ofertas():
         logger.info(f"📅 Año detectado: {anio}")
         logger.info(f"💰 Precio detectado: Q{precio:,}")
 
-        if not validar_coherencia_precio_año(precio, anio):
+        if not validar_precio_coherente(precio, anio):
             motivos["precio-año incoherente"] += 1
             continue
 
