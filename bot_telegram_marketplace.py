@@ -1,4 +1,4 @@
-dimport asyncio
+import asyncio
 import os
 import sqlite3
 import logging
@@ -122,9 +122,14 @@ async def enviar_ofertas():
             motivos[motivo] = motivos.get(motivo, 0) + 1
 
         if relevante:
-        buenos.append(mensaje)
-        resumen_relevantes.append((modelo, url, roi, score))
-        continue
+            buenos.append(mensaje)
+            resumen_relevantes.append((modelo, url, roi, score))
+            continue
+
+        elif score >= Config.SCORE_MIN_DB and roi >= Config.ROI_MINIMO:
+            potenciales.append(mensaje)
+            resumen_potenciales.append((modelo, url, roi, score))
+
 
 
         logger.info(
