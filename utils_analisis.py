@@ -697,6 +697,7 @@ def calcular_roi_real(modelo: str, precio_compra: int, anio: int, costo_extra: i
         roi = 0.0
         
         metricas.incrementar("roi_calculado")
+
         
         return {
             "roi": round(roi, 1),
@@ -845,6 +846,91 @@ def optimizar_base_datos() -> Dict[str, Any]:
             "error": str(e),
             "optimizacion_completada": False
         }
+
+@timeit
+def puntuar_anuncio(texto: str, roi_info: Optional[Dict] = None) -> int:
+    """Puntuar anuncio basado en múltiples factores de calidad y rentabilidad"""
+    try:
+        # Extraer información básica del anuncio
+        precio = limpiar_precio(texto)
+        anio = extraer_anio(texto)
+        modelo = next((m for m in MODELOS_INTERES if coincide_modelo(texto, m)), None)
+        
+        # Verificar que tengamos datos mínimos
+        if not (modelo and anio and precio):
+            metricas.incrementar("puntuacion_datos_insuficientes")
+            return 0
+            
+        # Validar coherencia de precio
+        if not validar_precio_coherente(precio, modelo, anio):
+            metricas.incrementar("puntuacion_precio_incoherente")
+            return 0
+            
+        # Calcular ROI si no se proporciona
+        if roi_info is None:
+            roi_info = calcular_roi_real(modelo, precio, anio)
+        
+        roi = roi_info.get("roi", 0)
+        
+        # Score base
+        score = 4
+        
+        # Bonificación por ROI (factor más importante)
+        if roi >= 25:
+            score += 4
+        elif roi >= 15:
+            score += 3
+        elif roi >= 10:
+            score += 2
+        elif roi >= 5:
+            score += 1
+        elif roi < 0:
+            score -= 2  # Penalización por ROI negativo
+        
+        # Bonificación por precio atractivo
+        if precio <= 25000:
+            score += 2
+        elif precio <= 35000:
+            score += 1
+        elif precio >= 100000:
+            score -= 1  # Penalización por precio muy alto
+        
+        # Bonificación por descripción detallada
+        palabras = len(texto.split())
+        if palabras >= 15:
+            score += 2
+        elif palabras >= 8:
+            score += 1
+        elif palabras < 4:
+            score -= 1  # Penalización por descripción muy pobre
+        
+        # Bonificación por año reciente
+        años_antiguedad = AÑO_ACTUAL - anio
+        if años_antiguedad <= 5:
+            score += 1
+        elif años_antiguedad >= 15:
+            score -= 1
+        
+        # Bonificación por confianza en el precio
+        confianza = roi_info.get("confianza", "baja")
+        if confianza == "alta":
+            score += 1
+        elif confianza == "error":
+            score -= 1
+        
+        # Asegurar que el score esté en el rango válido
+        score_final = max(0, min(score, 10))
+        
+        metricas.incrementar("anuncio_puntuado")
+        
+        if Config.DEBUG:
+            logger.debug(f"Score {score_final} para {modelo} {anio}: ROI={roi}%, precio={precio}")
+        
+        return score_final
+        
+    except Exception as e:
+        metricas.error(f"Error puntuando anuncio: {e}")
+        return 0
 
 def validar_integridad_datos() -> Dict[str, Any]:
     """Validar integridad de datos en la base de datos"""
