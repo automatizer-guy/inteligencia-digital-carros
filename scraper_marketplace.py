@@ -1,13 +1,12 @@
-#scraper_marketplace.py
+# scraper_marketplace.py
 
 import os
 import re
 import json
 import random
-import asyncio     
+import asyncio
 import logging
 import sqlite3
-from urllib.parse import urlparse
 from datetime import datetime
 from typing import List, Dict, Optional, Tuple
 from playwright.async_api import async_playwright, Browser, Page, BrowserContext
@@ -26,13 +25,6 @@ MIN_PRECIO_VALIDO = 3000
 MAX_EJEMPLOS_SIN_ANIO = 5
 ROI_POTENCIAL_MIN = ROI_MINIMO - 10
 DB_PATH = os.environ.get("DB_PATH", "upload-artifact/anuncios.db")
-
-
-def limpiar_url(link: str) -> str:
-    if not link:
-        return ""
-    path = urlparse(link.strip()).path.rstrip("/")
-    return f"https://www.facebook.com{path}"
 
 
 async def cargar_contexto_con_cookies(browser: Browser) -> BrowserContext:
@@ -64,7 +56,7 @@ async def extraer_items_pagina(page: Page) -> List[Dict[str, str]]:
             aria_label = await a.get_attribute("aria-label") or ""
             texto_completo = f"{titulo} {aria_label}".strip()
             href = await a.get_attribute("href") or ""
-            resultados.append({"texto": texto_completo, "url": limpiar_url(href)})
+            resultados.append({"texto": texto_completo, "url": limpiar_link(href)})
         return resultados
     except Exception as e:
         logger.error(f"❌ Error al extraer items: {e}")
@@ -127,7 +119,7 @@ async def procesar_modelo(
                     await page.goto(url)
                     await asyncio.sleep(2)
                     texto = await page.inner_text("div[role='main']")
-                except (TimeoutError, playwright.async_api.Error) as e:
+                except Exception as e:
                     logger.warning(f"Error accediendo a {url}: {e}")
                     texto = itm["texto"]
 
@@ -170,8 +162,7 @@ async def procesar_modelo(
                     f"• Score: {score}/10\n"
                     f"🔗 {url}"
                 )
-                
-                # Insertar o actualizar en base de datos
+
                 resultado = insertar_o_actualizar_anuncio_db(
                     conn,
                     link=url,
@@ -214,8 +205,8 @@ async def procesar_modelo(
 
     duracion = (datetime.now() - inicio).seconds
     logger.info(f"✨ MODELO: {modelo.upper()} "
-                f"Duración: {duracion}s | Total: {contador['total']} | Guardados: {contador['nuevos_ins'] + contador['actualizados']}"
-                f" | Nuevos: {contador['nuevos_ins']} | Actualizados: {contador['actualizados']} | Duplicados: {contador['duplicado']}")
+                f"Duración: {duracion}s | Total: {contador['total']} | Guardados: {contador['nuevos_ins'] + contador['actualizados']} "
+                f"| Nuevos: {contador['nuevos_ins']} | Actualizados: {contador['actualizados']} | Duplicados: {contador['duplicado']}")
 
     return len(nuevos_set)
 
@@ -228,7 +219,6 @@ async def buscar_autos_marketplace(modelos_override: Optional[List[str]] = None)
 
     procesados, potenciales, relevantes = [], [], []
 
-    # Abrir conexión SQLite una sola vez
     conn = sqlite3.connect(DB_PATH, check_same_thread=False)
 
     async with async_playwright() as p:
@@ -241,7 +231,7 @@ async def buscar_autos_marketplace(modelos_override: Optional[List[str]] = None)
 
         if "login" in page.url or "recover" in page.url:
             alerta = (
-                "🚨 Sesión inválida: redirigido a la página de inicio"
+                "🚨 Sesión inválida: redirigido a la página de inicio. "
                 "Verifica las cookies (FB_COOKIES_JSON)."
             )
             logger.warning(alerta)
@@ -261,7 +251,6 @@ async def buscar_autos_marketplace(modelos_override: Optional[List[str]] = None)
 
         await browser.close()
 
-    # Cerrar conexión
     conn.close()
 
     return procesados, potenciales, relevantes
@@ -275,7 +264,5 @@ if __name__ == "__main__":
         logger.info(f"Guardados totales: {len(procesados)}")
         logger.info(f"Relevantes: {len(relevantes)}")
         logger.info(f"Potenciales: {len(potenciales)}")
-
-        # Enviar resumen por Telegram o procesar según tu bot
 
     asyncio.run(main())
