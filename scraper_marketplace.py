@@ -12,18 +12,19 @@ from datetime import datetime
 from typing import List, Dict, Optional, Tuple
 from playwright.async_api import async_playwright, Browser, Page, BrowserContext
 from utils_analisis import (
-    limpiar_precio, contiene_negativos, puntuar_anuncio, calcular_roi_real,
-    coincide_modelo, extraer_anio, insertar_o_actualizar_anuncio_db, 
-    inicializar_tabla_anuncios, limpiar_link, modelos_bajo_rendimiento, Config
+    limpiar_precio, contiene_negativos, puntuar_anuncio,
+    calcular_roi_real, coincide_modelo, extraer_anio,
+    insertar_o_actualizar_anuncio_db, inicializar_tabla_anuncios,
+    limpiar_link, modelos_bajo_rendimiento, MODELOS_INTERES,
+    SCORE_MIN_TELEGRAM, ROI_MINIMO
 )
-
 
 logger = logging.getLogger(__name__)
 logging.basicConfig(level=logging.INFO, format="%(asctime)s [%(levelname)s] %(message)s")
 
 MIN_PRECIO_VALIDO = 3000
 MAX_EJEMPLOS_SIN_ANIO = 5
-ROI_POTENCIAL_MIN = Config.ROI_MINIMO - 10
+ROI_POTENCIAL_MIN = ROI_MINIMO - 10
 DB_PATH = os.environ.get("DB_PATH", "upload-artifact/anuncios.db")
 
 
@@ -159,7 +160,7 @@ async def procesar_modelo(
 
                 roi_data = calcular_roi_real(modelo, precio, anio)
                 score = puntuar_anuncio(texto, roi_data)
-                relevante = score >= Config.SCORE_MIN_TELEGRAM and roi_data["roi"] >= ROI_MINIMO
+                relevante = score >= SCORE_MIN_TELEGRAM and roi_data["roi"] >= ROI_MINIMO
 
                 mensaje_base = (
                     f"🚘 *{modelo.title()}*\n"
@@ -198,7 +199,7 @@ async def procesar_modelo(
 
                 if relevante:
                     relevantes.append(mensaje_base)
-                elif ROI_POTENCIAL_MIN <= roi_data["roi"] < Config.ROI_MINIMO:
+                elif ROI_POTENCIAL_MIN <= roi_data["roi"] < ROI_MINIMO:
                     potenciales.append(mensaje_base)
 
             scrolls += 1
@@ -221,7 +222,7 @@ async def procesar_modelo(
 
 async def buscar_autos_marketplace(modelos_override: Optional[List[str]] = None) -> Tuple[List[str], List[str], List[str]]:
     inicializar_tabla_anuncios()
-    modelos = modelos_override or Config.MODELOS_INTERES
+    modelos = modelos_override or MODELOS_INTERES
     flops = modelos_bajo_rendimiento()
     activos = [m for m in modelos if m not in flops]
 
