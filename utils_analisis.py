@@ -180,30 +180,48 @@ def coincide_modelo(texto: str, modelo: str) -> bool:
     return any(v in texto_limpio for v in variantes)
 
 
+import re
+from typing import Optional
+
 def extraer_anio(texto: str) -> Optional[int]:
     texto = texto.lower()
 
     # 🚫 Frases que invalidan el contexto automotriz
     contexto_invalido = [
-        r"se unió a facebook en\s+(19\d{2}|20\d{2})",
-        r"ingresado en\s+(19\d{2}|20\d{2})",
-        r"miembro desde\s+(19\d{2}|20\d{2})"
+        r"\b(se unió|miembro desde|ingresado en|empleado desde|activo en|creado en|fecha de creación)\s+(19\d{2}|20\d{2})",
+        r"\b(visto en|fecha de publicación|perfil creado en)\s+(19\d{2}|20\d{2})"
     ]
-    for patron in contexto_invalido:
-        if re.search(patron, texto):
-            continue  # No tomamos años de aquí
+    if any(re.search(pat, texto) for pat in contexto_invalido):
+        return None
 
     # ✅ Patrones explícitos con contexto automotriz
-    patrones = [
+    patrones_contextuales = [
         r"(?:año|modelo|del|versión)\s*[:\-]?\s*(19\d{2}|20\d{2})",
-        r"(19\d{2}|20\d{2})\s*(?:año|modelo)"
+        r"(19\d{2}|20\d{2})\s*(?:año|modelo|vehículo)"
     ]
-    for patron in patrones:
+    for patron in patrones_contextuales:
         match = re.search(patron, texto)
         if match:
             año = int(match.group(1))
-            if 1990 <= año <= 2030:
+            if 1980 <= año <= 2030:
                 return año
+
+    # 🧠 Detección de años abreviados como “94” → 1994
+    match_abreviado = re.search(r"(?:año|modelo|vehículo)?\s*['`´]?\b(\d{2})\b", texto)
+    if match_abreviado:
+        año_corto = int(match_abreviado.group(1))
+        año_completo = 1900 + año_corto if año_corto >= 90 else 2000 + año_corto
+        if 1980 <= año_completo <= 2030:
+            return año_completo
+
+    # 🔎 Detección de años aislados válidos sin contexto inválido
+    posibles = re.findall(r"\b(19\d{2}|20\d{2})\b", texto)
+    for p in posibles:
+        año = int(p)
+        if 1980 <= año <= 2030 and not any(re.search(pat, texto) for pat in contexto_invalido):
+            return año
+
+    return None
 
     # 🧠 Patrones para años abreviados como "94" o "'08"
     match_abreviado = re.search(r"(?:año|modelo)?\s*['`´]?\b(\d{2})\b", texto)
