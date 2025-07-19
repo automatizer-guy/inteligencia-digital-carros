@@ -179,21 +179,25 @@ def coincide_modelo(texto: str, modelo: str) -> bool:
     texto_limpio = unicodedata.normalize("NFKD", texto_l).encode("ascii", "ignore").decode("ascii")
     return any(v in texto_limpio for v in variantes)
 
-import re
 
 def extraer_anio(texto: str) -> Optional[int]:
-    """
-    Detecta el año del vehículo solo si aparece acompañado de palabras clave
-    como 'año', 'modelo', 'del', o si aparece en contexto válido.
-    Descarta años futuros o incoherentes.
-    """
     texto = texto.lower()
 
-    patrones = [
-        r"(?:año|modelo|del)\s*[:\-]?\s*(19[9]\d|20[0-3]\d)",   # "año 2014", "modelo: 2018"
-        r"(19[9]\d|20[0-3]\d)\s*(?:modelo|año)",               # "2016 modelo"
+    # 🚫 Frases que invalidan el contexto automotriz
+    contexto_invalido = [
+        r"se unió a facebook en\s+(19\d{2}|20\d{2})",
+        r"ingresado en\s+(19\d{2}|20\d{2})",
+        r"miembro desde\s+(19\d{2}|20\d{2})"
     ]
+    for patron in contexto_invalido:
+        if re.search(patron, texto):
+            continue  # No tomamos años de aquí
 
+    # ✅ Patrones explícitos con contexto automotriz
+    patrones = [
+        r"(?:año|modelo|del|versión)\s*[:\-]?\s*(19\d{2}|20\d{2})",
+        r"(19\d{2}|20\d{2})\s*(?:año|modelo)"
+    ]
     for patron in patrones:
         match = re.search(patron, texto)
         if match:
@@ -201,14 +205,23 @@ def extraer_anio(texto: str) -> Optional[int]:
             if 1990 <= año <= 2030:
                 return año
 
-    # Si no se encontró patrón contextual, buscar últimos 4 dígitos aislados pero con más control
-    posibles = re.findall(r"\b(19[9]\d|20[0-3]\d)\b", texto)
+    # 🧠 Patrones para años abreviados como "94" o "'08"
+    match_abreviado = re.search(r"(?:año|modelo)?\s*['`´]?\b(\d{2})\b", texto)
+    if match_abreviado:
+        año_corto = int(match_abreviado.group(1))
+        año_completo = 1900 + año_corto if año_corto >= 90 else 2000 + año_corto
+        if 1990 <= año_completo <= 2030:
+            return año_completo
+
+    # 🔍 Última búsqueda de años aislados válidos (sin contexto inválido)
+    posibles = re.findall(r"\b(19\d{2}|20\d{2})\b", texto)
     for p in posibles:
         año = int(p)
-        if 1990 <= año <= 2030:
+        if 1990 <= año <= 2030 and not any(re.search(pat, texto) for pat in contexto_invalido):
             return año
 
     return None
+
 
 
 @timeit
