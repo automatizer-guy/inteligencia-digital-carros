@@ -180,49 +180,103 @@ def coincide_modelo(texto: str, modelo: str) -> bool:
     return any(v in texto_limpio for v in variantes)
 
 
-import re
-from typing import Optional
-
 def extraer_anio(texto: str) -> Optional[int]:
-    texto = texto.lower()
-
-    # 🚫 Frases que invalidan el contexto automotriz
-    contexto_invalido = [
-        r"\b(se unió|miembro desde|ingresado en|empleado desde|activo en|creado en|fecha de creación)\s+(19\d{2}|20\d{2})",
-        r"\b(visto en|fecha de publicación|perfil creado en)\s+(19\d{2}|20\d{2})"
-    ]
-    if any(re.search(pat, texto) for pat in contexto_invalido):
+    if not texto or not isinstance(texto, str):
         return None
 
-    # ✅ Patrones explícitos con contexto automotriz
+    texto = texto.lower().strip()
+    año_actual = datetime.now().year
+    año_min = 1980
+    año_max = min(año_actual + 5, 2030)
+
+    # 🚫 Filtrado por contextos inválidos
+    contexto_invalido = [
+        r"\b(se unió|miembro desde|ingresado en|empleado desde|activo en|registrado en|creado en|fecha de creación|nacido en|nació en)\s+(19\d{2}|20\d{2})",
+        r"\b(visto en|fecha de publicación|perfil creado en|último acceso|publicado en)\s+(19\d{2}|20\d{2})",
+        r"\b(graduado en|casado en|fallecido en|murió en|titulado en)\s+(19\d{2}|20\d{2})",
+        r"\b(construido en|casa del|edificado en|vivienda del)\s+(19\d{2}|20\d{2})",
+        r"\b(entre|desde|de)\s+(19\d{2}|20\d{2})\s+(a|hasta|y)\s+(19\d{2}|20\d{2})",
+        r"\b(código|id|tel|teléfono|celular|número)[\s\-_]*(?::|=)?\s*(\d*\s*)*(19\d{2}|20\d{2})",
+        r"\b(calle|avenida|av|dirección|ubicado en).*?(19\d{2}|20\d{2})"
+    ]
+    for patron in contexto_invalido:
+        if re.search(patron, texto):
+            return None
+
+    # ✅ Patrones vehiculares claros
     patrones_contextuales = [
-        r"(?:año|modelo|del|versión)\s*[:\-]?\s*(19\d{2}|20\d{2})",
-        r"(19\d{2}|20\d{2})\s*(?:año|modelo|vehículo)"
+        r"(año|modelo|del año|versión)\s*[:\-]?\s*(19\d{2}|20\d{2})",
+        r"(vehículo|carro|auto|moto|camión)\s+(del\s+)?(19\d{2}|20\d{2})",
+        r"\b(19\d{2}|20\d{2})\s+(año|modelo|carro|auto|vehículo)"
     ]
     for patron in patrones_contextuales:
         match = re.search(patron, texto)
         if match:
-            año = int(match.group(1))
-            if 1980 <= año <= 2030:
-                return año
+            for group in match.groups():
+                if group and group.isdigit():
+                    año = int(group)
+                    if año_min <= año <= año_max:
+                        return año
 
-    # 🧠 Detección de años abreviados como “94” → 1994
-    match_abreviado = re.search(r"(?:año|modelo|vehículo)?\s*['`´]?\b(\d{2})\b", texto)
+    # 🧠 Detección de años abreviados tipo '94 → 1994'
+    match_abreviado = re.search(r"(año|modelo)?\s*['`´]?(\d{2})\b", texto)
     if match_abreviado:
-        año_corto = int(match_abreviado.group(1))
-        año_completo = 1900 + año_corto if año_corto >= 90 else 2000 + año_corto
-        if 1980 <= año_completo <= 2030:
+        año_corto = int(match_abreviado.group(2))
+        if año_corto >= 80:
+            año_completo = 1900 + año_corto
+        elif año_corto <= 30:
+            año_completo = 2000 + año_corto
+        else:
+            return None  # rango ambiguo
+        if año_min <= año_completo <= año_max:
             return año_completo
 
-    # 🔎 Detección de años aislados válidos sin contexto inválido
-    posibles = re.findall(r"\b(19\d{2}|20\d{2})\b", texto)
-    for p in posibles:
-        año = int(p)
-        if 1980 <= año <= 2030 and not any(re.search(pat, texto) for pat in contexto_invalido):
+    # 🔍 Última capa: años aislados con contexto evaluado
+    candidatos = re.finditer(r"\b(19\d{2}|20\d{2})\b", texto)
+    mejores = []
+    for match in candidatos:
+        año = int(match.group())
+        if año_min <= año <= año_max:
+            pos = match.start()
+            contexto = texto[max(0, pos - 50): min(len(texto), pos + 50)]
+            score = _score_contexto_vehicular(contexto)
+            mejores.append((año, score))
+
+    mejores.sort(key=lambda x: x[1], reverse=True)
+    for año, score in mejores:
+        if score >= 2:
             return año
 
     return None
 
+def _score_contexto_vehicular(texto: str) -> int:
+    puntuacion = 0
+
+    vehiculares_fuertes = [
+        r"\b(carro|auto|vehículo|camioneta|moto|suv|sedan|pickup)\b",
+        r"\b(toyota|honda|nissan|ford|chevrolet|volkswagen|bmw|audi|hyundai|kia|mazda|mitsubishi|subaru|jeep|dodge)\b",
+        r"\b(modelo|motor|transmisión|kilometraje|gasolina|diésel|eléctrico)\b",
+        r"\b(vendo|venta|se vende|precio|valor)\b"
+    ]
+    vehiculares_moderados = [
+        r"\b(usado|seminuevo|equipado|full equipo|papeles|documentos|traspaso)\b"
+    ]
+    penalizaciones = [
+        r"\b(casa|departamento|oficina|vivienda|terreno)\b",
+        r"\b(nacido|empleado|graduado|teléfono|documento|email)\b"
+    ]
+
+    for patron in vehiculares_fuertes:
+        puntuacion += 2 * len(re.findall(patron, texto))
+    for patron in vehiculares_moderados:
+        puntuacion += 1 * len(re.findall(patron, texto))
+    for patron in penalizaciones:
+        puntuacion -= 3 * len(re.findall(patron, texto))
+
+    return max(0, puntuacion)
+
+
+    
     # 🧠 Patrones para años abreviados como "94" o "'08"
     match_abreviado = re.search(r"(?:año|modelo)?\s*['`´]?\b(\d{2})\b", texto)
     if match_abreviado:
