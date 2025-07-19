@@ -1,7 +1,5 @@
 # scraper_marketplace.py
 
-# scraper_marketplace.py
-
 import os
 import re
 import json
