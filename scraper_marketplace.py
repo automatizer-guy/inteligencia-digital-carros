@@ -162,21 +162,29 @@ async def procesar_modelo(page: Page, modelo: str,
                     f"🔗 {url}"
                 )
 
-                insertar_anuncio_db(
-                    link=url,
-                    modelo=modelo,
-                    anio=anio,
-                    precio=precio,
-                    km="",
-                    roi=roi_data["roi"],
-                    score=score,
-                    relevante=relevante,
-                    confianza_precio=roi_data["confianza"],
-                    muestra_precio=roi_data["muestra"]
-                )
+from utils_analisis import obtener_anuncio_db, anuncio_diferente
 
-                logger.info(f"💾 Guardado: {modelo} | ROI={roi_data['roi']:.2f}% | Score={score} | Relevante={relevante}")
-                contador["guardado"] += 1
+if existe_en_db(url):
+    existente = obtener_anuncio_db(url)
+    nuevo = {
+        "modelo": modelo,
+        "anio": anio,
+        "precio": precio,
+        "km": "",
+        "roi": roi_data["roi"],
+        "score": score
+    }
+    if anuncio_diferente(nuevo, existente):
+        insertar_anuncio_db(link=url, modelo=modelo, anio=anio, precio=precio, km="", roi=roi_data["roi"], score=score, relevante=relevante, confianza_precio=roi_data["confianza"], muestra_precio=roi_data["muestra"])
+        logger.info(f"🔄 Actualizado: {modelo} | ROI={roi_data['roi']:.2f}% | Score={score}")
+        contador["actualizados"] += 1
+    else:
+        contador["repetidos"] += 1
+else:
+    insertar_anuncio_db(link=url, modelo=modelo, anio=anio, precio=precio, km="", roi=roi_data["roi"], score=score, relevante=relevante, confianza_precio=roi_data["confianza"], muestra_precio=roi_data["muestra"])
+    logger.info(f"💾 Guardado nuevo: {modelo} | ROI={roi_data['roi']:.2f}% | Score={score} | Relevante={relevante}")
+    contador["guardado"] += 1
+
                 nuevos.add(url)
                 nuevos_en_scroll += 1
                 procesados.append(mensaje_base)
