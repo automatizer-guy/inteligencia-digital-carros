@@ -436,6 +436,31 @@ def get_estadisticas_db() -> Dict[str, Any]:
             "por_modelo": por_modelo
         }
 
+def obtener_anuncio_db(link: str) -> Optional[Dict[str, Any]]:
+    with get_db_connection() as conn:
+        cur = conn.cursor()
+        cur.execute("""
+            SELECT modelo, anio, precio, km, roi, score
+            FROM anuncios
+            WHERE link = ?
+        """, (limpiar_link(link),))
+        row = cur.fetchone()
+        if row:
+            return {
+                "modelo": row[0],
+                "anio": row[1],
+                "precio": row[2],
+                "km": row[3],
+                "roi": row[4],
+                "score": row[5]
+            }
+        return None
+
+def anuncio_diferente(a: Dict[str, Any], b: Dict[str, Any]) -> bool:
+    campos_clave = ["modelo", "anio", "precio", "km", "roi", "score"]
+    return any(str(a.get(c)) != str(b.get(c)) for c in campos_clave)
+
+
 def analizar_mensaje(texto: str) -> Optional[Dict[str, Any]]:
     precio = limpiar_precio(texto)
     anio = extraer_anio(texto)
