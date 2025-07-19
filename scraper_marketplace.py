@@ -206,19 +206,22 @@ else:
 
     duracion = (datetime.now() - inicio).seconds
     logger.info(f"""
-✨ MODELO: {modelo.upper()}
-   Duración: {duracion} s
-   Total encontrados: {contador['total']}
-   Guardados: {contador['guardado']}
-   Relevantes: {len(relevantes)}
-   Potenciales: {len(potenciales)}
-   Duplicados: {contador['duplicado']}
-   Desc. por score/modelo: {contador['filtro_modelo']}
-   Precio bajo: {contador['precio_bajo']}
-   Sin año: {contador['sin_anio']}
-   Negativos: {contador['negativo']}
-   Extranjero: {contador['extranjero']}
-✨""")
+    ✨ MODELO: {modelo.upper()}
+       Duración: {duracion} s
+       Total encontrados: {contador['total']}
+       Guardados nuevos: {contador['guardado']}
+       Actualizados: {contador.get('actualizados', 0)}
+       Repetidos sin cambios: {contador.get('repetidos', 0)}
+       Relevantes: {len(relevantes)}
+       Potenciales: {len(potenciales)}
+       Duplicados: {contador['duplicado']}
+       Desc. por score/modelo: {contador['filtro_modelo']}
+       Precio bajo: {contador['precio_bajo']}
+       Sin año: {contador['sin_anio']}
+       Negativos: {contador['negativo']}
+       Extranjero: {contador['extranjero']}
+    ✨""")
+
 
     return len(nuevos)
 
