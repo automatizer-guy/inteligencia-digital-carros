@@ -1,5 +1,7 @@
 # scraper_marketplace.py
 
+# scraper_marketplace.py
+
 import os
 import re
 import json
@@ -25,13 +27,11 @@ MIN_PRECIO_VALIDO = 3000
 MAX_EJEMPLOS_SIN_ANIO = 5
 ROI_POTENCIAL_MIN = ROI_MINIMO - 10
 
-
 def limpiar_url(link: str) -> str:
     if not link:
         return ""
     path = urlparse(link.strip()).path.rstrip("/")
     return f"https://www.facebook.com{path}"
-
 
 async def cargar_contexto_con_cookies(browser: Browser) -> BrowserContext:
     logger.info("🔐 Cargando cookies desde entorno…")
@@ -52,7 +52,6 @@ async def cargar_contexto_con_cookies(browser: Browser) -> BrowserContext:
     await context.add_cookies(cookies)
     return context
 
-
 async def extraer_items_pagina(page: Page) -> List[Dict[str, str]]:
     try:
         items = await page.query_selector_all("a[href*='/marketplace/item']")
@@ -68,14 +67,12 @@ async def extraer_items_pagina(page: Page) -> List[Dict[str, str]]:
         logger.error(f"❌ Error al extraer items: {e}")
         return []
 
-
 async def scroll_hasta(page: Page) -> bool:
     prev = await page.evaluate("document.body.scrollHeight")
     await page.mouse.wheel(0, 400)
     await asyncio.sleep(random.uniform(0.8, 1.2))
     now = await page.evaluate("document.body.scrollHeight")
     return now > prev
-
 
 async def procesar_modelo(page: Page, modelo: str,
                           procesados: List[str],
@@ -85,7 +82,8 @@ async def procesar_modelo(page: Page, modelo: str,
     sin_anio_ejemplos = []
     contador = {k: 0 for k in [
         "total", "duplicado", "negativo", "sin_precio", "sin_anio",
-        "filtro_modelo", "guardado", "precio_bajo", "extranjero"
+        "filtro_modelo", "guardado", "precio_bajo", "extranjero",
+        "actualizados", "repetidos"
     ]}
     SORT_OPTS = ["best_match", "newest", "price_asc"]
     inicio = datetime.now()
@@ -162,35 +160,39 @@ async def procesar_modelo(page: Page, modelo: str,
                     f"🔗 {url}"
                 )
 
-if existe_en_db(url):
-    existente = obtener_anuncio_db(url)
-    nuevo = {
-        "modelo": modelo,
-        "anio": anio,
-        "precio": precio,
-        "km": "",
-        "roi": roi_data["roi"],
-        "score": score
-    }
-    if anuncio_diferente(nuevo, existente):
-        insertar_anuncio_db(link=url, modelo=modelo, anio=anio, precio=precio, km="", roi=roi_data["roi"], score=score, relevante=relevante, confianza_precio=roi_data["confianza"], muestra_precio=roi_data["muestra"])
-        logger.info(f"🔄 Actualizado: {modelo} | ROI={roi_data['roi']:.2f}% | Score={score}")
-        contador["actualizados"] += 1
-    else:
-        contador["repetidos"] += 1
-else:
-    insertar_anuncio_db(link=url, modelo=modelo, anio=anio, precio=precio, km="", roi=roi_data["roi"], score=score, relevante=relevante, confianza_precio=roi_data["confianza"], muestra_precio=roi_data["muestra"])
-    logger.info(f"💾 Guardado nuevo: {modelo} | ROI={roi_data['roi']:.2f}% | Score={score} | Relevante={relevante}")
-    contador["guardado"] += 1
+                if existe_en_db(url):
+                    existente = obtener_anuncio_db(url)
+                    nuevo = {
+                        "modelo": modelo,
+                        "anio": anio,
+                        "precio": precio,
+                        "km": "",
+                        "roi": roi_data["roi"],
+                        "score": score
+                    }
+                    if anuncio_diferente(nuevo, existente):
+                        insertar_anuncio_db(link=url, modelo=modelo, anio=anio, precio=precio, km="", roi=roi_data["roi"],
+                                            score=score, relevante=relevante, confianza_precio=roi_data["confianza"],
+                                            muestra_precio=roi_data["muestra"])
+                        logger.info(f"🔄 Actualizado: {modelo} | ROI={roi_data['roi']:.2f}% | Score={score}")
+                        contador["actualizados"] += 1
+                    else:
+                        contador["repetidos"] += 1
+                else:
+                    insertar_anuncio_db(link=url, modelo=modelo, anio=anio, precio=precio, km="", roi=roi_data["roi"],
+                                        score=score, relevante=relevante, confianza_precio=roi_data["confianza"],
+                                        muestra_precio=roi_data["muestra"])
+                    logger.info(f"💾 Guardado nuevo: {modelo} | ROI={roi_data['roi']:.2f}% | Score={score} | Relevante={relevante}")
+                    contador["guardado"] += 1
 
-nuevos.add(url)
-nuevos_en_scroll += 1
-procesados.append(mensaje_base)
+                nuevos.add(url)
+                nuevos_en_scroll += 1
+                procesados.append(mensaje_base)
 
-if relevante:
-    relevantes.append(mensaje_base)
-elif ROI_POTENCIAL_MIN <= roi_data["roi"] < ROI_MINIMO:
-    potenciales.append(mensaje_base)
+                if relevante:
+                    relevantes.append(mensaje_base)
+                elif ROI_POTENCIAL_MIN <= roi_data["roi"] < ROI_MINIMO:
+                    potenciales.append(mensaje_base)
 
             scrolls_realizados += 1
             if nuevos_en_scroll == 0:
@@ -204,21 +206,21 @@ elif ROI_POTENCIAL_MIN <= roi_data["roi"] < ROI_MINIMO:
 
     duracion = (datetime.now() - inicio).seconds
     logger.info(f"""
-    ✨ MODELO: {modelo.upper()}
-       Duración: {duracion} s
-       Total encontrados: {contador['total']}
-       Guardados nuevos: {contador['guardado']}
-       Actualizados: {contador.get('actualizados', 0)}
-       Repetidos sin cambios: {contador.get('repetidos', 0)}
-       Relevantes: {len(relevantes)}
-       Potenciales: {len(potenciales)}
-       Duplicados: {contador['duplicado']}
-       Desc. por score/modelo: {contador['filtro_modelo']}
-       Precio bajo: {contador['precio_bajo']}
-       Sin año: {contador['sin_anio']}
-       Negativos: {contador['negativo']}
-       Extranjero: {contador['extranjero']}
-    ✨""")
+✨ MODELO: {modelo.upper()}
+   Duración: {duracion} s
+   Total encontrados: {contador['total']}
+   Guardados nuevos: {contador['guardado']}
+   Actualizados: {contador.get('actualizados', 0)}
+   Repetidos sin cambios: {contador.get('repetidos', 0)}
+   Relevantes: {len(relevantes)}
+   Potenciales: {len(potenciales)}
+   Duplicados: {contador['duplicado']}
+   Desc. por score/modelo: {contador['filtro_modelo']}
+   Precio bajo: {contador['precio_bajo']}
+   Sin año: {contador['sin_anio']}
+   Negativos: {contador['negativo']}
+   Extranjero: {contador['extranjero']}
+   ✨""")
 
 
     return len(nuevos)
