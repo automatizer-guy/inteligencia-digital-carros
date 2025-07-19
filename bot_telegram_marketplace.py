@@ -112,9 +112,9 @@ async def enviar_ofertas():
         if not relevante:
             if es_extranjero(txt):
                 motivo = "extranjero"
-            elif roi < Config.ROI_MINIMO:
+            elif roi < ROI_MINIMO:
                 motivo = "roi bajo"
-            elif score < Config.SCORE_MIN_DB:
+            elif score < SCORE_MIN_DB:
                 motivo = "score bajo"
             else:
                 motivo = "modelo no detectado"
@@ -123,7 +123,7 @@ async def enviar_ofertas():
         if relevante:
             buenos.append(mensaje)
             resumen_relevantes.append((modelo, url, roi, score))
-        elif score >= Config.SCORE_MIN_DB and roi >= Config.ROI_MINIMO:
+        elif score >= SCORE_MIN_DB and roi >= ROI_MINIMO:
             potenciales.append(mensaje)
             resumen_potenciales.append((modelo, url, roi, score))
 
