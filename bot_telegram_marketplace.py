@@ -1,7 +1,5 @@
 # bot_telegram_marketplace.py 
 
-# bot_telegram_marketplace.py (corregido)
-
 import asyncio
 import os
 import sqlite3
