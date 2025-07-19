@@ -1,4 +1,4 @@
-# bot_telegram_marketplace.py 
+# bot_telegram_marketplace.py
 
 import asyncio
 import os
@@ -13,7 +13,7 @@ from utils_analisis import (
     inicializar_tabla_anuncios, analizar_mensaje, limpiar_link, es_extranjero,
     SCORE_MIN_DB, SCORE_MIN_TELEGRAM, ROI_MINIMO,
     modelos_bajo_rendimiento, MODELOS_INTERES, escapar_multilinea,
-    validar_precio_coherente
+    validar_precio_coherente, existe_en_db, obtener_anuncio_db, anuncio_diferente
 )
 
 logging.basicConfig(
@@ -134,7 +134,7 @@ async def enviar_ofertas():
             }
             if anuncio_diferente(nuevo, previo):
                 enviar = True
-        
+
         if enviar:
             if relevante:
                 buenos.append(mensaje)
@@ -144,13 +144,6 @@ async def enviar_ofertas():
                 resumen_potenciales.append((modelo, url, roi, score))
         else:
             logger.info(f"⏩ No enviado: {modelo.title()} ({url}) — sin cambios respecto al anterior")
-
-        if relevante:
-            buenos.append(mensaje)
-            resumen_relevantes.append((modelo, url, roi, score))
-        elif score >= SCORE_MIN_DB and roi >= ROI_MINIMO:
-            potenciales.append(mensaje)
-            resumen_potenciales.append((modelo, url, roi, score))
 
         logger.info(
             f"🔍 {modelo} | Año {anio} | Precio Q{precio:,} | ROI {roi:.1f}% | Score {score}/10 | Relevante: {relevante}"
