@@ -118,6 +118,33 @@ async def enviar_ofertas():
                 motivo = "modelo no detectado"
             motivos[motivo] += 1
 
+        # Verificar si el anuncio ya fue enviado sin cambios
+        enviar = False
+        if not existe_en_db(url):
+            enviar = True
+        else:
+            previo = obtener_anuncio_db(url)
+            nuevo = {
+                "modelo": modelo,
+                "anio": anio,
+                "precio": precio,
+                "km": "",
+                "roi": roi,
+                "score": score
+            }
+            if anuncio_diferente(nuevo, previo):
+                enviar = True
+        
+        if enviar:
+            if relevante:
+                buenos.append(mensaje)
+                resumen_relevantes.append((modelo, url, roi, score))
+            elif score >= SCORE_MIN_DB and roi >= ROI_MINIMO:
+                potenciales.append(mensaje)
+                resumen_potenciales.append((modelo, url, roi, score))
+        else:
+            logger.info(f"⏩ No enviado: {modelo.title()} ({url}) — sin cambios respecto al anterior")
+
         if relevante:
             buenos.append(mensaje)
             resumen_relevantes.append((modelo, url, roi, score))
