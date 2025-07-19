@@ -162,8 +162,6 @@ async def procesar_modelo(page: Page, modelo: str,
                     f"🔗 {url}"
                 )
 
-from utils_analisis import obtener_anuncio_db, anuncio_diferente
-
 if existe_en_db(url):
     existente = obtener_anuncio_db(url)
     nuevo = {
@@ -185,14 +183,14 @@ else:
     logger.info(f"💾 Guardado nuevo: {modelo} | ROI={roi_data['roi']:.2f}% | Score={score} | Relevante={relevante}")
     contador["guardado"] += 1
 
-                nuevos.add(url)
-                nuevos_en_scroll += 1
-                procesados.append(mensaje_base)
+nuevos.add(url)
+nuevos_en_scroll += 1
+procesados.append(mensaje_base)
 
-                if relevante:
-                    relevantes.append(mensaje_base)
-                elif ROI_POTENCIAL_MIN <= roi_data["roi"] < ROI_MINIMO:
-                    potenciales.append(mensaje_base)
+if relevante:
+    relevantes.append(mensaje_base)
+elif ROI_POTENCIAL_MIN <= roi_data["roi"] < ROI_MINIMO:
+    potenciales.append(mensaje_base)
 
             scrolls_realizados += 1
             if nuevos_en_scroll == 0:
