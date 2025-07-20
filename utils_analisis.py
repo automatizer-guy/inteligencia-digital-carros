@@ -244,6 +244,7 @@ modelo_detectado = next((m for m in MODELOS_INTERES if m in texto), None)
 for match in candidatos:
     año = int(match.group())
     contexto = texto[max(0, match.start() - 50): min(len(texto), match.end() + 50)]
+    contexto_ampliado = texto[max(0, match.start() - 100): min(len(texto), match.end() + 100)]
 
     score = _score_contexto_vehicular(contexto)
 
@@ -252,12 +253,32 @@ for match in candidatos:
         score += 2
 
     # Penalización si el modelo está lejos del año
-    contexto_ampliado = texto[max(0, match.start() - 100): min(len(texto), match.end() + 100)]
     if modelo_detectado and modelo_detectado not in contexto_ampliado:
         score -= 1
 
     if año_min <= año <= año_max:
+        # Validar año compatible con el modelo (opcional, si modelo_detectado está definido)
+        RANGO_ANIOS = {
+            "corolla": (1980, 2025),
+            "swift": (1983, 2024),
+            # Agrega más modelos confiables si lo deseas
+        }
+        modelo_normalizado = modelo_detectado.lower() if modelo_detectado else None
+        if modelo_normalizado in RANGO_ANIOS:
+            rango_min, rango_max = RANGO_ANIOS[modelo_normalizado]
+            if not (rango_min <= año <= rango_max):
+                continue  # ❌ año fuera del rango de fabricación conocido
+
+        # Penalizar años que parecen parte de teléfono o ID
+        if re.search(r"(código|id|tel|teléfono|celular)[\s\-_]*(?:[:=])?\s*\d{3,8}.*?(19\d{2}|20\d{2})", contexto):
+            score -= 2
+
+        # Penalizar años que aparecen como parte de precio o valor
+        if "q" in contexto.lower() or "precio" in contexto.lower():
+            score -= 2
+
         mejores.append((año, score))
+
 
 
     mejores.sort(key=lambda x: x[1], reverse=True)
