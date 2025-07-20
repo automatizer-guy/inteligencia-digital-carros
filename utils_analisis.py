@@ -179,7 +179,6 @@ def coincide_modelo(texto: str, modelo: str) -> bool:
     texto_limpio = unicodedata.normalize("NFKD", texto_l).encode("ascii", "ignore").decode("ascii")
     return any(v in texto_limpio for v in variantes)
 
-
 def extraer_anio(texto: str) -> Optional[int]:
     if not texto or not isinstance(texto, str):
         return None
@@ -197,11 +196,10 @@ def extraer_anio(texto: str) -> Optional[int]:
         r"\b(construido en|casa del|edificado en|vivienda del)\s+(19\d{2}|20\d{2})",
         r"\b(entre|desde|de)\s+(19\d{2}|20\d{2})\s+(a|hasta|y)\s+(19\d{2}|20\d{2})",
         r"\b(código|id|tel|teléfono|celular|número)[\s\-_]*(?::|=)?\s*(\d*\s*)*(19\d{2}|20\d{2})",
-        r"\b(calle|avenida|av|dirección|ubicado en).*?(19\d{2}|20\d{2})"
+        r"\b(calle|avenida|av|dirección|ubicado en).*?(19\d{2}|20\d{2})",
         r"\b(publicado el|publicado en|publicación|fecha de publicación|fecha del post)\s+(19\d{2}|20\d{2})",
         r"\b(actualizado en|modificado en|miembro desde|desde)\s+(19\d{2}|20\d{2})",
         r"\b(perfil creado el|perfil desde|cuenta desde|usuario desde)\s+(19\d{2}|20\d{2})",
-
     ]
     for patron in contexto_invalido:
         if re.search(patron, texto):
@@ -235,51 +233,49 @@ def extraer_anio(texto: str) -> Optional[int]:
         if año_min <= año_completo <= año_max:
             return año_completo
 
-# 🔍 Última capa: años aislados con contexto evaluado
-candidatos = re.finditer(r"\b(19\d{2}|20\d{2})\b", texto)
-mejores = []
+    # 🔍 Última capa: años aislados con contexto evaluado
+    candidatos = re.finditer(r"\b(19\d{2}|20\d{2})\b", texto)
+    mejores = []
 
-modelo_detectado = next((m for m in MODELOS_INTERES if m in texto), None)
+    modelo_detectado = next((m for m in MODELOS_INTERES if m in texto), None)
 
-for match in candidatos:
-    año = int(match.group())
-    contexto = texto[max(0, match.start() - 50): min(len(texto), match.end() + 50)]
-    contexto_ampliado = texto[max(0, match.start() - 100): min(len(texto), match.end() + 100)]
+    for match in candidatos:
+        año = int(match.group())
+        contexto = texto[max(0, match.start() - 50): min(len(texto), match.end() + 50)]
+        contexto_ampliado = texto[max(0, match.start() - 100): min(len(texto), match.end() + 100)]
 
-    score = _score_contexto_vehicular(contexto)
+        score = _score_contexto_vehicular(contexto)
 
-    # Bonus contextual si el modelo aparece cerca del año
-    if modelo_detectado and modelo_detectado in contexto:
-        score += 2
+        # Bonus contextual si el modelo aparece cerca del año
+        if modelo_detectado and modelo_detectado in contexto:
+            score += 2
 
-    # Penalización si el modelo está lejos del año
-    if modelo_detectado and modelo_detectado not in contexto_ampliado:
-        score -= 1
+        # Penalización si el modelo está lejos del año
+        if modelo_detectado and modelo_detectado not in contexto_ampliado:
+            score -= 1
 
-    if año_min <= año <= año_max:
-        # Validar año compatible con el modelo (opcional, si modelo_detectado está definido)
-        RANGO_ANIOS = {
-            "corolla": (1980, 2025),
-            "swift": (1983, 2024),
-            # Agrega más modelos confiables si lo deseas
-        }
-        modelo_normalizado = modelo_detectado.lower() if modelo_detectado else None
-        if modelo_normalizado in RANGO_ANIOS:
-            rango_min, rango_max = RANGO_ANIOS[modelo_normalizado]
-            if not (rango_min <= año <= rango_max):
-                continue  # ❌ año fuera del rango de fabricación conocido
+        if año_min <= año <= año_max:
+            # Validar año compatible con el modelo (opcional, si modelo_detectado está definido)
+            RANGO_ANIOS = {
+                "corolla": (1980, 2025),
+                "swift": (1983, 2024),
+                # Agrega más modelos confiables si lo deseas
+            }
+            modelo_normalizado = modelo_detectado.lower() if modelo_detectado else None
+            if modelo_normalizado in RANGO_ANIOS:
+                rango_min, rango_max = RANGO_ANIOS[modelo_normalizado]
+                if not (rango_min <= año <= rango_max):
+                    continue  # ❌ año fuera del rango de fabricación conocido
 
-        # Penalizar años que parecen parte de teléfono o ID
-        if re.search(r"(código|id|tel|teléfono|celular)[\s\-_]*(?:[:=])?\s*\d{3,8}.*?(19\d{2}|20\d{2})", contexto):
-            score -= 2
+            # Penalizar años que parecen parte de teléfono o ID
+            if re.search(r"(código|id|tel|teléfono|celular)[\s\-_]*(?:[:=])?\s*\d{3,8}.*?(19\d{2}|20\d{2})", contexto):
+                score -= 2
 
-        # Penalizar años que aparecen como parte de precio o valor
-        if "q" in contexto.lower() or "precio" in contexto.lower():
-            score -= 2
+            # Penalizar años que aparecen como parte de precio o valor
+            if "q" in contexto.lower() or "precio" in contexto.lower():
+                score -= 2
 
-        mejores.append((año, score))
-
-
+            mejores.append((año, score))
 
     mejores.sort(key=lambda x: x[1], reverse=True)
     for año, score in mejores:
@@ -313,27 +309,6 @@ def _score_contexto_vehicular(texto: str) -> int:
         puntuacion -= 3 * len(re.findall(patron, texto))
 
     return max(0, puntuacion)
-
-
-    
-    # 🧠 Patrones para años abreviados como "94" o "'08"
-    match_abreviado = re.search(r"(?:año|modelo)?\s*['`´]?\b(\d{2})\b", texto)
-    if match_abreviado:
-        año_corto = int(match_abreviado.group(1))
-        año_completo = 1900 + año_corto if año_corto >= 90 else 2000 + año_corto
-        if 1990 <= año_completo <= 2030:
-            return año_completo
-
-    # 🔍 Última búsqueda de años aislados válidos (sin contexto inválido)
-    posibles = re.findall(r"\b(19\d{2}|20\d{2})\b", texto)
-    for p in posibles:
-        año = int(p)
-        if 1990 <= año <= 2030 and not any(re.search(pat, texto) for pat in contexto_invalido):
-            return año
-
-    return None
-
-
 
 @timeit
 def get_precio_referencia(modelo: str, anio: int, tolerancia: Optional[int] = None) -> Dict[str, Any]:
@@ -498,7 +473,6 @@ def obtener_anuncio_db(link: str) -> Optional[Dict[str, Any]]:
 def anuncio_diferente(a: Dict[str, Any], b: Dict[str, Any]) -> bool:
     campos_clave = ["modelo", "anio", "precio", "km", "roi", "score"]
     return any(str(a.get(c)) != str(b.get(c)) for c in campos_clave)
-
 
 def analizar_mensaje(texto: str) -> Optional[Dict[str, Any]]:
     precio = limpiar_precio(texto)
