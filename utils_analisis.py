@@ -198,6 +198,10 @@ def extraer_anio(texto: str) -> Optional[int]:
         r"\b(entre|desde|de)\s+(19\d{2}|20\d{2})\s+(a|hasta|y)\s+(19\d{2}|20\d{2})",
         r"\b(código|id|tel|teléfono|celular|número)[\s\-_]*(?::|=)?\s*(\d*\s*)*(19\d{2}|20\d{2})",
         r"\b(calle|avenida|av|dirección|ubicado en).*?(19\d{2}|20\d{2})"
+        r"\b(publicado el|publicado en|publicación|fecha de publicación|fecha del post)\s+(19\d{2}|20\d{2})",
+        r"\b(actualizado en|modificado en|miembro desde|desde)\s+(19\d{2}|20\d{2})",
+        r"\b(perfil creado el|perfil desde|cuenta desde|usuario desde)\s+(19\d{2}|20\d{2})",
+
     ]
     for patron in contexto_invalido:
         if re.search(patron, texto):
@@ -231,16 +235,30 @@ def extraer_anio(texto: str) -> Optional[int]:
         if año_min <= año_completo <= año_max:
             return año_completo
 
-    # 🔍 Última capa: años aislados con contexto evaluado
-    candidatos = re.finditer(r"\b(19\d{2}|20\d{2})\b", texto)
-    mejores = []
-    for match in candidatos:
-        año = int(match.group())
-        if año_min <= año <= año_max:
-            pos = match.start()
-            contexto = texto[max(0, pos - 50): min(len(texto), pos + 50)]
-            score = _score_contexto_vehicular(contexto)
-            mejores.append((año, score))
+# 🔍 Última capa: años aislados con contexto evaluado
+candidatos = re.finditer(r"\b(19\d{2}|20\d{2})\b", texto)
+mejores = []
+
+modelo_detectado = next((m for m in MODELOS_INTERES if m in texto), None)
+
+for match in candidatos:
+    año = int(match.group())
+    contexto = texto[max(0, match.start() - 50): min(len(texto), match.end() + 50)]
+
+    score = _score_contexto_vehicular(contexto)
+
+    # Bonus contextual si el modelo aparece cerca del año
+    if modelo_detectado and modelo_detectado in contexto:
+        score += 2
+
+    # Penalización si el modelo está lejos del año
+    contexto_ampliado = texto[max(0, match.start() - 100): min(len(texto), match.end() + 100)]
+    if modelo_detectado and modelo_detectado not in contexto_ampliado:
+        score -= 1
+
+    if año_min <= año <= año_max:
+        mejores.append((año, score))
+
 
     mejores.sort(key=lambda x: x[1], reverse=True)
     for año, score in mejores:
