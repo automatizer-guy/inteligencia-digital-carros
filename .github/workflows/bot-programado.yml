@@ -18,18 +18,19 @@ jobs:
     steps:
       # 1️⃣ Clonar main
       - name: Checkout main
-        uses: actions/checkout@v3
+        uses: actions/checkout@v4  # Actualizado a v4 (más rápido)
         with:
-          fetch-depth: 0
+          fetch-depth: 1  # Solo el commit más reciente (más rápido)
 
       # 2️⃣ Clonar el branch 'data'
       - name: Checkout branch de datos
-        uses: actions/checkout@v3
+        uses: actions/checkout@v4
         with:
           repository: ${{ github.repository }}
           ref: data
           token: ${{ secrets.PAT_PUSH }}
           path: data
+          fetch-depth: 1  # Solo el commit más reciente
 
       # 3️⃣ Restaurar o iniciar base
       - name: Preparar DB histórica
@@ -43,10 +44,29 @@ jobs:
             touch "${{ env.DB_PATH }}"
           fi
 
-      # 4️⃣ Crear tabla si no existe y asegurar columna updated_at (sin default)
+      # 4️⃣ Setup Python con cache
+      - name: Setup Python con cache
+        uses: actions/setup-python@v4
+        with:
+          python-version: '3.11'  # Versión específica más rápida
+          cache: 'pip'
+          cache-dependency-path: 'requirements.txt'
+
+      # 5️⃣ Cache de Playwright browsers (CLAVE para velocidad)
+      - name: Cache Playwright browsers
+        uses: actions/cache@v3
+        id: playwright-cache
+        with:
+          path: |
+            ~/.cache/ms-playwright
+          key: playwright-browsers-${{ runner.os }}-${{ hashFiles('requirements.txt') }}
+          restore-keys: |
+            playwright-browsers-${{ runner.os }}-
+
+      # 6️⃣ Crear tabla si no existe y asegurar columna updated_at (sin default)
       - name: Inicializar estructura de la base
         run: |
-          sudo apt-get update && sudo apt-get install -y sqlite3
+          sudo apt-get update -qq && sudo apt-get install -y -qq sqlite3
 
           # Crear la tabla si no existía (sin updated_at)
           sqlite3 "${{ env.DB_PATH }}" "
@@ -73,7 +93,7 @@ jobs:
             echo "ℹ️ Columna updated_at ya existe"
           fi
 
-      # 5️⃣ Contar anuncios antes del run
+      # 7️⃣ Contar anuncios antes del run
       - name: Contar anuncios antes del run
         id: db_prev
         run: |
@@ -81,21 +101,32 @@ jobs:
           BEFORE=$(sqlite3 "${{ env.DB_PATH }}" 'SELECT COUNT(*) FROM anuncios;')
           echo "before=$BEFORE" >> $GITHUB_OUTPUT
 
-      # 6️⃣ Volumen previo por modelo
+      # 8️⃣ Volumen previo por modelo
       - name: Volumen previo en DB
         run: |
           echo "📊 Anuncios por modelo (previo):"
           sqlite3 "${{ env.DB_PATH }}" \
             "SELECT modelo, COUNT(*) FROM anuncios GROUP BY modelo ORDER BY COUNT(*) DESC;"
 
-      # 7️⃣ Instalar dependencias
-      - name: Instalar dependencias Python y Playwright
+      # 9️⃣ Instalar dependencias Python (OPTIMIZADO)
+      - name: Instalar dependencias Python
         run: |
-          python -m pip install --upgrade pip
-          pip install -r requirements.txt
-          playwright install --with-deps
+          python -m pip install --upgrade pip --quiet
+          pip install -r requirements.txt --quiet
 
-      # 8️⃣ Ejecutar el bot y capturar inserciones
+      # 🔟 Instalar Playwright SOLO Chromium (OPTIMIZADO)
+      - name: Instalar Playwright Chromium
+        run: |
+          if [ "${{ steps.playwright-cache.outputs.cache-hit }}" != "true" ]; then
+            echo "🔄 Cache miss - Instalando Chromium..."
+            playwright install chromium --with-deps
+          else
+            echo "✅ Cache hit - Chromium ya disponible"
+            # Verificar que chromium esté disponible
+            playwright install chromium --with-deps --dry-run || playwright install chromium --with-deps
+          fi
+
+      # 1️⃣1️⃣ Ejecutar el bot y capturar inserciones
       - name: Ejecutar bot con Telegram
         id: run_bot
         run: |
@@ -105,11 +136,11 @@ jobs:
           echo "nuevos=$NUEVOS" >> $GITHUB_OUTPUT
           echo "actualizados=$ACTUALIZADOS" >> $GITHUB_OUTPUT
 
-      # 9️⃣ Guardar nueva versión de la DB
+      # 1️⃣2️⃣ Guardar nueva versión de la DB
       - name: Copiar DB al branch data
         run: cp "${{ env.DB_PATH }}" data/anuncios.db
 
-      # 🔟 Commit & push DB actualizada
+      # 1️⃣3️⃣ Commit & push DB actualizada
       - name: Commit & push DB actualizada
         env:
           PAT_PUSH: ${{ secrets.PAT_PUSH }}
@@ -126,11 +157,9 @@ jobs:
             echo "📁 Sin cambios detectados en la base, se omite push"
           fi
 
-      # 1️⃣1️⃣ Resumen final del run (robusto con o sin updated_at)
+      # 1️⃣4️⃣ Resumen final del run (robusto con o sin updated_at)
       - name: Resumen final del run
         run: |
-          sudo apt-get update && sudo apt-get install -y sqlite3
-
           echo "✅ Bot ejecutado con éxito"
           echo "📊 Anuncios antes del run: ${{ steps.db_prev.outputs.before }}"
           FINAL=$(sqlite3 "${{ env.DB_PATH }}" "SELECT COUNT(*) FROM anuncios;")
