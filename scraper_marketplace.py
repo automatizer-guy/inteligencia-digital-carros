@@ -113,10 +113,14 @@ async def procesar_modelo(page: Page, modelo: str,
 
                 try:
                     await page.goto(url)
-                    await asyncio.sleep(2)
+                    await asyncio.sleep(2.5)
                     texto = await page.inner_text("div[role='main']")
-                except:
+                    if not texto or len(texto.strip()) < 100:
+                        raise ValueError("Texto muy corto, forzando fallback")
+                except Exception as e:
+                    logger.warning(f"⚠️ Error al extraer texto completo de {url}: {e}")
                     texto = itm["texto"]
+
 
                 texto = texto.strip()
                 if not coincide_modelo(texto, modelo):
