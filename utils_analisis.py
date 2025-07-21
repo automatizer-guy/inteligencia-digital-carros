@@ -180,135 +180,214 @@ def coincide_modelo(texto: str, modelo: str) -> bool:
     return any(v in texto_limpio for v in variantes)
 
 def extraer_anio(texto: str) -> Optional[int]:
+    """
+    Extrae el año del vehículo del texto con mayor precisión.
+    Evita confundir precios con años.
+    """
     if not texto or not isinstance(texto, str):
         return None
 
+    texto_original = texto
     texto = texto.lower().strip()
     año_actual = datetime.now().year
     año_min = 1980
-    año_max = min(año_actual + 5, 2030)
+    año_max = min(año_actual + 2, 2027)
 
-    # 🚫 Filtrado por contextos inválidos
-    contexto_invalido = [
-        r"\b(se unió|miembro desde|ingresado en|empleado desde|activo en|registrado en|creado en|fecha de creación|nacido en|nació en)\s+(19\d{2}|20\d{2})",
-        r"\b(visto en|fecha de publicación|perfil creado en|último acceso|publicado en)\s+(19\d{2}|20\d{2})",
-        r"\b(graduado en|casado en|fallecido en|murió en|titulado en)\s+(19\d{2}|20\d{2})",
-        r"\b(construido en|casa del|edificado en|vivienda del)\s+(19\d{2}|20\d{2})",
-        r"\b(entre|desde|de)\s+(19\d{2}|20\d{2})\s+(a|hasta|y)\s+(19\d{2}|20\d{2})",
-        r"\b(código|id|tel|teléfono|celular|número)[\s\-_]*(?::|=)?\s*(\d*\s*)*(19\d{2}|20\d{2})",
+    # 🚫 PASO 1: FILTRAR CONTEXTOS CLARAMENTE NO VEHICULARES
+    contextos_invalidos = [
+        r"\b(se unió|miembro desde|ingresado en|empleado desde|activo en|registrado en|creado en|fecha de creación|nacido en|nació en)\s*:?\s*(19\d{2}|20\d{2})",
+        r"\b(visto en|fecha de publicación|perfil creado en|último acceso|publicado en|actualizado)\s*:?\s*(19\d{2}|20\d{2})",
+        r"\b(graduado en|casado en|fallecido en|murió en|titulado en)\s*:?\s*(19\d{2}|20\d{2})",
+        r"\b(construido en|casa del|edificado en|vivienda del)\s*:?\s*(19\d{2}|20\d{2})",
+        r"\b(código|id|tel|teléfono|celular|número)[\s\-_]*:?\s*\d*\s*(19\d{2}|20\d{2})",
         r"\b(calle|avenida|av|dirección|ubicado en).*?(19\d{2}|20\d{2})",
-        r"\b(publicado el|publicado en|publicación|fecha de publicación|fecha del post)\s+(19\d{2}|20\d{2})",
-        r"\b(actualizado en|modificado en|miembro desde|desde)\s+(19\d{2}|20\d{2})",
-        r"\b(perfil creado el|perfil desde|cuenta desde|usuario desde)\s+(19\d{2}|20\d{2})",
     ]
-    for patron in contexto_invalido:
+    
+    for patron in contextos_invalidos:
         if re.search(patron, texto):
             return None
 
-    # ✅ Patrones vehiculares claros
-    patrones_contextuales = [
-        r"(año|modelo|del año|versión)\s*[:\-]?\s*(19\d{2}|20\d{2})",
-        r"(vehículo|carro|auto|moto|camión)\s+(del\s+)?(19\d{2}|20\d{2})",
-        r"\b(19\d{2}|20\d{2})\s+(año|modelo|carro|auto|vehículo)"
+    # 🚫 PASO 2: REMOVER TODOS LOS PRECIOS DEL TEXTO ANTES DE BUSCAR AÑOS
+    # Esto es clave para evitar que "14,000" sea interpretado como "14" = 2014
+    texto_sin_precios = _remover_precios_del_texto(texto)
+    
+    # 🎯 PASO 3: PATRONES VEHICULARES EXPLÍCITOS (MÁXIMA PRIORIDAD)
+    # Buscar en el texto sin precios
+    patrones_explicitos = [
+        r"\b(?:año|modelo|del año|versión|m/)\s*[:\-/]?\s*['`´]?(\d{2})\b",  # "modelo 98", "M/98"
+        r"\b(?:año|modelo|del año|versión)\s*[:\-]?\s*(19\d{2}|20\d{2})\b",  # "año 1998"
+        r"\b(vehículo|carro|auto|moto|camión)\s+(?:del\s+)?(?:año\s+)?['`´]?(\d{2}|19\d{2}|20\d{2})\b",
+        r"\b(19\d{2}|20\d{2})\s+(?:año|modelo|carro|auto|vehículo)\b",
+        r"\b['`´](\d{2})\s*(?:año|modelo)?\b",  # "'98" o "`98"
     ]
-    for patron in patrones_contextuales:
-        match = re.search(patron, texto)
-        if match:
+    
+    for patron in patrones_explicitos:
+        matches = re.finditer(patron, texto_sin_precios)
+        for match in matches:
             for group in match.groups():
                 if group and group.isdigit():
-                    año = int(group)
-                    if año_min <= año <= año_max:
-                        return año
+                    año_candidato = int(group)
+                    
+                    # Convertir años de 2 dígitos
+                    if año_candidato <= 99:
+                        if año_candidato >= 80:  # 80-99 → 1980-1999
+                            año_completo = 1900 + año_candidato
+                        elif año_candidato <= 30:  # 00-30 → 2000-2030
+                            año_completo = 2000 + año_candidato
+                        else:
+                            continue  # 31-79 son ambiguos
+                    else:
+                        año_completo = año_candidato
+                    
+                    if año_min <= año_completo <= año_max:
+                        return año_completo
 
-    # 🧠 Detección de años abreviados tipo '94 → 1994'
-    match_abreviado = re.search(r"(año|modelo)?\s*['`´]?(\d{2})\b", texto)
-    if match_abreviado:
-        año_corto = int(match_abreviado.group(2))
-        if año_corto >= 80:
-            año_completo = 1900 + año_corto
-        elif año_corto <= 30:
-            año_completo = 2000 + año_corto
-        else:
-            return None  # rango ambiguo
-        if año_min <= año_completo <= año_max:
-            return año_completo
+    # 🔍 PASO 4: AÑOS ABREVIADOS CERCA DE MODELOS DE VEHÍCULOS
+    modelos_detectados = [m for m in MODELOS_INTERES if m in texto_sin_precios]
+    
+    if modelos_detectados:
+        for modelo in modelos_detectados:
+            for match in re.finditer(re.escape(modelo), texto_sin_precios):
+                # Contexto de 30 caracteres alrededor del modelo
+                contexto_inicio = max(0, match.start() - 30)
+                contexto_fin = min(len(texto_sin_precios), match.end() + 30)
+                contexto_local = texto_sin_precios[contexto_inicio:contexto_fin]
+                
+                # Buscar años abreviados en ese contexto
+                años_abreviados = re.findall(r"['`´]?(\d{2})\b", contexto_local)
+                for año_str in años_abreviados:
+                    año_corto = int(año_str)
+                    
+                    # Excluir números que claramente no son años
+                    if año_corto in [10, 11, 12, 13, 14, 15, 16, 17, 18, 19, 20]:  # Versiones de motor
+                        continue
+                    if 30 < año_corto < 80:  # Rango ambiguo
+                        continue
+                        
+                    if año_corto >= 80:
+                        año_completo = 1900 + año_corto
+                    elif año_corto <= 30:
+                        año_completo = 2000 + año_corto
+                    else:
+                        continue
+                    
+                    if año_min <= año_completo <= año_max:
+                        return año_completo
 
-    # 🔍 Última capa: años aislados con contexto evaluado
-    candidatos = re.finditer(r"\b(19\d{2}|20\d{2})\b", texto)
-    mejores = []
-
-    modelo_detectado = next((m for m in MODELOS_INTERES if m in texto), None)
-
-    for match in candidatos:
+    # 🧐 PASO 5: AÑOS COMPLETOS CON VALIDACIÓN ESTRICTA DE CONTEXTO
+    candidatos_completos = []
+    
+    for match in re.finditer(r"\b(19\d{2}|20\d{2})\b", texto_sin_precios):
         año = int(match.group())
-        contexto = texto[max(0, match.start() - 50): min(len(texto), match.end() + 50)]
-        contexto_ampliado = texto[max(0, match.start() - 100): min(len(texto), match.end() + 100)]
-
-        score = _score_contexto_vehicular(contexto)
-
-        # Bonus contextual si el modelo aparece cerca del año
-        if modelo_detectado and modelo_detectado in contexto:
-            score += 2
-
-        # Penalización si el modelo está lejos del año
-        if modelo_detectado and modelo_detectado not in contexto_ampliado:
-            score -= 1
-
-        if año_min <= año <= año_max:
-            # Validar año compatible con el modelo (opcional, si modelo_detectado está definido)
-            RANGO_ANIOS = {
-                "corolla": (1980, 2025),
-                "swift": (1983, 2024),
-                # Agrega más modelos confiables si lo deseas
-            }
-            modelo_normalizado = modelo_detectado.lower() if modelo_detectado else None
-            if modelo_normalizado in RANGO_ANIOS:
-                rango_min, rango_max = RANGO_ANIOS[modelo_normalizado]
-                if not (rango_min <= año <= rango_max):
-                    continue  # ❌ año fuera del rango de fabricación conocido
-
-            # Penalizar años que parecen parte de teléfono o ID
-            if re.search(r"(código|id|tel|teléfono|celular)[\s\-_]*(?:[:=])?\s*\d{3,8}.*?(19\d{2}|20\d{2})", contexto):
-                score -= 2
-
-            # Penalizar años que aparecen como parte de precio o valor
-            if "q" in contexto.lower() or "precio" in contexto.lower():
-                score -= 2
-
-            mejores.append((año, score))
-
-    mejores.sort(key=lambda x: x[1], reverse=True)
-    for año, score in mejores:
-        if score >= 2:
-            return año
+        
+        if not (año_min <= año <= año_max):
+            continue
+            
+        # Obtener contexto alrededor del año
+        contexto_inicio = max(0, match.start() - 40)
+        contexto_fin = min(len(texto_sin_precios), match.end() + 40)
+        contexto = texto_sin_precios[contexto_inicio:contexto_fin]
+        
+        # Calcular score del contexto
+        score = _score_contexto_vehicular_mejorado(contexto, modelos_detectados)
+        
+        # VERIFICACIONES ADICIONALES en el texto original para asegurarnos
+        # que no era parte de un precio que fue removido
+        pos_en_original = texto_original.lower().find(str(año))
+        if pos_en_original != -1:
+            contexto_original = texto_original[max(0, pos_en_original-20):pos_en_original+20]
+            # Si aparece junto a símbolos de dinero, penalizar fuertemente
+            if re.search(r"[q$]\s*\d*\s*" + str(año), contexto_original.lower()):
+                score -= 10
+            if re.search(r"\d+[,.]" + str(año)[-2:], contexto_original):  # Como "14,000" donde año sería "14"
+                score -= 10
+            
+        candidatos_completos.append((año, score))
+    
+    # Retornar el año con mejor score si es suficientemente bueno
+    if candidatos_completos:
+        candidatos_completos.sort(key=lambda x: x[1], reverse=True)
+        mejor_año, mejor_score = candidatos_completos[0]
+        if mejor_score >= 3:  # Threshold más estricto
+            return mejor_año
 
     return None
 
-def _score_contexto_vehicular(texto: str) -> int:
+
+def _remover_precios_del_texto(texto: str) -> str:
+    """
+    Remueve patrones de precios del texto para evitar confusiones con años.
+    """
+    # Patrones de precios comunes
+    patrones_precio = [
+        r"\bq\s*[\d,.\s]+\b",  # Q 14,000 o Q14000
+        r"\$\s*[\d,.\s]+\b",   # $14,000
+        r"\b\d{1,3}(?:[,.]\d{3})+\b",  # 14,000 o 14.000
+        r"\bprecio\s*[:\-]?\s*[\d,.\s]+\b",  # precio: 14000
+        r"\bvalor\s*[:\-]?\s*[\d,.\s]+\b",   # valor 14000
+        r"\bcuesta\s*[\d,.\s]+\b",           # cuesta 14000
+        r"\b[\d,.\s]+\s*quetzales?\b",       # 14000 quetzales
+        r"\b[\d,.\s]+\s*mil\b",              # 14 mil
+    ]
+    
+    texto_limpio = texto
+    for patron in patrones_precio:
+        texto_limpio = re.sub(patron, " ", texto_limpio, flags=re.IGNORECASE)
+    
+    # Limpiar espacios múltiples
+    texto_limpio = re.sub(r'\s+', ' ', texto_limpio).strip()
+    
+    return texto_limpio
+
+
+def _score_contexto_vehicular_mejorado(texto: str, modelos_detectados: List[str] = None) -> int:
+    """
+    Calcula un score de qué tan probable es que el contexto sea vehicular.
+    """
+    if modelos_detectados is None:
+        modelos_detectados = []
+    
     puntuacion = 0
-
+    
+    # BONUS FUERTE: Si hay modelos de vehículos detectados cerca
+    if modelos_detectados:
+        for modelo in modelos_detectados:
+            if modelo in texto:
+                puntuacion += 5  # Bonus muy alto
+    
+    # PALABRAS VEHICULARES FUERTES (+3 cada una)
     vehiculares_fuertes = [
-        r"\b(carro|auto|vehículo|camioneta|moto|suv|sedan|pickup)\b",
-        r"\b(toyota|honda|nissan|ford|chevrolet|volkswagen|bmw|audi|hyundai|kia|mazda|mitsubishi|subaru|jeep|dodge)\b",
-        r"\b(modelo|motor|transmisión|kilometraje|gasolina|diésel|eléctrico)\b",
-        r"\b(vendo|venta|se vende|precio|valor)\b"
+        r"\b(carro|auto|vehículo|camioneta|moto|suv|sedan|pickup|hatchback)\b",
+        r"\b(toyota|honda|nissan|ford|chevrolet|volkswagen|bmw|audi|hyundai|kia|mazda|mitsubishi|subaru|jeep|dodge|suzuki)\b",
+        r"\b(modelo|motor|transmisión|automático|manual|mecánico)\b",
+        r"\b(kilometraje|km|millas|gasolina|diésel|eléctrico)\b"
     ]
-    vehiculares_moderados = [
-        r"\b(usado|seminuevo|equipado|full equipo|papeles|documentos|traspaso)\b"
+    
+    # PALABRAS VEHICULARES MODERADAS (+1 cada una)
+    vehiculares_moderadas = [
+        r"\b(usado|seminuevo|equipado|full equipo|papeles|documentos|traspaso)\b",
+        r"\b(llantas|neumáticos|frenos|batería|aceite|filtro)\b",
+        r"\b(aire acondicionado|a/c|radio|cd|bluetooth)\b"
     ]
+    
+    # PALABRAS NEGATIVAS (-3 cada una)
     penalizaciones = [
-        r"\b(casa|departamento|oficina|vivienda|terreno)\b",
-        r"\b(nacido|empleado|graduado|teléfono|documento|email)\b"
+        r"\b(casa|departamento|oficina|vivienda|terreno|local)\b",
+        r"\b(nacido|empleado|graduado|teléfono|documento|email|perfil)\b",
+        r"\b(hijo|hija|esposo|esposa|familia|matrimonio)\b"
     ]
-
+    
     for patron in vehiculares_fuertes:
-        puntuacion += 2 * len(re.findall(patron, texto))
-    for patron in vehiculares_moderados:
-        puntuacion += 1 * len(re.findall(patron, texto))
+        puntuacion += 3 * len(re.findall(patron, texto, re.IGNORECASE))
+    
+    for patron in vehiculares_moderadas:
+        puntuacion += 1 * len(re.findall(patron, texto, re.IGNORECASE))
+    
     for patron in penalizaciones:
-        puntuacion -= 3 * len(re.findall(patron, texto))
-
+        puntuacion -= 3 * len(re.findall(patron, texto, re.IGNORECASE))
+    
     return max(0, puntuacion)
+
 
 @timeit
 def get_precio_referencia(modelo: str, anio: int, tolerancia: Optional[int] = None) -> Dict[str, Any]:
