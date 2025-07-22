@@ -44,6 +44,19 @@ LUGARES_EXTRANJEROS = [
     "honduras", "el salvador", "panamá", "costa rica", "colombia", "ecuador"
 ]
 
+# Patrones precompilados para extraer año
+_PATTERN_YEAR_FULL   = re.compile(r"\b(19\d{2}|20\d{2})\b")
+_PATTERN_YEAR_SHORT  = re.compile(r"['`´]?(\d{2})\b")
+_PATTERN_PRICE       = re.compile(
+    r"\b(?:q|\$)?\s*[\d.,]+(?:\s*quetzales?)?\b",
+    flags=re.IGNORECASE
+)
+_PATTERN_INVALID_CTX = re.compile(
+    r"\b(?:miembro desde|publicado en|nacido en|creado en|registro|perfil creado)\b.*?(19\d{2}|20\d{2})",
+    flags=re.IGNORECASE
+)
+
+
 def timeit(func):
     def wrapper(*args, **kwargs):
         if not DEBUG:
@@ -186,47 +199,9 @@ def extraer_anio(texto: str) -> Optional[int]:
     Extrae el año del vehículo del texto con mayor precisión.
     Prioriza años cercanos al modelo detectado y evita confundir precios con años.
     """
-    if not texto or not isinstance(texto, str):
-        return None
+    ...
+    return None
 
-    texto_original = texto
-    texto = texto.lower().strip()
-    año_actual = datetime.now().year
-    año_min = 1980
-    año_max = min(año_actual + 2, 2027)
-
-    if DEBUG:
-        print(f"🔍 Analizando texto: {texto[:100]}...")
-
-    # 🚫 PASO 1: FILTRAR CONTEXTOS CLARAMENTE NO VEHICULARES (ampliado)
-    contextos_invalidos = [
-        r"\b(se unió|miembro desde|ingresado en|empleado desde|activo en|registrado en|creado en|fecha de creación|nacido en|nació en)\s*:?\s*(19\d{2}|20\d{2})",
-        r"\b(visto en|fecha de publicación|perfil creado en|último acceso|publicado en|actualizado|posteado)\s*:?\s*(19\d{2}|20\d{2})",
-        r"\b(graduado en|casado en|fallecido en|murió en|titulado en)\s*:?\s*(19\d{2}|20\d{2})",
-        r"\b(construido en|casa del|edificado en|vivienda del)\s*:?\s*(19\d{2}|20\d{2})",
-        r"\b(código|id|tel|teléfono|celular|número)[\s\-_]*:?\s*\d*\s*(19\d{2}|20\d{2})",
-        r"\b(calle|avenida|av|dirección|ubicado en).*?(19\d{2}|20\d{2})",
-        r"\b(facebook|fb|instagram|whatsapp|gmail|hotmail|yahoo).*?(19\d{2}|20\d{2})",
-        r"\b(página creada|perfil desde|miembro desde|usuario desde).*?(19\d{2}|20\d{2})",
-        r"\b(copyright|©|\(c\)).*?(19\d{2}|20\d{2})",
-    ]
-    
-    for patron in contextos_invalidos:
-        if re.search(patron, texto):
-            if DEBUG:
-                print(f"❌ Filtrado por contexto inválido: {patron}")
-            return None
-
-    # 🎯 PASO 2: DETECTAR MODELO ESPECÍFICO PRIMERO
-    modelo_detectado = None
-    posicion_modelo = -1
-    
-    for modelo in MODELOS_INTERES:
-        if coincide_modelo(texto, modelo):
-            # Encontrar la posición más temprana del modelo en el texto
-            pos = texto.find(modelo.lower())
-            if pos != -1 and (posicion_modelo == -1 or pos < posicion_modelo):
-                modelo_detectado = modelo
                 posicion_modelo = pos
                 break
     
