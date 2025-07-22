@@ -179,10 +179,6 @@ def coincide_modelo(texto: str, modelo: str) -> bool:
     texto_limpio = unicodedata.normalize("NFKD", texto_l).encode("ascii", "ignore").decode("ascii")
     return any(v in texto_limpio for v in variantes)
 
-
-
-
-
 def extraer_anio(texto: str) -> Optional[int]:
     """
     Extrae el año del vehículo del texto con mayor precisión.
@@ -387,8 +383,53 @@ def _remover_precios_del_texto_mejorado(texto: str) -> str:
     return texto_limpio
 
 
-
-
+def _score_contexto_vehicular_mejorado(texto: str, modelos_detectados: List[str] = None) -> int:
+    """
+    Calcula un score de qué tan probable es que el contexto sea vehicular.
+    """
+    if modelos_detectados is None:
+        modelos_detectados = []
+    
+    puntuacion = 0
+    
+    # BONUS FUERTE: Si hay modelos de vehículos detectados cerca
+    if modelos_detectados:
+        for modelo in modelos_detectados:
+            if modelo in texto:
+                puntuacion += 5  # Bonus muy alto
+    
+    # PALABRAS VEHICULARES FUERTES (+3 cada una)
+    vehiculares_fuertes = [
+        r"\b(carro|auto|vehículo|camioneta|moto|suv|sedan|pickup|hatchback)\b",
+        r"\b(toyota|honda|nissan|ford|chevrolet|volkswagen|bmw|audi|hyundai|kia|mazda|mitsubishi|subaru|jeep|dodge|suzuki)\b",
+        r"\b(modelo|motor|transmisión|automático|manual|mecánico)\b",
+        r"\b(kilometraje|km|millas|gasolina|diésel|eléctrico)\b"
+    ]
+    
+    # PALABRAS VEHICULARES MODERADAS (+1 cada una)
+    vehiculares_moderadas = [
+        r"\b(usado|seminuevo|equipado|full equipo|papeles|documentos|traspaso)\b",
+        r"\b(llantas|neumáticos|frenos|batería|aceite|filtro)\b",
+        r"\b(aire acondicionado|a/c|radio|cd|bluetooth)\b"
+    ]
+    
+    # PALABRAS NEGATIVAS (-3 cada una)
+    penalizaciones = [
+        r"\b(casa|departamento|oficina|vivienda|terreno|local)\b",
+        r"\b(nacido|empleado|graduado|teléfono|documento|email|perfil)\b",
+        r"\b(hijo|hija|esposo|esposa|familia|matrimonio)\b"
+    ]
+    
+    for patron in vehiculares_fuertes:
+        puntuacion += 3 * len(re.findall(patron, texto, re.IGNORECASE))
+    
+    for patron in vehiculares_moderadas:
+        puntuacion += 1 * len(re.findall(patron, texto, re.IGNORECASE))
+    
+    for patron in penalizaciones:
+        puntuacion -= 3 * len(re.findall(patron, texto, re.IGNORECASE))
+    
+    return max(0, puntuacion)
 
 
 @timeit
