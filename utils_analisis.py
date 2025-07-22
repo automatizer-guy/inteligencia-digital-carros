@@ -194,19 +194,102 @@ def coincide_modelo(texto: str, modelo: str) -> bool:
 
 
 
-def extraer_anio(texto: str) -> Optional[int]:
+def extraer_anio(texto: str, debug: bool = False) -> Optional[int]:
     """
-    Extrae el año del vehículo del texto con mayor precisión.
-    Prioriza años cercanos al modelo detectado y evita confundir precios con años.
+    Extrae el año del vehículo del texto sin alterar la API existente.
+    Mantiene compatibilidad con los módulos dependientes.
     """
-    ...
-    return None
+    if not texto or not isinstance(texto, str):
+        return None
 
-                posicion_modelo = pos
-                break
-    
-    if DEBUG:
-        print(f"🚗 Modelo detectado: {modelo_detectado} en posición {posicion_modelo}")
+    txt = texto.lower().strip()
+    año_actual = datetime.now().year
+    año_min, año_max = 1980, año_actual + 2
+
+    if debug:
+        print(f"[DEBUG] Texto: {txt[:80]}...")
+
+    # Marcar contexto inválido (no aborta)
+    invalid_ctx = bool(_PATTERN_INVALID_CTX.search(txt))
+    if debug and invalid_ctx:
+        print("[DEBUG] Contexto marcado inválido")
+
+    # Buscar primeras apariciones de modelo
+    apariciones: List[Tuple[int,str]] = []
+    for modelo in MODELOS_INTERES:
+        for m in re.finditer(re.escape(modelo.lower()), txt):
+            apariciones.append((m.start(), modelo))
+    apariciones.sort()
+
+    def scan_ventana(center: int) -> List[Tuple[int,int,str]]:
+        inicio, fin = max(0, center-40), min(len(txt), center+40)
+        window = txt[inicio:fin]
+        result: List[Tuple[int,int,str]] = []
+        # Años completos
+        for m in _PATTERN_YEAR_FULL.finditer(window):
+            y = int(m.group())
+            if año_min <= y <= año_max:
+                score = 90 - abs(m.start()-40)
+                result.append((y, score, 'full_near_model'))
+        # Años abreviados
+        for m in _PATTERN_YEAR_SHORT.finditer(window):
+            y2 = int(m.group(1))
+            y  = 1900+y2 if y2>=80 else 2000+y2
+            if año_min <= y <= año_max:
+                score = 100 - abs(m.start()-40)
+                result.append((y, score, 'short_near_model'))
+        return result
+
+    candidatos: List[Tuple[int,int,str]] = []
+
+    # 1) Ventana de la primera aparición de modelo
+    if apariciones:
+        pos, modelo = apariciones[0]
+        if debug:
+            print(f"[DEBUG] Usando modelo '{modelo}' en pos {pos}")
+        candidatos.extend(scan_ventana(pos))
+
+    # 2) Primeras dos líneas (títulos)
+    for linea in txt.splitlines()[:2]:
+        for m in _PATTERN_YEAR_FULL.finditer(linea):
+            y = int(m.group())
+            if año_min <= y <= año_max:
+                candidatos.append((y, 85, 'titulo_full'))
+        for m in _PATTERN_YEAR_SHORT.finditer(linea):
+            y2 = int(m.group(1))
+            y  = 1900+y2 if y2>=80 else 2000+y2
+            if año_min <= y <= año_max:
+                candidatos.append((y, 90, 'titulo_short'))
+
+    # 3) Global sobre texto sin precios
+    txt_no_price = _PATTERN_PRICE.sub(' ', txt)
+    for m in _PATTERN_YEAR_FULL.finditer(txt_no_price):
+        y = int(m.group())
+        if año_min <= y <= año_max:
+            score = 50 + (20 if any(marca.lower() in txt_no_price for marca in MARCAS) else 0)
+            if invalid_ctx: score -= 10
+            candidatos.append((y, score, 'global_full'))
+    for m in _PATTERN_YEAR_SHORT.finditer(txt_no_price):
+        y2 = int(m.group(1))
+        y  = 1900+y2 if y2>=80 else 2000+y2
+        if año_min <= y <= año_max:
+            score = 55 + (15 if any(marca.lower() in txt_no_price for marca in MARCAS) else 0)
+            if invalid_ctx: score -= 5
+            candidatos.append((y, score, 'global_short'))
+
+    # Selección final
+    if not candidatos:
+        if debug: print("[DEBUG] Sin candidatos")
+        return None
+
+    candidatos.sort(key=lambda x: x[1], reverse=True)
+    mejor_y, mejor_score, motivo = candidatos[0]
+    if debug:
+        print(f"[DEBUG] Seleccionado {mejor_y} (score {mejor_score}, {motivo})")
+
+    umbral = 30 if mejor_y >= 2010 else 25
+    return mejor_y if mejor_score >= umbral else None
+
 
     # 🏆 PASO 3: PRIORIDAD MÁXIMA - AÑOS CERCA DEL MODELO DETECTADO
     if modelo_detectado and posicion_modelo >= 0:
