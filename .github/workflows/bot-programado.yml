@@ -18,9 +18,9 @@ jobs:
     steps:
       # 1️⃣ Clonar main
       - name: Checkout main
-        uses: actions/checkout@v4  # Actualizado a v4 (más rápido)
+        uses: actions/checkout@v4
         with:
-          fetch-depth: 1  # Solo el commit más reciente (más rápido)
+          fetch-depth: 1
 
       # 2️⃣ Clonar el branch 'data'
       - name: Checkout branch de datos
@@ -30,7 +30,7 @@ jobs:
           ref: data
           token: ${{ secrets.PAT_PUSH }}
           path: data
-          fetch-depth: 1  # Solo el commit más reciente
+          fetch-depth: 1
 
       # 3️⃣ Restaurar o iniciar base
       - name: Preparar DB histórica
@@ -48,11 +48,11 @@ jobs:
       - name: Setup Python con cache
         uses: actions/setup-python@v4
         with:
-          python-version: '3.11'  # Versión específica más rápida
+          python-version: '3.11'
           cache: 'pip'
           cache-dependency-path: 'requirements.txt'
 
-      # 5️⃣ Cache de Playwright browsers (CLAVE para velocidad)
+      # 5️⃣ Cache de Playwright browsers
       - name: Cache Playwright browsers
         uses: actions/cache@v3
         id: playwright-cache
@@ -63,12 +63,10 @@ jobs:
           restore-keys: |
             playwright-browsers-${{ runner.os }}-
 
-      # 6️⃣ Crear tabla si no existe y asegurar columna updated_at (sin default)
+      # 6️⃣ Inicializar estructura de la base
       - name: Inicializar estructura de la base
         run: |
           sudo apt-get update -qq && sudo apt-get install -y -qq sqlite3
-
-          # Crear la tabla si no existía (sin updated_at)
           sqlite3 "${{ env.DB_PATH }}" "
             CREATE TABLE IF NOT EXISTS anuncios (
               link TEXT PRIMARY KEY,
@@ -81,13 +79,10 @@ jobs:
               score INTEGER
             );
           "
-
-          # Agregar columna updated_at si falta (sin DEFAULT)
           if ! sqlite3 "${{ env.DB_PATH }}" "PRAGMA table_info(anuncios);" | grep -q updated_at; then
             echo "✅ Agregando columna updated_at"
             sqlite3 "${{ env.DB_PATH }}" "
-              ALTER TABLE anuncios
-              ADD COLUMN updated_at DATE;
+              ALTER TABLE anuncios ADD COLUMN updated_at DATE;
             "
           else
             echo "ℹ️ Columna updated_at ya existe"
@@ -108,25 +103,22 @@ jobs:
           sqlite3 "${{ env.DB_PATH }}" \
             "SELECT modelo, COUNT(*) FROM anuncios GROUP BY modelo ORDER BY COUNT(*) DESC;"
 
-      # 9️⃣ Instalar dependencias Python (OPTIMIZADO)
+      # 9️⃣ Instalar dependencias Python
       - name: Instalar dependencias Python
         run: |
           python -m pip install --upgrade pip --quiet
           pip install -r requirements.txt --quiet
 
-      # 🔟 Instalar Playwright SOLO Chromium (OPTIMIZADO)
-      - name: Instalar Playwright Chromium
+      # 🔟 Instalar Playwright Chromium (Mejora aplicada)
+      - name: Instalar Playwright Chromium (Forzado)
         run: |
-          if [ "${{ steps.playwright-cache.outputs.cache-hit }}" != "true" ]; then
-            echo "🔄 Cache miss - Instalando Chromium..."
-            playwright install chromium --with-deps
-          else
-            echo "✅ Cache hit - Chromium ya disponible"
-            # Verificar que chromium esté disponible
-            playwright install chromium --with-deps --dry-run || playwright install chromium --with-deps
-          fi
+          echo "💡 Descargando navegadores de Playwright..."
+          playwright install chromium --with-deps || {
+            echo "🔄 Intentando instalación directa..."
+            npx playwright install chromium --with-deps
+          }
 
-      # 1️⃣1️⃣ Ejecutar el bot y capturar inserciones
+      # 1️⃣1️⃣ Ejecutar el bot con Telegram
       - name: Ejecutar bot con Telegram
         id: run_bot
         run: |
@@ -157,7 +149,7 @@ jobs:
             echo "📁 Sin cambios detectados en la base, se omite push"
           fi
 
-      # 1️⃣4️⃣ Resumen final del run (robusto con o sin updated_at)
+      # 1️⃣4️⃣ Resumen final del run
       - name: Resumen final del run
         run: |
           echo "✅ Bot ejecutado con éxito"
@@ -165,24 +157,25 @@ jobs:
           FINAL=$(sqlite3 "${{ env.DB_PATH }}" "SELECT COUNT(*) FROM anuncios;")
           echo "📦 Total actual: $FINAL"
           echo "➕ Nuevos anuncios agregados: $((FINAL - ${{ steps.db_prev.outputs.before }}))"
-
           echo "📈 Reporte de inserciones:"
-          echo "   • Nuevos: ${{ steps.run_bot.outputs.nuevos }}"
-          echo "   • Actualizados: ${{ steps.run_bot.outputs.actualizados }}"
+          echo " • Nuevos: ${{ steps.run_bot.outputs.nuevos }}"
+          echo " • Actualizados: ${{ steps.run_bot.outputs.actualizados }}"
 
-          # Último anuncio registrado, usando updated_at si existe
           if sqlite3 "${{ env.DB_PATH }}" "PRAGMA table_info(anuncios);" | grep -q updated_at; then
             echo "🔍 Último anuncio registrado (por updated_at):"
             sqlite3 "${{ env.DB_PATH }}" \
-              "SELECT link, fecha_scrape, updated_at \
-               FROM anuncios \
-               ORDER BY updated_at DESC, rowid DESC \
-               LIMIT 1;"
+              "SELECT link, fecha_scrape, updated_at FROM anuncios ORDER BY updated_at DESC, rowid DESC LIMIT 1;"
           else
             echo "🔍 Último anuncio registrado (por fecha_scrape):"
             sqlite3 "${{ env.DB_PATH }}" \
-              "SELECT link, fecha_scrape \
-               FROM anuncios \
-               ORDER BY fecha_scrape DESC, rowid DESC \
-               LIMIT 1;"
+              "SELECT link, fecha_scrape FROM anuncios ORDER BY fecha_scrape DESC, rowid DESC LIMIT 1;"
           fi
+
+      # ✅ 1️⃣5️⃣ Verificar instalación de Chromium (extra seguro)
+      - name: Verificar instalación de Chromium
+        run: |
+          echo "🔍 Verificando instalación de Chromium..."
+          ls ~/.cache/ms-playwright/chromium* || {
+            echo "❌ Chromium no está correctamente instalado. Reintentando..."
+            npx playwright install chromium --with-deps
+          }
