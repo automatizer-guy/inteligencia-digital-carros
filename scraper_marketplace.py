@@ -15,7 +15,7 @@ from utils_analisis import (
     calcular_roi_real, coincide_modelo, extraer_anio,
     existe_en_db, insertar_anuncio_db, inicializar_tabla_anuncios,
     limpiar_link, modelos_bajo_rendimiento, MODELOS_INTERES,
-    SCORE_MIN_TELEGRAM, ROI_MINIMO, obtener_anuncio_db, anuncio_diferente, _score_contexto_vehicular_mejorado
+    SCORE_MIN_TELEGRAM, ROI_MINIMO, obtener_anuncio_db, anuncio_diferente
 )
 
 logger = logging.getLogger(__name__)
