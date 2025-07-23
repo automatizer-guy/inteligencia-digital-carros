@@ -5,7 +5,7 @@ import time
 import unicodedata
 import statistics
 from datetime import datetime
-from typing import Optional, Dict, Any, List
+from typing import Optional, Dict, Any, List, Tuple
 from contextlib import contextmanager
 
 def escapar_multilinea(texto: str) -> str:
