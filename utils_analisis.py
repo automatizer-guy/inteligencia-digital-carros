@@ -266,14 +266,14 @@ def extraer_anio(texto: str, debug: bool = False) -> Optional[int]:
     for m in _PATTERN_YEAR_FULL.finditer(txt_no_price):
         y = int(m.group())
         if año_min <= y <= año_max:
-            score = 50 + (20 if any(marca.lower() in txt_no_price for marca in MARCAS) else 0)
+            score = 50 + (20 if any(marca.lower() in txt_no_price for marca in MODELOS_INTERES) else 0)
             if invalid_ctx: score -= 10
             candidatos.append((y, score, 'global_full'))
     for m in _PATTERN_YEAR_SHORT.finditer(txt_no_price):
         y2 = int(m.group(1))
         y  = 1900+y2 if y2>=80 else 2000+y2
         if año_min <= y <= año_max:
-            score = 55 + (15 if any(marca.lower() in txt_no_price for marca in MARCAS) else 0)
+            score = 55 + (15 if any(marca.lower() in txt_no_price for marca in MODELOS_INTERES) else 0)
             if invalid_ctx: score -= 5
             candidatos.append((y, score, 'global_short'))
 
