@@ -4,6 +4,7 @@ import asyncio
 import os
 import sqlite3
 import logging
+from typing import Tuple
 from datetime import datetime
 from zoneinfo import ZoneInfo
 from telegram import Bot
