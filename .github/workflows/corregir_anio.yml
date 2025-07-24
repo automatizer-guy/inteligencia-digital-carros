@@ -28,11 +28,11 @@ jobs:
       - name: 📂 Cache pip deps
         uses: actions/cache@v3
         with:
-          path:
-            - ~/.cache/pip
+          path: |
+            ~/.cache/pip
           key: ${{ runner.os }}-pip-${{ hashFiles('**/requirements.txt') }}
-          restore-keys:
-            - ${{ runner.os }}-pip-
+          restore-keys: |
+            ${{ runner.os }}-pip-
 
       - name: 📦 Install Python dependencies
         run: |
@@ -42,11 +42,11 @@ jobs:
       - name: 💾 Cache Playwright browsers
         uses: actions/cache@v3
         with:
-          path:
-            - ~/.cache/ms-playwright
+          path: |
+            ~/.cache/ms-playwright
           key: ${{ runner.os }}-playwright-${{ hashFiles('**/requirements.txt') }}
-          restore-keys:
-            - ${{ runner.os }}-playwright-
+          restore-keys: |
+            ${{ runner.os }}-playwright-
 
       - name: 🌐 Instalar navegadores de Playwright
         run: |
