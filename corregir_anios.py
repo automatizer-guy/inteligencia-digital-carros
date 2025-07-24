@@ -43,29 +43,44 @@ async def cargar_contexto_con_cookies(browser):
 
 async def procesar_anuncio(page, link, modelo, anio_guardado, precio, cursor):
     url = limpiar_url(link)
-    if not url:
+    if not url or "/marketplace/item/" not in url:
+        logger.info(f"→ Enlace no válido de ítem: {link}")
         return
 
     try:
         await page.goto(url, timeout=20000)
         await page.wait_for_selector("div[role='main']", timeout=10000)
         texto = await page.inner_text("div[role='main']")
-        if not texto or len(texto.strip()) < 50:
-            texto = await page.title() or ""
     except Exception as e:
-        logger.warning(f"⚠️ No se pudo acceder a {url}: {e}")
+        logger.warning(f"⚠️ No se pudo cargar {url}: {e}")
+        return
+
+    # Validar si la página fue redirigida o está vacía
+    if "/marketplace/item/" not in page.url or any(
+        frase in texto for frase in [
+            "Actualmente no hay productos en tu zona",
+            "Anuncio no disponible",
+            "Contenido no encontrado"
+        ]
+    ):
+        logger.info(f"→ Anuncio vencido o inaccesible: {link}")
         return
 
     nuevo_anio = extraer_anio(texto, modelo, precio)
     año_actual = datetime.now().year
+
+    # Mostrar log incluso si no se actualiza
     if not nuevo_anio or nuevo_anio == anio_guardado:
+        logger.info(f"↪️ Año sin cambio: {anio_guardado} en {link}")
         return
+
     if not (1980 <= nuevo_anio <= año_actual + 2):
         logger.info(f"– Año fuera de rango: {nuevo_anio} en {link}")
         return
 
     cursor.execute("UPDATE anuncios SET anio = ? WHERE link = ?", (nuevo_anio, link))
     logger.info(f"✅ Año corregido en {link}: {anio_guardado} → {nuevo_anio}")
+
 
 
 async def main():
