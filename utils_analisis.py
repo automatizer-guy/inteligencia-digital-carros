@@ -199,14 +199,15 @@ def coincide_modelo(texto: str, modelo: str) -> bool:
 
 
 
+
 import re
 
 def extraer_anio(texto, modelo=None, precio=None, debug=False):
-    """
-    Extrae el año del texto de un anuncio. Usa contexto del modelo, heurística de puntuación
-    y filtros para evitar fechas irrelevantes. Compatible con precios y formato Facebook.
-    """
     texto = texto.lower()
+
+    # Eliminar contexto engañoso como "se unió a Facebook en XXXX"
+    texto = re.sub(r"se un[ií]?[oó]?\s+a\s+facebook\s+en\s+(19\d{2}|20\d{2})", "", texto)
+
     candidatos = {}
 
     def normalizar_año_corto(a):
@@ -217,72 +218,67 @@ def extraer_anio(texto, modelo=None, precio=None, debug=False):
         return None
 
     def calcular_score(año, contexto, fuente=''):
-        puntuacion = 0
-
-        # Puntos base según fuente
+        score = 0
         if fuente == 'modelo':
-            puntuacion += 105
+            score += 110
         elif fuente == 'titulo':
-            puntuacion += 100
+            score += 100
         elif fuente == 'ventana':
-            puntuacion += 95
+            score += 95
         else:
-            puntuacion += 70
+            score += 70
 
-        # Penalización por contexto negativo
-        contexto_malo = ['nacido', 'años', 'edad', 'miembro desde']
+        contexto_malo = ['nacido', 'edad', 'años', 'miembro desde', 'se unió']
         if any(p in contexto for p in contexto_malo):
-            puntuacion -= 40
+            score -= 50
 
-        # Bonificación si hay palabras clave útiles cerca
-        palabras_vehiculo = ['modelo', 'año', 'motor', 'toyota', 'honda', 'nissan', 'chevrolet', 'mazda']
+        palabras_vehiculo = ['modelo', 'año', 'motor', 'caja', 'carro', 'vehículo', 'vendo', 'automático', 'standard']
         if any(p in contexto for p in palabras_vehiculo):
-            puntuacion += 10
+            score += 10
 
-        # Bonificación si el año es coherente con precio (si hay)
         if precio:
             if 2005 <= año <= 2025:
                 if 1500 <= precio <= 80000:
-                    puntuacion += 5
-            elif 1995 <= año <= 2004:
+                    score += 5
+            elif 1990 <= año <= 2004:
                 if precio < 30000:
-                    puntuacion += 5
+                    score += 5
 
-        return puntuacion
+        return score
 
-    # 1. Búsqueda en ventana cercana al modelo
+    def agregar_año(raw, contexto, fuente=''):
+        try:
+            año = int(raw.strip("'"))
+            año = normalizar_año_corto(año) if año < 100 else año
+            if año and 1980 <= año <= 2025:
+                candidatos[año] = max(candidatos.get(año, 0), calcular_score(año, contexto, fuente))
+        except:
+            pass
+
+    # 1. Búsqueda alrededor del modelo
     if modelo:
         idx = texto.find(modelo.lower())
         if idx != -1:
-            ventana = texto[max(0, idx - 25): idx + len(modelo) + 25]
-            años_ventana = re.findall(r'\b(19[9][0-9]|20[0-2][0-9]|[\']\d{2})\b', ventana)
-            for raw in años_ventana:
-                año = int(raw.strip("'")) if "'" in raw else int(raw)
-                año = normalizar_año_corto(año) if año < 100 else año
-                if año and 1990 <= año <= 2025:
-                    candidatos[año] = calcular_score(año, ventana, fuente='ventana')
+            ventana = texto[max(0, idx - 30): idx + len(modelo) + 30]
+            años_modelo = re.findall(r"(?:'|’)?(\d{2,4})", ventana)
+            for raw in años_modelo:
+                agregar_año(raw, ventana, fuente='modelo')
 
     # 2. Búsqueda en título
     titulo = texto.split('\n')[0]
-    años_titulo = re.findall(r'\b(19[9][0-9]|20[0-2][0-9]|[\']\d{2})\b', titulo)
+    años_titulo = re.findall(r"(?:'|’)?(\d{2,4})", titulo)
     for raw in años_titulo:
-        año = int(raw.strip("'")) if "'" in raw else int(raw)
-        año = normalizar_año_corto(año) if año < 100 else año
-        if año and 1990 <= año <= 2025:
-            candidatos[año] = max(candidatos.get(año, 0), calcular_score(año, titulo, fuente='titulo'))
+        agregar_año(raw, titulo, fuente='titulo')
 
-    # 3. Búsqueda general en el texto
-    años_texto = re.finditer(r'(19[9][0-9]|20[0-2][0-9]|[\']\d{2})', texto)
-    for match in años_texto:
-        raw = match.group()
-        año = int(raw.strip("'")) if "'" in raw else int(raw)
-        año = normalizar_año_corto(año) if año < 100 else año
-        if not año or not (1990 <= año <= 2025):
-            continue
+    # 3. General en todo el texto
+    for match in re.finditer(r"(?:'|’)?(\d{2,4})", texto):
+        raw = match.group(1)
         contexto = texto[max(0, match.start() - 20):match.end() + 20]
-        candidatos[año] = max(candidatos.get(año, 0), calcular_score(año, contexto, fuente='texto'))
+        agregar_año(raw, contexto, fuente='texto')
 
     if not candidatos:
+        if debug:
+            print("❌ No se encontró ningún año válido.")
         return None
 
     if debug:
@@ -291,6 +287,7 @@ def extraer_anio(texto, modelo=None, precio=None, debug=False):
             print(f"  - {a}: score {s}")
 
     return max(candidatos.items(), key=lambda x: x[1])[0]
+
 
 
 
