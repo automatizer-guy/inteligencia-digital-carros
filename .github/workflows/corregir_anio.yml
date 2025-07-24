@@ -1,24 +1,17 @@
-name: Corregir Años Automáticamente
+name: Corregir años en data
 
 on:
-  workflow_dispatch:  # permite ejecutarlo manualmente
+  workflow_dispatch:
 
 jobs:
-  ejecutar-correccion:
+  corregir:
     runs-on: ubuntu-latest
-
     steps:
-      - name: Clonar el repositorio
-        uses: actions/checkout@v3
-
-      - name: Configurar Python
+      - uses: actions/checkout@v3
+      - name: Setup Python
         uses: actions/setup-python@v4
-        with:
-          python-version: "3.10"
-
-      - name: Instalar dependencias
-        run: |
-          pip install -r requirements.txt || echo "No requirements.txt encontrado"
-
-      - name: Ejecutar script de corrección
+        with: python-version: '3.10'
+      - name: Instalar deps
+        run: pip install -r requirements.txt || echo "sin requirements"
+      - name: Corregir años
         run: python corregir_anios.py
