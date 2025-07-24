@@ -1,0 +1,18 @@
+name: Corregir Años Automáticamente
+
+on:
+  workflow_dispatch:  # Para ejecutarlo manualmente desde GitHub
+  schedule:
+    - cron: '0 21 * * 4'  # Cada jueves a las 3pm Guatemala
+
+jobs:
+  run-correccion:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v3
+
+      - name: Instalar dependencias
+        run: pip install -r requirements.txt
+
+      - name: Corregir años
+        run: python corregir_anios.py
