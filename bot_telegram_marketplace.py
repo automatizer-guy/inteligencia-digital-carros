@@ -100,10 +100,10 @@ async def enviar_ofertas():
 
         mensaje = (
             f"🚘 *{modelo.title()}*\n"
-            f"• Año: `{anio}`\n"
-            f"• Precio: `Q{precio:,}`\n"
-            f"• ROI: `{roi:.1f}%`\n"
-            f"• Score: `{score}/10`\n"
+            f"• Año: {anio}\n"
+            f"• Precio: Q{precio:,}\n"
+            f"• ROI: {roi:.1f}%\n"
+            f"• Score: {score}/10\n"
             f"🔗 {url}"
         )
 
