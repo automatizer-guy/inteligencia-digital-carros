@@ -4,7 +4,7 @@ import asyncio
 import logging
 import json
 from datetime import datetime
-from urllib.parse import urlparse
+from urllib.parse import urlparse, urlunparse
 from playwright.async_api import async_playwright
 from utils_analisis import extraer_anio
 
@@ -14,12 +14,13 @@ FB_COOKIES = os.environ.get("FB_COOKIES_JSON", "")
 logging.basicConfig(level=logging.INFO, format="%(asctime)s [%(levelname)s] %(message)s")
 logger = logging.getLogger(__name__)
 
+BATCH_SIZE = 50  # eficiencia: procesa anuncios en bloques
 
 def limpiar_url(link: str) -> str:
     if not link:
         return ""
-    path = urlparse(link.strip()).path.rstrip("/")
-    return f"https://www.facebook.com{path}"
+    parsed = urlparse(link.strip())
+    return urlunparse(("https", "www.facebook.com", parsed.path.rstrip("/"), "", parsed.query, ""))
 
 
 async def cargar_contexto_con_cookies(browser):
@@ -35,7 +36,7 @@ async def cargar_contexto_con_cookies(browser):
 
     context = await browser.new_context(
         locale="es-ES",
-        user_agent="Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 Chrome/124.0.0.0 Safari/537.36"
+        user_agent="Mozilla/5.0 (Windows NT 10.0; Win64; x64)"
     )
     await context.add_cookies(cookies)
     return context
@@ -49,29 +50,41 @@ async def procesar_anuncio(page, link, modelo, anio_guardado, precio, cursor):
 
     try:
         await page.goto(url, timeout=20000)
-        await page.wait_for_selector("div[role='main']", timeout=10000)
-        texto = await page.inner_text("div[role='main']")
     except Exception as e:
-        logger.warning(f"⚠️ No se pudo cargar {url}: {e}")
+        logger.warning(f"⚠️ Error al acceder {url}: {e}")
         return
 
-    # Validar si la página fue redirigida o está vacía
-    if "/marketplace/item/" not in page.url or any(
-        frase in texto for frase in [
-            "Actualmente no hay productos en tu zona",
-            "Anuncio no disponible",
-            "Contenido no encontrado"
-        ]
-    ):
-        logger.info(f"→ Anuncio vencido o inaccesible: {link}")
+    # Detectar redirecciones o expirado
+    if "/marketplace/item/" not in page.url:
+        logger.info(f"→ Redirigido o vencido: {link}")
+        return
+
+    # Extraer texto usando varios selectores para compatibilidad
+    texto = ""
+    selectors = ["div[role='main']", "[data-pagelet='Marketplace']", "body"]
+    for sel in selectors:
+        try:
+            await page.wait_for_selector(sel, timeout=10000)
+            texto = await page.inner_text(sel)
+            if texto and len(texto.strip()) > 50:
+                break
+        except:
+            continue
+
+    if not texto or any(m in texto for m in ["no hay productos", "no disponible", "no encontrado"]):
+        logger.info(f"→ Página vacía o genérica: {link}")
         return
 
     nuevo_anio = extraer_anio(texto, modelo, precio)
     año_actual = datetime.now().year
 
-    # Mostrar log incluso si no se actualiza
-    if not nuevo_anio or nuevo_anio == anio_guardado:
-        logger.info(f"↪️ Año sin cambio: {anio_guardado} en {link}")
+    # Logging más explícito para casos no actualizados
+    if not nuevo_anio:
+        logger.info(f"↪️ No se detectó año en {link} | Guardado: {anio_guardado}")
+        return
+
+    if nuevo_anio == anio_guardado:
+        logger.info(f"↪️ Año sin cambios: {anio_guardado} en {link}")
         return
 
     if not (1980 <= nuevo_anio <= año_actual + 2):
@@ -82,23 +95,25 @@ async def procesar_anuncio(page, link, modelo, anio_guardado, precio, cursor):
     logger.info(f"✅ Año corregido en {link}: {anio_guardado} → {nuevo_anio}")
 
 
-
 async def main():
     conn = sqlite3.connect(DB_PATH)
     cursor = conn.cursor()
     cursor.execute("SELECT link, modelo, anio, precio FROM anuncios")
     registros = cursor.fetchall()
     total = len(registros)
-    logger.info(f"📦 Revisando {total} anuncios…")
+    logger.info(f"📦 Procesando {total} anuncios en bloques de {BATCH_SIZE}…")
 
     async with async_playwright() as p:
         browser = await p.chromium.launch(headless=True)
         context = await cargar_contexto_con_cookies(browser)
         page = await context.new_page()
 
-        for idx, (link, modelo, anio, precio) in enumerate(registros, start=1):
-            logger.info(f"[{idx}/{total}] Procesando: {modelo} | {link}")
-            await procesar_anuncio(page, link, modelo, anio, precio, cursor)
+        for start in range(0, total, BATCH_SIZE):
+            batch = registros[start:start + BATCH_SIZE]
+            for idx, (link, modelo, anio, precio) in enumerate(batch, start=start + 1):
+                logger.info(f"[{idx}/{total}] {modelo} | Año en BD: {anio} → {link}")
+                await procesar_anuncio(page, link, modelo, anio, precio, cursor)
+            await asyncio.sleep(1)  # pequeña pausa entre bloques
 
         await browser.close()
 
