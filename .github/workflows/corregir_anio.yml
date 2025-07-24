@@ -1,30 +1,72 @@
 name: Corregir Años en Data
 
-# Dispara manualmente y también al hacer push a data
 on:
   workflow_dispatch:
   push:
     branches:
       - data
 
+concurrency:
+  group: corregir-anios-data
+  cancel-in-progress: true
+
 jobs:
   corregir:
     runs-on: ubuntu-latest
 
     steps:
-      - name: Checkout code (branch data)
+      - name: 📥 Checkout (branch data)
         uses: actions/checkout@v3
         with:
           ref: data
 
-      - name: Setup Python 3.10
+      - name: 🐍 Setup Python 3.10
         uses: actions/setup-python@v4
         with:
           python-version: '3.10'
 
-      - name: Instalar dependencias
-        run: |
-          pip install -r requirements.txt || echo "No requirements.txt encontrado"
+      - name: 📂 Cache pip deps
+        uses: actions/cache@v3
+        with:
+          path: ~/.cache/pip
+          key: ${{ runner.os }}-pip-${{ hashFiles('**/requirements.txt') }}
+          restore-keys:
+            - ${{ runner.os }}-pip-
 
-      - name: Ejecutar corrección de años
-        run: python corregir_anios.py
+      - name: 📦 Install Python dependencies
+        run: |
+          pip install -r requirements.txt || echo "requirements.txt no existe"
+          pip install playwright
+
+      - name: 💾 Cache Playwright browsers
+        uses: actions/cache@v3
+        with:
+          path: ~/.cache/ms-playwright
+          key: ${{ runner.os }}-playwright-${{ hashFiles('**/pyproject.toml') }}
+          restore-keys:
+            - ${{ runner.os }}-playwright-
+
+      - name: 🌐 Instalar navegadores de Playwright
+        run: playwright install --with-deps
+
+      - name: 🔧 Ejecutar corrección de años
+        env:
+          DB_PATH: anuncios.db
+          FB_COOKIES_JSON: ${{ secrets.FB_COOKIES_JSON }}
+        run: |
+          python corregir_anios.py
+
+      - name: ⚙️ Commit y push de cambios si hay
+        run: |
+          git config user.name "github-actions"
+          git config user.email "actions@github.com"
+          git add .
+          if ! git diff --cached --quiet; then
+            git commit -m "Corrección automática de años"
+          fi
+        continue-on-error: true
+
+      - name: 🚀 Push al repositorio
+        uses: ad-m/github-push-action@v0.6.0
+        with:
+          github_token: ${{ secrets.GITHUB_TOKEN }}
