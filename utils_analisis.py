@@ -196,319 +196,107 @@ def coincide_modelo(texto: str, modelo: str) -> bool:
 
 
 
-def extraer_anio(texto: str, debug: bool = False) -> Optional[int]:
+
+
+
+import re
+
+def extraer_anio(texto, modelo=None, precio=None, debug=False):
     """
-    Extrae el año del vehículo del texto sin alterar la API existente.
-    Mantiene compatibilidad con los módulos dependientes.
+    Extrae el año del texto de un anuncio. Usa contexto del modelo, heurística de puntuación
+    y filtros para evitar fechas irrelevantes. Compatible con precios y formato Facebook.
     """
-    if not texto or not isinstance(texto, str):
+    texto = texto.lower()
+    candidatos = {}
+
+    def normalizar_año_corto(a):
+        if 80 <= a <= 99:
+            return 1900 + a
+        elif 0 <= a <= 30:
+            return 2000 + a
         return None
 
-    txt = texto.lower().strip()
-    año_actual = datetime.now().year
-    año_min, año_max = 1980, año_actual + 2
+    def calcular_score(año, contexto, fuente=''):
+        puntuacion = 0
 
-    if debug:
-        print(f"[DEBUG] Texto: {txt[:80]}...")
-
-    # Marcar contexto inválido (no aborta)
-    invalid_ctx = bool(_PATTERN_INVALID_CTX.search(txt))
-    if debug and invalid_ctx:
-        print("[DEBUG] Contexto marcado inválido")
-
-    # Buscar primeras apariciones de modelo
-    apariciones: List[Tuple[int,str]] = []
-    for modelo in MODELOS_INTERES:
-        for m in re.finditer(re.escape(modelo.lower()), txt):
-            apariciones.append((m.start(), modelo))
-    apariciones.sort()
-
-    def scan_ventana(center: int) -> List[Tuple[int,int,str]]:
-        inicio, fin = max(0, center-40), min(len(txt), center+40)
-        window = txt[inicio:fin]
-        result: List[Tuple[int,int,str]] = []
-        # Años completos
-        for m in _PATTERN_YEAR_FULL.finditer(window):
-            y = int(m.group())
-            if año_min <= y <= año_max:
-                score = 90 - abs(m.start()-40)
-                result.append((y, score, 'full_near_model'))
-        # Años abreviados
-        for m in _PATTERN_YEAR_SHORT.finditer(window):
-            y2 = int(m.group(1))
-            y  = 1900+y2 if y2>=80 else 2000+y2
-            if año_min <= y <= año_max:
-                score = 100 - abs(m.start()-40)
-                result.append((y, score, 'short_near_model'))
-        return result
-
-    candidatos: List[Tuple[int,int,str]] = []
-
-    # 1) Ventana de la primera aparición de modelo
-    if apariciones:
-        pos, modelo = apariciones[0]
-        if debug:
-            print(f"[DEBUG] Usando modelo '{modelo}' en pos {pos}")
-        candidatos.extend(scan_ventana(pos))
-
-    # 2) Primeras dos líneas (títulos)
-    for linea in txt.splitlines()[:2]:
-        for m in _PATTERN_YEAR_FULL.finditer(linea):
-            y = int(m.group())
-            if año_min <= y <= año_max:
-                candidatos.append((y, 85, 'titulo_full'))
-        for m in _PATTERN_YEAR_SHORT.finditer(linea):
-            y2 = int(m.group(1))
-            y  = 1900+y2 if y2>=80 else 2000+y2
-            if año_min <= y <= año_max:
-                candidatos.append((y, 90, 'titulo_short'))
-
-    # 3) Global sobre texto sin precios
-    txt_no_price = _PATTERN_PRICE.sub(' ', txt)
-    for m in _PATTERN_YEAR_FULL.finditer(txt_no_price):
-        y = int(m.group())
-        if año_min <= y <= año_max:
-            score = 50 + (20 if any(marca.lower() in txt_no_price for marca in MODELOS_INTERES) else 0)
-            if invalid_ctx: score -= 10
-            candidatos.append((y, score, 'global_full'))
-    for m in _PATTERN_YEAR_SHORT.finditer(txt_no_price):
-        y2 = int(m.group(1))
-        y  = 1900+y2 if y2>=80 else 2000+y2
-        if año_min <= y <= año_max:
-            score = 55 + (15 if any(marca.lower() in txt_no_price for marca in MODELOS_INTERES) else 0)
-            if invalid_ctx: score -= 5
-            candidatos.append((y, score, 'global_short'))
-
-    # Selección final
-    if not candidatos:
-        if debug: print("[DEBUG] Sin candidatos")
-        return None
-
-    candidatos.sort(key=lambda x: x[1], reverse=True)
-    mejor_y, mejor_score, motivo = candidatos[0]
-    if debug:
-        print(f"[DEBUG] Seleccionado {mejor_y} (score {mejor_score}, {motivo})")
-
-    umbral = 30 if mejor_y >= 2010 else 25
-    return mejor_y if mejor_score >= umbral else None
-
-
-    # 🏆 PASO 3: PRIORIDAD MÁXIMA - AÑOS CERCA DEL MODELO DETECTADO
-    if modelo_detectado and posicion_modelo >= 0:
-        # Definir ventana alrededor del modelo (±40 caracteres)
-        inicio_ventana = max(0, posicion_modelo - 40)
-        fin_ventana = min(len(texto), posicion_modelo + len(modelo_detectado) + 40)
-        ventana_modelo = texto[inicio_ventana:fin_ventana]
-        
-        if DEBUG:
-            print(f"🎯 Ventana del modelo: '{ventana_modelo}'")
-        
-        # Buscar años en esta ventana con máxima prioridad
-        candidatos_modelo = []
-        
-        # 1. Años abreviados muy cerca del modelo
-        años_abrev_cerca = re.finditer(r"['`´]?(\d{2})\b", ventana_modelo)
-        for match in años_abrev_cerca:
-            año_str = match.group(1)
-            año_corto = int(año_str)
-            
-            # Validaciones para años abreviados
-            if año_corto in [10, 11, 12, 13, 14, 15, 16, 17, 18, 19, 20]:  # Versiones de motor
-                continue
-            if 30 < año_corto < 80:  # Rango ambiguo, saltar
-                continue
-                
-            if año_corto >= 80:
-                año_completo = 1900 + año_corto
-            elif año_corto <= 30:
-                año_completo = 2000 + año_corto
-            else:
-                continue
-            
-            if año_min <= año_completo <= año_max:
-                # Score muy alto por estar cerca del modelo
-                distancia = abs(match.start() - 20)  # 20 es aprox. centro de ventana
-                score = 100 - distancia  # Mientras más cerca, mejor score
-                candidatos_modelo.append((año_completo, score, f"abreviado cerca del modelo"))
-                if DEBUG:
-                    print(f"✅ Año abreviado cerca del modelo: {año_completo} (score: {score})")
-        
-        # 2. Años completos muy cerca del modelo
-        años_completos_cerca = re.finditer(r"\b(19\d{2}|20\d{2})\b", ventana_modelo)
-        for match in años_completos_cerca:
-            año = int(match.group(1))
-            
-            if not (año_min <= año <= año_max):
-                continue
-            
-            # Para años muy recientes cerca del modelo, ser más permisivo
-            distancia = abs(match.start() - 20)
-            score = 90 - distancia
-            
-            # Verificar que no sea claramente un precio
-            contexto_micro = ventana_modelo[max(0, match.start()-15):match.end()+15]
-            if re.search(r"[q$]\s*\d*[,.]*\s*" + str(año), contexto_micro):
-                score -= 50  # Penalizar mucho si parece precio
-            
-            candidatos_modelo.append((año, score, f"completo cerca del modelo"))
-            if DEBUG:
-                print(f"✅ Año completo cerca del modelo: {año} (score: {score})")
-        
-        # Si encontramos candidatos cerca del modelo, usar el mejor
-        if candidatos_modelo:
-            candidatos_modelo.sort(key=lambda x: x[1], reverse=True)
-            mejor_año, mejor_score, razon = candidatos_modelo[0]
-            if mejor_score > 50:  # Threshold para candidatos cerca del modelo
-                if DEBUG:
-                    print(f"🏆 AÑO SELECCIONADO (cerca del modelo): {mejor_año} - {razon}")
-                return mejor_año
-
-    # 🔍 PASO 4: TÍTULOS Y PRIMERAS LÍNEAS (alta prioridad)
-    lineas = texto.split('\n')
-    primeras_lineas = lineas[:2] if len(lineas) >= 2 else [texto]
-    
-    for i, linea in enumerate(primeras_lineas):
-        if DEBUG:
-            print(f"📝 Analizando línea {i+1}: '{linea}'")
-        
-        # Patrones vehiculares explícitos en títulos
-        patrones_titulo = [
-            r"\b(19\d{2}|20\d{2})\s+(?:hyundai|toyota|honda|nissan|ford|chevrolet|kia|suzuki|mitsubishi)\b",
-            r"\b(?:hyundai|toyota|honda|nissan|ford|chevrolet|kia|suzuki|mitsubishi)\s+(19\d{2}|20\d{2})\b",
-            r"\b(accent|civic|corolla|sentra|yaris|cr-v|tucson|picanto|spark|march|swift|alto|rio)\s+(19\d{2}|20\d{2}|'?\d{2})\b",
-            r"\b(19\d{2}|20\d{2}|'?\d{2})\s+(accent|civic|corolla|sentra|yaris|cr-v|tucson|picanto|spark|march|swift|alto|rio)\b",
-        ]
-        
-        for patron in patrones_titulo:
-            matches = re.finditer(patron, linea)
-            for match in matches:
-                for group in match.groups():
-                    if group and group.replace("'", "").replace("`", "").replace("´", "").isdigit():
-                        año_str = group.replace("'", "").replace("`", "").replace("´", "")
-                        año_candidato = int(año_str)
-                        
-                        # Convertir años de 2 dígitos
-                        if año_candidato <= 99:
-                            if año_candidato >= 80:
-                                año_completo = 1900 + año_candidato
-                            elif año_candidato <= 30:
-                                año_completo = 2000 + año_candidato
-                            else:
-                                continue
-                        else:
-                            año_completo = año_candidato
-                        
-                        if año_min <= año_completo <= año_max:
-                            if DEBUG:
-                                print(f"🏆 AÑO SELECCIONADO (título): {año_completo}")
-                            return año_completo
-
-    # 🧹 PASO 5: REMOVER PRECIOS DEL TEXTO PARA ANÁLISIS GENERAL
-    texto_sin_precios = _remover_precios_del_texto_mejorado(texto)
-    
-    if DEBUG:
-        print(f"🧹 Texto sin precios: {texto_sin_precios[:100]}...")
-
-    # 📊 PASO 6: ANÁLISIS GENERAL CON VALIDACIÓN ESTRICTA
-    candidatos_generales = []
-    
-    # Buscar años completos en texto sin precios
-    for match in re.finditer(r"\b(19\d{2}|20\d{2})\b", texto_sin_precios):
-        año = int(match.group())
-        
-        if not (año_min <= año <= año_max):
-            continue
-        
-        # Obtener contexto alrededor del año
-        contexto_inicio = max(0, match.start() - 50)
-        contexto_fin = min(len(texto_sin_precios), match.end() + 50)
-        contexto = texto_sin_precios[contexto_inicio:contexto_fin]
-        
-        # Calcular score del contexto
-        score = _score_contexto_vehicular_mejorado(contexto, [modelo_detectado] if modelo_detectado else [])
-        
-        # VALIDACIÓN MUY ESTRICTA PARA AÑOS RECIENTES (2010+)
-        if año >= 2010:
-            score -= 20  # Penalización base para años recientes
-            
-            # Debe estar muy cerca de indicadores vehiculares
-            palabras_vehiculares_fuertes = ['modelo', 'año', 'version', 'del', 'motor', 'carro', 'auto']
-            if modelo_detectado:
-                palabras_vehiculares_fuertes.append(modelo_detectado)
-            
-            tiene_contexto_fuerte = any(palabra in contexto for palabra in palabras_vehiculares_fuertes)
-            if not tiene_contexto_fuerte:
-                score -= 30
-                if DEBUG:
-                    print(f"❌ Año {año} descartado por falta de contexto vehicular fuerte")
-                continue
-            
-            # Verificar que no sea parte de un precio en el texto original
-            pos_en_original = texto_original.lower().find(str(año))
-            if pos_en_original != -1:
-                contexto_original = texto_original[max(0, pos_en_original-30):pos_en_original+30]
-                if re.search(r"[q$]\s*\d*[,.]*\s*\d*\s*" + str(año), contexto_original.lower()):
-                    score -= 50
-                    if DEBUG:
-                        print(f"❌ Año {año} descartado por aparecer como precio")
-                    continue
-        
-        # Bonus para contextos específicos
-        if re.search(r"\b" + str(año) + r"\s*(mecánico|automático|motor|bien|excelente)", contexto):
-            score += 10
-            
-        candidatos_generales.append((año, score))
-        if DEBUG:
-            print(f"📊 Candidato general: {año} (score: {score})")
-    
-    # Buscar años abreviados en contexto general
-    años_abrev_general = re.finditer(r"['`´](\d{2})\b", texto_sin_precios)
-    for match in años_abrev_general:
-        año_str = match.group(1)
-        año_corto = int(año_str)
-        
-        if año_corto in [10, 11, 12, 13, 14, 15, 16, 17, 18, 19, 20]:
-            continue
-        if 30 < año_corto < 80:
-            continue
-            
-        if año_corto >= 80:
-            año_completo = 1900 + año_corto
-        elif año_corto <= 30:
-            año_completo = 2000 + año_corto
+        # Puntos base según fuente
+        if fuente == 'modelo':
+            puntuacion += 105
+        elif fuente == 'titulo':
+            puntuacion += 100
+        elif fuente == 'ventana':
+            puntuacion += 95
         else:
-            continue
-        
-        if año_min <= año_completo <= año_max:
-            contexto_inicio = max(0, match.start() - 30)
-            contexto_fin = min(len(texto_sin_precios), match.end() + 30)
-            contexto = texto_sin_precios[contexto_inicio:contexto_fin]
-            
-            score = _score_contexto_vehicular_mejorado(contexto, [modelo_detectado] if modelo_detectado else [])
-            score += 5  # Bonus por ser año abreviado (más probable en autos antiguos)
-            
-            candidatos_generales.append((año_completo, score))
-            if DEBUG:
-                print(f"📊 Candidato abreviado general: {año_completo} (score: {score})")
-    
-    # Seleccionar el mejor candidato general
-    if candidatos_generales:
-        candidatos_generales.sort(key=lambda x: x[1], reverse=True)
-        mejor_año, mejor_score = candidatos_generales[0]
-        
-        # Threshold más alto para candidatos generales
-        threshold_requerido = 8 if mejor_año >= 2010 else 5
-        
-        if mejor_score >= threshold_requerido:
-            if DEBUG:
-                print(f"🏆 AÑO SELECCIONADO (general): {mejor_año} (score: {mejor_score})")
-            return mejor_año
-        elif DEBUG:
-            print(f"❌ Mejor candidato {mejor_año} rechazado por score insuficiente: {mejor_score} < {threshold_requerido}")
+            puntuacion += 70
 
-    if DEBUG:
-        print("❌ No se pudo extraer un año válido")
-    return None
+        # Penalización por contexto negativo
+        contexto_malo = ['nacido', 'años', 'edad', 'miembro desde']
+        if any(p in contexto for p in contexto_malo):
+            puntuacion -= 40
+
+        # Bonificación si hay palabras clave útiles cerca
+        palabras_vehiculo = ['modelo', 'año', 'motor', 'toyota', 'honda', 'nissan', 'chevrolet', 'mazda']
+        if any(p in contexto for p in palabras_vehiculo):
+            puntuacion += 10
+
+        # Bonificación si el año es coherente con precio (si hay)
+        if precio:
+            if 2005 <= año <= 2025:
+                if 1500 <= precio <= 80000:
+                    puntuacion += 5
+            elif 1995 <= año <= 2004:
+                if precio < 30000:
+                    puntuacion += 5
+
+        return puntuacion
+
+    # 1. Búsqueda en ventana cercana al modelo
+    if modelo:
+        idx = texto.find(modelo.lower())
+        if idx != -1:
+            ventana = texto[max(0, idx - 25): idx + len(modelo) + 25]
+            años_ventana = re.findall(r'\b(19[9][0-9]|20[0-2][0-9]|[\']\d{2})\b', ventana)
+            for raw in años_ventana:
+                año = int(raw.strip("'")) if "'" in raw else int(raw)
+                año = normalizar_año_corto(año) if año < 100 else año
+                if año and 1990 <= año <= 2025:
+                    candidatos[año] = calcular_score(año, ventana, fuente='ventana')
+
+    # 2. Búsqueda en título
+    titulo = texto.split('\n')[0]
+    años_titulo = re.findall(r'\b(19[9][0-9]|20[0-2][0-9]|[\']\d{2})\b', titulo)
+    for raw in años_titulo:
+        año = int(raw.strip("'")) if "'" in raw else int(raw)
+        año = normalizar_año_corto(año) if año < 100 else año
+        if año and 1990 <= año <= 2025:
+            candidatos[año] = max(candidatos.get(año, 0), calcular_score(año, titulo, fuente='titulo'))
+
+    # 3. Búsqueda general en el texto
+    años_texto = re.finditer(r'(19[9][0-9]|20[0-2][0-9]|[\']\d{2})', texto)
+    for match in años_texto:
+        raw = match.group()
+        año = int(raw.strip("'")) if "'" in raw else int(raw)
+        año = normalizar_año_corto(año) if año < 100 else año
+        if not año or not (1990 <= año <= 2025):
+            continue
+        contexto = texto[max(0, match.start() - 20):match.end() + 20]
+        candidatos[año] = max(candidatos.get(año, 0), calcular_score(año, contexto, fuente='texto'))
+
+    if not candidatos:
+        return None
+
+    if debug:
+        print("🎯 Candidatos detectados:")
+        for a, s in sorted(candidatos.items(), key=lambda x: -x[1]):
+            print(f"  - {a}: score {s}")
+
+    return max(candidatos.items(), key=lambda x: x[1])[0]
+
+
+
+
+
+
 
 
 def _remover_precios_del_texto_mejorado(texto: str) -> str:
