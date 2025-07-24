@@ -36,7 +36,9 @@ MODELOS_INTERES = list(PRECIOS_POR_DEFECTO.keys())
 PALABRAS_NEGATIVAS = [
     "repuesto", "repuestos", "solo repuestos", "para repuestos", "piezas",
     "desarme", "motor fundido", "no arranca", "no enciende", "papeles atrasados",
-    "sin motor", "para partes", "no funciona", "accidentado"
+    "sin motor", "para partes", "no funciona", "accidentado", "partes disponibles, 
+    "partes", "desarme", "solo piezas"
+    
 ]
 
 LUGARES_EXTRANJEROS = [
