@@ -1,23 +1,30 @@
-name: Corregir años en data
+name: Corregir Años en Data
 
+# Dispara manualmente y también al hacer push a data
 on:
   workflow_dispatch:
+  push:
+    branches:
+      - data
 
 jobs:
   corregir:
     runs-on: ubuntu-latest
 
     steps:
-      - uses: actions/checkout@v3
+      - name: Checkout code (branch data)
+        uses: actions/checkout@v3
+        with:
+          ref: data
 
-      - name: Setup Python
+      - name: Setup Python 3.10
         uses: actions/setup-python@v4
         with:
           python-version: '3.10'
 
-      - name: Instalar deps
+      - name: Instalar dependencias
         run: |
-          pip install -r requirements.txt || echo "sin requirements"
+          pip install -r requirements.txt || echo "No requirements.txt encontrado"
 
-      - name: Corregir años
+      - name: Ejecutar corrección de años
         run: python corregir_anios.py
