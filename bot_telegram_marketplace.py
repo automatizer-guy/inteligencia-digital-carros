@@ -136,7 +136,7 @@ async def enviar_ofertas():
             if anuncio_diferente(nuevo, previo):
                 enviar = True
 
-        if enviar:
+        if enviar or (relevante and anuncio_diferente(nuevo, previo)):
             if relevante:
                 buenos.append(mensaje)
                 resumen_relevantes.append((modelo, url, roi, score))
