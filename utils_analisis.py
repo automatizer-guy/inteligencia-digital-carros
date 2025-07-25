@@ -26,9 +26,6 @@ CURRENT_YEAR = datetime.now().year
 MIN_YEAR = 1990
 MAX_YEAR = CURRENT_YEAR + 1
 
-
-
-
 # ----------------------------------------------------
 # Configuración de pesos para calcular_score
 WEIGHT_MODEL      = 110
@@ -40,10 +37,6 @@ PENALTY_INVALID   = -50    # contextos engañosos: nacido, edad, etc.
 BONUS_VEHICULO    =  10    # presencia de palabras vehículo
 BONUS_PRECIO_HIGH =   5    # bonus si precio encaja con año
 # ----------------------------------------------------
-
-
-
-
 
 PRECIOS_POR_DEFECTO = {
     "yaris": 45000, "civic": 65000, "corolla": 50000, "sentra": 42000,
@@ -60,7 +53,6 @@ PALABRAS_NEGATIVAS = [
     "desarme", "motor fundido", "no arranca", "no enciende", "papeles atrasados",
     "sin motor", "para partes", "no funciona", "accidentado", "partes disponibles", 
     "partes", "desarme", "solo piezas"
-    
 ]
 
 LUGARES_EXTRANJEROS = [
@@ -72,16 +64,19 @@ LUGARES_EXTRANJEROS = [
 _PATTERN_YEAR_FULL = re.compile(r"\b(19\d{2}|20\d{2})\b")
 _PATTERN_YEAR_SHORT = re.compile(r"['`´]?(\d{2})\b")
 
-_PATTERN_YEAR_AFTER_MODEL = re.compile(
-    r"\b(?:yaris|civic|corolla|sentra|rav4|cr-v|tucson|picanto|spark|march|alto|swift|accent|mirage|vitara|i10|rio|toyota|honda)\s+['`´]?(?P<y>\d{2,4})\b",
-    flags=re.IGNORECASE
-)
+# Crear patrones sin lookbehind variable
+def create_model_pattern():
+    modelos_escapados = [re.escape(m) for m in MODELOS_INTERES]
+    # Usar captura de grupo en lugar de lookbehind
+    pattern = rf"\b(?:{'|'.join(modelos_escapados)})\s+['`\u00b4]?(?P<y>\d{{2,4}})\b"
+    return re.compile(pattern, flags=re.IGNORECASE)
+
+_PATTERN_YEAR_AFTER_MODEL = create_model_pattern()
 
 _PATTERN_YEAR_AROUND_KEYWORD = re.compile(
     r"\b(?:año|modelo)[:\s]+['`´]?(?P<y>\d{2,4})\b",
     flags=re.IGNORECASE
 )
-
 
 _PATTERN_PRICE = re.compile(
     r"\b(?:q|\$)?\s*[\d.,]+(?:\s*quetzales?)?\b",
@@ -91,8 +86,6 @@ _PATTERN_INVALID_CTX = re.compile(
     r"\b(?:miembro desde|publicado en|nacido en|creado en|registro|perfil creado)\b.*?(19\d{2}|20\d{2})",
     flags=re.IGNORECASE
 )
-
-
 
 def timeit(func):
     def wrapper(*args, **kwargs):
@@ -229,16 +222,6 @@ def coincide_modelo(texto: str, modelo: str) -> bool:
     texto_limpio = unicodedata.normalize("NFKD", texto_l).encode("ascii", "ignore").decode("ascii")
     return any(v in texto_limpio for v in variantes)
 
-
-
-
-
-
-
-
-
-import re
-
 def es_candidato_año(raw: str) -> bool:
     orig = raw.strip()  
     # 1) descartar decimales puros
@@ -263,10 +246,9 @@ def es_candidato_año(raw: str) -> bool:
     except ValueError:
         return False
 
-
-
 def extraer_anio(texto, modelo=None, precio=None, debug=False):
     texto = texto.lower()
+    candidatos = {}
 
     def normalizar_año_corto(a):
         if 80 <= a <= 99:
@@ -274,11 +256,11 @@ def extraer_anio(texto, modelo=None, precio=None, debug=False):
         elif 0 <= a <= 30:
             return 2000 + a
         return None
+    
     # 1) Quitar contextos no válidos (nacido, miembro desde, perfil creado…)
     texto = _PATTERN_INVALID_CTX.sub("", texto)
 
-
-        # 0) Búsqueda prioritaria: año tras modelo o cerca de "año"/"modelo"
+    # 0) Búsqueda prioritaria: año tras modelo o cerca de "año"/"modelo"
     for pat in (_PATTERN_YEAR_AFTER_MODEL, _PATTERN_YEAR_AROUND_KEYWORD):
         m = pat.search(texto)
         if m:
@@ -290,12 +272,6 @@ def extraer_anio(texto, modelo=None, precio=None, debug=False):
             if norm and MIN_YEAR <= norm <= MAX_YEAR:
                 return norm
 
-
-
-
-
-
-
     def calcular_score(año: int, contexto: str, fuente: str, precio: Optional[int] = None) -> int:
         # Base
         if fuente == 'modelo':  score = WEIGHT_MODEL
@@ -303,7 +279,7 @@ def extraer_anio(texto, modelo=None, precio=None, debug=False):
         elif fuente == 'ventana': score = WEIGHT_WINDOW
         else:                    score = WEIGHT_GENERAL
     
-        # Penalizar contextos “engañosos”
+        # Penalizar contextos "engañosos"
         for mal in ('nacido', 'edad', 'años', 'miembro desde', 'se unió'):
             if mal in contexto:
                 score += PENALTY_INVALID
@@ -325,13 +301,11 @@ def extraer_anio(texto, modelo=None, precio=None, debug=False):
     
         return score
 
-
     def agregar_año(raw, contexto, fuente=''):
         try:
             año = int(raw.strip("'"))
             año = normalizar_año_corto(año) if año < 100 else año
             if año and MIN_YEAR <= año <= MAX_YEAR:
-
                 candidatos[año] = max(candidatos.get(año, 0), calcular_score(año, contexto, fuente, precio))
         except:
             pass
@@ -341,20 +315,20 @@ def extraer_anio(texto, modelo=None, precio=None, debug=False):
         idx = texto.find(modelo.lower())
         if idx != -1:
             ventana = texto[max(0, idx - 30): idx + len(modelo) + 30]
-            años_modelo = re.findall(r"(?:'|’)?(\d{2,4})", ventana)
+            años_modelo = re.findall(r"(?:'|')?(\d{2,4})", ventana)
             for raw in años_modelo:
                 if es_candidato_año(raw):
                     agregar_año(raw, ventana, fuente='modelo')
 
     # 2. Búsqueda en título
     titulo = texto.split('\n')[0]
-    años_titulo = re.findall(r"(?:'|’)?(\d{2,4})", titulo)
+    años_titulo = re.findall(r"(?:'|')?(\d{2,4})", titulo)
     for raw in años_titulo:
         if es_candidato_año(raw):
             agregar_año(raw, titulo, fuente='titulo')
 
     # 3. General en todo el texto
-    for match in re.finditer(r"(?:'|’)?(\d{2,4})", texto):
+    for match in re.finditer(r"(?:'|')?(\d{2,4})", texto):
         raw = match.group(1)
         contexto = texto[max(0, match.start() - 20):match.end() + 20]
         if es_candidato_año(raw):
@@ -371,18 +345,6 @@ def extraer_anio(texto, modelo=None, precio=None, debug=False):
             print(f"  - {a}: score {s}")
 
     return max(candidatos.items(), key=lambda x: x[1])[0]
-
-
-
-
-
-
-
-
-
-
-
-
 
 def _remover_precios_del_texto_mejorado(texto: str) -> str:
     """
@@ -419,7 +381,6 @@ def _remover_precios_del_texto_mejorado(texto: str) -> str:
     texto_limpio = re.sub(r'\s+', ' ', texto_limpio).strip()
     
     return texto_limpio
-
 
 def _score_contexto_vehicular_mejorado(texto: str, modelos_detectados: List[str] = None) -> int:
     """
@@ -486,9 +447,6 @@ def _score_contexto_vehicular_mejorado(texto: str, modelos_detectados: List[str]
         puntuacion -= 2 * len(re.findall(patron, texto, re.IGNORECASE))
     
     return max(0, puntuacion)
-
-
-
 
 @timeit
 def get_precio_referencia(modelo: str, anio: int, tolerancia: Optional[int] = None) -> Dict[str, Any]:
