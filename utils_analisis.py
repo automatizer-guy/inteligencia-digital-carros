@@ -27,6 +27,24 @@ MIN_YEAR = 1990
 MAX_YEAR = CURRENT_YEAR + 1
 
 
+
+
+# ----------------------------------------------------
+# Configuración de pesos para calcular_score
+WEIGHT_MODEL      = 110
+WEIGHT_TITLE      = 100
+WEIGHT_WINDOW     =  95
+WEIGHT_GENERAL    =  70
+
+PENALTY_INVALID   = -50    # contextos engañosos: nacido, edad, etc.
+BONUS_VEHICULO    =  10    # presencia de palabras vehículo
+BONUS_PRECIO_HIGH =   5    # bonus si precio encaja con año
+# ----------------------------------------------------
+
+
+
+
+
 PRECIOS_POR_DEFECTO = {
     "yaris": 45000, "civic": 65000, "corolla": 50000, "sentra": 42000,
     "rav4": 130000, "cr-v": 95000, "tucson": 70000, "kia picanto": 35000,
@@ -216,7 +234,7 @@ def coincide_modelo(texto: str, modelo: str) -> bool:
 
 
 
-import re
+
 
 def es_candidato_año(raw: str) -> bool:
     raw = raw.strip("'\"").replace(",", "").replace(".", "")
@@ -267,34 +285,35 @@ def extraer_anio(texto, modelo=None, precio=None, debug=False):
 
 
 
-    def calcular_score(año, contexto, fuente=''):
-        score = 0
-        if fuente == 'modelo':
-            score += 110
-        elif fuente == 'titulo':
-            score += 100
-        elif fuente == 'ventana':
-            score += 95
-        else:
-            score += 70
-
-        contexto_malo = ['nacido', 'edad', 'años', 'miembro desde', 'se unió']
-        if any(p in contexto for p in contexto_malo):
-            score -= 50
-
-        palabras_vehiculo = ['modelo', 'año', 'motor', 'caja', 'carro', 'vehículo', 'vendo', 'automático', 'standard']
-        if any(p in contexto for p in palabras_vehiculo):
-            score += 10
-
-        if precio:
-            if 2005 <= año <= 2025:
-                if 1500 <= precio <= 80000:
-                    score += 5
-            elif 1990 <= año <= 2004:
-                if precio < 30000:
-                    score += 5
-
+    def calcular_score(año: int, contexto: str, fuente: str) -> int:
+        # Base
+        if fuente == 'modelo':  score = WEIGHT_MODEL
+        elif fuente == 'titulo': score = WEIGHT_TITLE
+        elif fuente == 'ventana': score = WEIGHT_WINDOW
+        else:                    score = WEIGHT_GENERAL
+    
+        # Penalizar contextos “engañosos”
+        for mal in ('nacido', 'edad', 'años', 'miembro desde', 'se unió'):
+            if mal in contexto:
+                score += PENALTY_INVALID
+                break
+    
+        # Bonus si habla de carro/motor/etc.
+        for veh in ('modelo', 'año', 'motor', 'caja', 'carro',
+                    'vehículo', 'vendo', 'automático', 'standard'):
+            if veh in contexto:
+                score += BONUS_VEHICULO
+                break
+    
+        # Ajuste por precio
+        if precio is not None:
+            if MIN_YEAR + 25 <= año <= MAX_YEAR and 1500 <= precio <= 80000:
+                score += BONUS_PRECIO_HIGH
+            elif MIN_YEAR <= año < MIN_YEAR + 25 and precio < 30000:
+                score += BONUS_PRECIO_HIGH
+    
         return score
+
 
     def agregar_año(raw, contexto, fuente=''):
         try:
