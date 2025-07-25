@@ -234,6 +234,13 @@ def es_candidato_año(raw: str) -> bool:
 def extraer_anio(texto, modelo=None, precio=None, debug=False):
     texto = texto.lower()
 
+    def normalizar_año_corto(a):
+        if 80 <= a <= 99:
+            return 1900 + a
+        elif 0 <= a <= 30:
+            return 2000 + a
+        return None
+
         # 0) Búsqueda prioritaria: año tras modelo o cerca de "año"/"modelo"
     for pat in (_PATTERN_YEAR_AFTER_MODEL, _PATTERN_YEAR_AROUND_KEYWORD):
         m = pat.search(texto)
@@ -252,12 +259,7 @@ def extraer_anio(texto, modelo=None, precio=None, debug=False):
 
     candidatos = {}
 
-    def normalizar_año_corto(a):
-        if 80 <= a <= 99:
-            return 1900 + a
-        elif 0 <= a <= 30:
-            return 2000 + a
-        return None
+
 
     def calcular_score(año, contexto, fuente=''):
         score = 0
