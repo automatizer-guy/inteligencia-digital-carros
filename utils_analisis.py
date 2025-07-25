@@ -285,7 +285,7 @@ def extraer_anio(texto, modelo=None, precio=None, debug=False):
 
 
 
-    def calcular_score(año: int, contexto: str, fuente: str) -> int:
+    def calcular_score(año: int, contexto: str, fuente: str, precio: Optional[int] = None) -> int:
         # Base
         if fuente == 'modelo':  score = WEIGHT_MODEL
         elif fuente == 'titulo': score = WEIGHT_TITLE
@@ -321,7 +321,7 @@ def extraer_anio(texto, modelo=None, precio=None, debug=False):
             año = normalizar_año_corto(año) if año < 100 else año
             if año and MIN_YEAR <= año <= MAX_YEAR:
 
-                candidatos[año] = max(candidatos.get(año, 0), calcular_score(año, contexto, fuente))
+                candidatos[año] = max(candidatos.get(año, 0), calcular_score(año, contexto, fuente, precio))
         except:
             pass
 
