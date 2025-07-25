@@ -245,6 +245,9 @@ def extraer_anio(texto, modelo=None, precio=None, debug=False):
         elif 0 <= a <= 30:
             return 2000 + a
         return None
+    # 1) Quitar contextos no válidos (nacido, miembro desde, perfil creado…)
+    texto = _PATTERN_INVALID_CTX.sub("", texto)
+
 
         # 0) Búsqueda prioritaria: año tras modelo o cerca de "año"/"modelo"
     for pat in (_PATTERN_YEAR_AFTER_MODEL, _PATTERN_YEAR_AROUND_KEYWORD):
@@ -260,10 +263,7 @@ def extraer_anio(texto, modelo=None, precio=None, debug=False):
 
 
 
-    # Eliminar contexto engañoso como "se unió a Facebook en XXXX"
-    texto = re.sub(r"se un[ií]?[oó]?\s+a\s+facebook\s+en\s+(19\d{2}|20\d{2})", "", texto)
 
-    candidatos = {}
 
 
 
