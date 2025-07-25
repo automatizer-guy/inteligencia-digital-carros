@@ -73,9 +73,10 @@ _PATTERN_YEAR_FULL = re.compile(r"\b(19\d{2}|20\d{2})\b")
 _PATTERN_YEAR_SHORT = re.compile(r"['`´]?(\d{2})\b")
 
 # Prioridad: año junto al modelo o cerca de "año"/"modelo"
+modelos_escapados = [re.escape(m) for m in MODELOS_INTERES]
 _PATTERN_YEAR_AFTER_MODEL = re.compile(
-    rf"(?<=\b(?:{'|'.join(MODELOS_INTERES)})\s)['`´]?(?P<y>\d{{2,4}})\b",
-    flags=re.IGNORECASE
+  rf"(?<=\b(?:{'|'.join(modelos_escapados)})\s)['`\u00b4]?(?P<y>\d{{2,4}})\b",
+  flags=re.IGNORECASE
 )
 _PATTERN_YEAR_AROUND_KEYWORD = re.compile(
     r"(?<=\b(?:año|modelo)[:\s])['`´]?(?P<y>\d{2,4})\b",
@@ -236,22 +237,32 @@ def coincide_modelo(texto: str, modelo: str) -> bool:
 
 
 
-def es_candidato_año(raw: str) -> bool:
-    raw = raw.strip("'\"").replace(",", "").replace(".", "")
+import re
 
-    # Ignorar números con más de 4 dígitos o ceros innecesarios
+def es_candidato_año(raw: str) -> bool:
+    orig = raw.strip()  
+    # 1) descartar decimales puros
+    if re.fullmatch(r"\d+\.\d+", orig):
+        return False
+
+    # 2) limpiar separadores
+    raw = orig.strip("'\"").replace(",", "").replace(".", "")
+
+    # 3) más de 4 dígitos o ceros iniciales irrelevantes
     if len(raw) > 4 or raw.startswith("00") or raw.startswith("000"):
         return False
 
-    # Si tiene menos de 3 dígitos, evitar errores como "19" de "19,000"
-    if len(raw) < 3:
+    # 4) solo descartamos longitud 1; 2 dígitos entran a normalizar
+    if len(raw) < 2:
         return False
 
+    # 5) convertir y comprobar rango
     try:
         año = int(raw)
         return MIN_YEAR <= año <= MAX_YEAR
-    except:
+    except ValueError:
         return False
+
 
 
 def extraer_anio(texto, modelo=None, precio=None, debug=False):
