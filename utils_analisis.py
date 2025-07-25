@@ -22,6 +22,10 @@ TOLERANCIA_PRECIO_REF = 1
 DEPRECIACION_ANUAL = 0.08
 MUESTRA_MINIMA_CONFIABLE = 5
 MUESTRA_MINIMA_MEDIA = 2
+CURRENT_YEAR = datetime.now().year
+MIN_YEAR = 1990
+MAX_YEAR = CURRENT_YEAR + 1
+
 
 PRECIOS_POR_DEFECTO = {
     "yaris": 45000, "civic": 65000, "corolla": 50000, "sentra": 42000,
@@ -227,9 +231,10 @@ def es_candidato_año(raw: str) -> bool:
 
     try:
         año = int(raw)
-        return 1980 <= año <= 2027
+        return MIN_YEAR <= año <= MAX_YEAR
     except:
         return False
+
 
 def extraer_anio(texto, modelo=None, precio=None, debug=False):
     texto = texto.lower()
@@ -250,8 +255,9 @@ def extraer_anio(texto, modelo=None, precio=None, debug=False):
             # Normalizar dos dígitos (ej. '19 → 2019')
             norm = normalizar_año_corto(año) if len(raw) == 2 else año
             # Verificar rango razonable
-            if norm and 1980 <= norm <= datetime.now().year + 1:
+            if norm and MIN_YEAR <= norm <= MAX_YEAR:
                 return norm
+
 
 
     # Eliminar contexto engañoso como "se unió a Facebook en XXXX"
@@ -294,7 +300,8 @@ def extraer_anio(texto, modelo=None, precio=None, debug=False):
         try:
             año = int(raw.strip("'"))
             año = normalizar_año_corto(año) if año < 100 else año
-            if año and 1980 <= año <= 2025:
+            if año and MIN_YEAR <= año <= MAX_YEAR:
+
                 candidatos[año] = max(candidatos.get(año, 0), calcular_score(año, contexto, fuente))
         except:
             pass
