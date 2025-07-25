@@ -202,6 +202,23 @@ def coincide_modelo(texto: str, modelo: str) -> bool:
 
 import re
 
+def es_candidato_año(raw: str) -> bool:
+    raw = raw.strip("'\"").replace(",", "").replace(".", "")
+
+    # Ignorar números con más de 4 dígitos o ceros innecesarios
+    if len(raw) > 4 or raw.startswith("00") or raw.startswith("000"):
+        return False
+
+    # Si tiene menos de 3 dígitos, evitar errores como "19" de "19,000"
+    if len(raw) < 3:
+        return False
+
+    try:
+        año = int(raw)
+        return 1980 <= año <= 2027
+    except:
+        return False
+
 def extraer_anio(texto, modelo=None, precio=None, debug=False):
     texto = texto.lower()
 
@@ -262,19 +279,22 @@ def extraer_anio(texto, modelo=None, precio=None, debug=False):
             ventana = texto[max(0, idx - 30): idx + len(modelo) + 30]
             años_modelo = re.findall(r"(?:'|’)?(\d{2,4})", ventana)
             for raw in años_modelo:
-                agregar_año(raw, ventana, fuente='modelo')
+                if es_candidato_año(raw):
+                    agregar_año(raw, ventana, fuente='modelo')
 
     # 2. Búsqueda en título
     titulo = texto.split('\n')[0]
     años_titulo = re.findall(r"(?:'|’)?(\d{2,4})", titulo)
     for raw in años_titulo:
-        agregar_año(raw, titulo, fuente='titulo')
+        if es_candidato_año(raw):
+            agregar_año(raw, titulo, fuente='titulo')
 
     # 3. General en todo el texto
     for match in re.finditer(r"(?:'|’)?(\d{2,4})", texto):
         raw = match.group(1)
         contexto = texto[max(0, match.start() - 20):match.end() + 20]
-        agregar_año(raw, contexto, fuente='texto')
+        if es_candidato_año(raw):
+            agregar_año(raw, contexto, fuente='texto')
 
     if not candidatos:
         if debug:
@@ -287,6 +307,7 @@ def extraer_anio(texto, modelo=None, precio=None, debug=False):
             print(f"  - {a}: score {s}")
 
     return max(candidatos.items(), key=lambda x: x[1])[0]
+
 
 
 
