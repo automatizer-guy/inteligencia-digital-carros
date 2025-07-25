@@ -47,9 +47,20 @@ LUGARES_EXTRANJEROS = [
 ]
 
 # Patrones precompilados para extraer año
-_PATTERN_YEAR_FULL   = re.compile(r"\b(19\d{2}|20\d{2})\b")
-_PATTERN_YEAR_SHORT  = re.compile(r"['`´]?(\d{2})\b")
-_PATTERN_PRICE       = re.compile(
+_PATTERN_YEAR_FULL = re.compile(r"\b(19\d{2}|20\d{2})\b")
+_PATTERN_YEAR_SHORT = re.compile(r"['`´]?(\d{2})\b")
+
+# Prioridad: año junto al modelo o cerca de "año"/"modelo"
+_PATTERN_YEAR_AFTER_MODEL = re.compile(
+    rf"(?<=\b(?:{'|'.join(MODELOS_INTERES)})\s)['`´]?(?P<y>\d{{2,4}})\b",
+    flags=re.IGNORECASE
+)
+_PATTERN_YEAR_AROUND_KEYWORD = re.compile(
+    r"(?<=\b(?:año|modelo)[:\s])['`´]?(?P<y>\d{2,4})\b",
+    flags=re.IGNORECASE
+)
+
+_PATTERN_PRICE = re.compile(
     r"\b(?:q|\$)?\s*[\d.,]+(?:\s*quetzales?)?\b",
     flags=re.IGNORECASE
 )
@@ -57,6 +68,7 @@ _PATTERN_INVALID_CTX = re.compile(
     r"\b(?:miembro desde|publicado en|nacido en|creado en|registro|perfil creado)\b.*?(19\d{2}|20\d{2})",
     flags=re.IGNORECASE
 )
+
 
 
 def timeit(func):
@@ -221,6 +233,19 @@ def es_candidato_año(raw: str) -> bool:
 
 def extraer_anio(texto, modelo=None, precio=None, debug=False):
     texto = texto.lower()
+
+        # 0) Búsqueda prioritaria: año tras modelo o cerca de "año"/"modelo"
+    for pat in (_PATTERN_YEAR_AFTER_MODEL, _PATTERN_YEAR_AROUND_KEYWORD):
+        m = pat.search(texto)
+        if m:
+            raw = m.group("y")
+            año = int(raw)
+            # Normalizar dos dígitos (ej. '19 → 2019')
+            norm = normalizar_año_corto(año) if len(raw) == 2 else año
+            # Verificar rango razonable
+            if norm and 1980 <= norm <= datetime.now().year + 1:
+                return norm
+
 
     # Eliminar contexto engañoso como "se unió a Facebook en XXXX"
     texto = re.sub(r"se un[ií]?[oó]?\s+a\s+facebook\s+en\s+(19\d{2}|20\d{2})", "", texto)
