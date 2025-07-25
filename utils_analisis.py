@@ -72,14 +72,13 @@ LUGARES_EXTRANJEROS = [
 _PATTERN_YEAR_FULL = re.compile(r"\b(19\d{2}|20\d{2})\b")
 _PATTERN_YEAR_SHORT = re.compile(r"['`´]?(\d{2})\b")
 
-# Prioridad: año junto al modelo o cerca de "año"/"modelo"
-modelos_escapados = [re.escape(m) for m in MODELOS_INTERES]
+# ARREGLADO: Patrones sin lookbehind de longitud variable
 _PATTERN_YEAR_AFTER_MODEL = re.compile(
-  rf"(?<=\b(?:{'|'.join(modelos_escapados)})\s)['`\u00b4]?(?P<y>\d{{2,4}})\b",
-  flags=re.IGNORECASE
+    r"\b(?:yaris|civic|corolla|sentra|rav4|cr-v|tucson|picanto|spark|march|alto|swift|accent|mirage|vitara|i10|rio|toyota|honda)\s+['`\u00b4]?(\d{2,4})\b",
+    flags=re.IGNORECASE
 )
 _PATTERN_YEAR_AROUND_KEYWORD = re.compile(
-    r"(?<=\b(?:año|modelo)[:\s])['`´]?(?P<y>\d{2,4})\b",
+    r"\b(?:año|modelo)[:\s]+['`´]?(\d{2,4})\b",
     flags=re.IGNORECASE
 )
 
