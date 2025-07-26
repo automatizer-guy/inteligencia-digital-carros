@@ -342,6 +342,11 @@ def extraer_anio(texto, modelo=None, precio=None, debug=False):
         print("🎯 Candidatos detectados:")
         for a, s in sorted(candidatos.items(), key=lambda x: -x[1]):
             print(f"  - {a}: score {s}")
+            
+    if not candidatos or max(candidatos.values()) < 60:
+        if debug: print("❌ Todos los años tienen score insuficiente o dudoso.")
+        return None
+
 
     return max(candidatos.items(), key=lambda x: x[1])[0]
 
