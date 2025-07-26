@@ -206,7 +206,7 @@ def coincide_modelo(texto: str, modelo: str) -> bool:
     sinonimos = {
         "accent": ["acent", "acsent", "accent rb", "hyundai rb", "rb15", "hyundai acent", "accen"],
         "civic": ["civc", "civic lx", "civic ex", "civic sport", "cvic", "civic 1.8", "honda civic"],
-        "sentra": ["sentran", "sentra b13", "nissan b13", "nissan sentra", "sentr4", "sentra clásico"],
+        "sentra": ["sentran", "sentra b13", "nissan b13", "nissan sentra", "sentr4", "sentra clásico", "Nissan Sentra GXE"],
         "rio": ["rio5", "kia rio", "rio lx", "rio x", "rio x-line", "kia hatchback", "kia ryo"],
         "swift": ["swift sport", "swift gl", "suzuki swift", "Suzuki swift gti", "swift dzire", "swft", "swift 1.2"],
         "march": ["nissan march", "march active", "march sense", "m4rch"],
