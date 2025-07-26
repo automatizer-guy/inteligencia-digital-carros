@@ -291,7 +291,7 @@ def extraer_anio(texto, modelo=None, precio=None, debug=False):
                 score += BONUS_VEHICULO
                 break
             if re.search(r"(modelo|gxe|lx|le|gt|clásico)[^\n]{0,15}\b\d{2}\b", contexto):
-            score += 20  # Bonus por patrón fuerte de año corto en contexto vehicular
+                score += 20  # Bonus por patrón fuerte de año corto en contexto vehicular
 
     
         # Ajuste por precio
