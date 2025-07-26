@@ -208,7 +208,7 @@ def coincide_modelo(texto: str, modelo: str) -> bool:
         "civic": ["civc", "civic lx", "civic ex", "civic sport", "cvic", "civic 1.8", "honda civic"],
         "sentra": ["sentran", "sentra b13", "nissan b13", "nissan sentra", "sentr4", "sentra clásico"],
         "rio": ["rio5", "kia rio", "rio lx", "rio x", "rio x-line", "kia hatchback", "kia ryo"],
-        "swift": ["swift sport", "swift gl", "suzuki swift", "swift dzire", "swft", "swift 1.2"],
+        "swift": ["swift sport", "swift gl", "suzuki swift", "Suzuki swift gti", "swift dzire", "swft", "swift 1.2"],
         "march": ["nissan march", "march active", "march sense", "m4rch"],
         "yaris": ["toyota yaris", "yaris hb", "yariz", "yaris core", "yaris s"],
         "cr-v": ["crv", "cr-v lx", "honda cr-v", "cr b", "crv ex", "crv turbo"],
