@@ -251,9 +251,9 @@ def extraer_anio(texto, modelo=None, precio=None, debug=False):
     candidatos = {}
 
     def normalizar_año_corto(a):
-    if a < 100:
-        return 1900 + a if a > 50 else 2000 + a
-    return a
+        if a < 100:
+            return 1900 + a if a > 50 else 2000 + a
+        return a
 
     
     # 1) Quitar contextos no válidos (nacido, miembro desde, perfil creado…)
