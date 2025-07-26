@@ -280,7 +280,7 @@ def extraer_anio(texto, modelo=None, precio=None, debug=False):
         else:                    score = WEIGHT_GENERAL
     
         # Penalizar contextos "engañosos"
-        for mal in ('nacido', 'edad', 'años', 'miembro desde', 'se unió'):
+        for mal in ('nacido', 'edad', 'años', 'miembro desde', 'se unió', 'Facebook en'):
             if mal in contexto:
                 score += PENALTY_INVALID
                 break
