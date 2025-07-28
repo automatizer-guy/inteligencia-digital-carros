@@ -33,7 +33,7 @@ WEIGHT_TITLE      = 100
 WEIGHT_WINDOW     =  95
 WEIGHT_GENERAL    =  70
 
-PENALTY_INVALID   = -50    # contextos engañosos: nacido, edad, etc.
+PENALTY_INVALID   = -30    # contextos engañosos: nacido, edad, etc.
 BONUS_VEHICULO    =  10    # presencia de palabras vehículo
 BONUS_PRECIO_HIGH =   5    # bonus si precio encaja con año
 # ----------------------------------------------------
@@ -616,7 +616,7 @@ def extraer_anio(texto, modelo=None, precio=None, debug=False):
         for a, s in sorted(candidatos.items(), key=lambda x: -x[1]):
             print(f"  - {a}: score {s}")
             
-    if not candidatos or max(candidatos.values()) < 60:
+    if not candidatos or max(candidatos.values()) < 40:
         if debug: print("❌ Todos los años tienen score insuficiente o dudoso.")
         return None
 
@@ -766,6 +766,7 @@ def calcular_roi_real(modelo: str, precio_compra: int, anio: int, costo_extra: i
 @timeit
 def puntuar_anuncio(anuncio: Dict[str, Any]) -> int:
     score = 0
+
     texto = anuncio.get("texto", "")
     modelo = anuncio.get("modelo", "")
     anio = anuncio.get("anio", CURRENT_YEAR)
@@ -783,40 +784,39 @@ def puntuar_anuncio(anuncio: Dict[str, Any]) -> int:
     if es_extranjero(texto):
         score -= 2
 
-    # Validación de precio
+    # Validación de precio (sin return anticipado)
     if not validar_precio_coherente(precio, modelo, anio):
-        score += PENALTY_INVALID
-        return score  # No continuar si el precio no es confiable
+        score += PENALTY_INVALID  # -50
 
-    # ROI y referencia
+    # ROI y referencia del modelo-año
     roi_info = get_precio_referencia(modelo, anio)
+    precio_ref = roi_info.get("precio", PRECIOS_POR_DEFECTO.get(modelo, 50000))
     roi_valor = anuncio.get("roi", roi_info.get("roi", 0))
-
     confianza = roi_info.get("confianza", "baja")
     muestra = roi_info.get("muestra", 0)
-    precio_ref = roi_info.get("precio", PRECIOS_POR_DEFECTO.get(modelo, 50000))
 
-    # Ganga detectada
+    # Ganga detectada (precio muy por debajo del mercado)
     if precio < 0.8 * precio_ref:
         score += 1
 
-    # ROI muy bueno
+    # ROI fuerte
     if roi_valor >= ROI_MINIMO:
         score += 2
 
-    # Bonus si la confianza estadística es alta
+    # Bonus por confianza estadística alta
     if confianza == "alta" and muestra >= MUESTRA_MINIMA_CONFIABLE:
         score += 1
 
-    # Penalización por ROI dudoso con mala base
+    # Penalización por ROI débil con poca muestra
     if confianza == "baja" and muestra < MUESTRA_MINIMA_CONFIABLE and roi_valor < 5:
         score -= 1
 
-    # Bonus por texto largo (más informativo)
+    # Bonus si el texto es extenso e informativo
     if len(texto) > 300:
         score += 1
 
     return score
+
 
 
 @timeit
