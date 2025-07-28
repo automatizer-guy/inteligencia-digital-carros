@@ -74,7 +74,7 @@ def create_model_pattern():
 _PATTERN_YEAR_AFTER_MODEL = create_model_pattern()
 
 _PATTERN_YEAR_KEYWORD_STRONG = re.compile(
-    r"(modelo|m/|versión|año|m.|modeo:|año:|del|del:)[^\d]{0,5}([12]\d{3})", flags=re.IGNORECASE
+    r"(modelo|m/|versión|año|m.|modelo:|año:|del|del:)[^\d]{0,5}([12]\d{3})", flags=re.IGNORECASE
 )
 
 
