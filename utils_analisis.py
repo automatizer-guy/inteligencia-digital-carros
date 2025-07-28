@@ -519,7 +519,7 @@ def extraer_anio(texto, modelo=None, precio=None, debug=False):
     for pat in (_PATTERN_YEAR_AFTER_MODEL, _PATTERN_YEAR_AROUND_KEYWORD):
         m = pat.search(texto)
         if m:
-            raw = m.group("y")
+            raw = m.group("y") if pat == _PATTERN_YEAR_AFTER_MODEL else m.group(2)
             año = int(raw)
             # Normalizar dos dígitos (ej. '19 → 2019')
             norm = normalizar_año_corto(año) if len(raw) == 2 else año
