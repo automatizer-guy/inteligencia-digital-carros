@@ -177,8 +177,22 @@ def es_extranjero(texto: str) -> bool:
 def validar_precio_coherente(precio: int, modelo: str, anio: int) -> bool:
     if precio < 5000 or precio > 500000:
         return False
-    precio_ref = PRECIOS_POR_DEFECTO.get(modelo, 50000)
-    return 0.2 * precio_ref <= precio <= 2.5 * precio_ref
+
+    ref_info = get_precio_referencia(modelo, anio)
+    precio_ref = ref_info.get("precio", PRECIOS_POR_DEFECTO.get(modelo, 50000))
+    muestra = ref_info.get("muestra", 0)
+
+    # Si hay datos confiables, usar rango dinámico basado en precio_ref real
+    if muestra >= MUESTRA_MINIMA_CONFIABLE:
+        margen_bajo = 0.1 * precio_ref  # más permisivo para gangas
+        margen_alto = 2.5 * precio_ref
+    else:
+        # Si no hay muestra confiable, usar rangos clásicos con precio por defecto
+        margen_bajo = 0.2 * precio_ref
+        margen_alto = 2.5 * precio_ref
+
+    return margen_bajo <= precio <= margen_alto
+
 
 def limpiar_precio(texto: str) -> int:
     s = re.sub(r"[Qq\$\.,]", "", texto.lower())
