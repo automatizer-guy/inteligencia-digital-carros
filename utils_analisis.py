@@ -83,7 +83,7 @@ _PATTERN_PRICE = re.compile(
     flags=re.IGNORECASE
 )
 _PATTERN_INVALID_CTX = re.compile(
-    r"\b(?:miembro desde|publicado en|nacido en|creado en|registro|Se unió a Facebook en|perfil creado)\b.*?(19\d{2}|20\d{2})",
+    r"\b(?:miembro desde|publicado en|nacido en|creado en|registro|Se unió a Facebook en|perfil creado|calcomania|calcomania:|calcomania del|calcomania del:)\b.*?(19\d{2}|20\d{2})",
     flags=re.IGNORECASE
 )
 
