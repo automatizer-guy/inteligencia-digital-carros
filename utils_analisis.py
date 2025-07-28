@@ -204,20 +204,276 @@ def coincide_modelo(texto: str, modelo: str) -> bool:
     texto_l = unicodedata.normalize("NFKD", texto.lower())
     modelo_l = modelo.lower()
     sinonimos = {
-        "accent": ["acent", "acsent", "accent rb", "hyundai rb", "rb15", "hyundai acent", "accen"],
-        "civic": ["civc", "civic lx", "civic ex", "civic sport", "cvic", "civic 1.8", "honda civic", "Honda Civic SI"],
-        "sentra": ["sentran", "sentra b13", "nissan b13", "nissan sentra", "sentr4", "sentra clásico", "Nissan Sentra GXE"],
-        "rio": ["rio5", "kia rio", "rio lx", "rio x", "rio x-line", "kia hatchback", "kia ryo"],
-        "swift": ["swift sport", "Suzuky swift", "swift gl", "suzuki swift", "Suzuki swift gti", "swift dzire", "swft", "swift 1.2"],
-        "march": ["nissan march", "march active", "march sense", "m4rch"],
-        "yaris": ["toyota yaris", "yaris hb", "yariz", "yaris core", "yaris s"],
-        "cr-v": ["crv", "cr-v lx", "honda cr-v", "cr b", "crv ex", "crv turbo"],
-        "tucson": ["hyundai tucson", "tucsón", "tuczon", "tucson gls", "tucson ix"],
-        "spark": ["chevrolet spark", "spark gt", "sp4rk", "spark life", "Spark"],
-        "picanto": ["kia picanto", "picanto xline", "pikanto", "picanto 1.2"],
-        "alto": ["suzuki alto", "alto 800", "alt0", "alto std", "Suzuky" ],
-        "grand vitara": ["suzuki grand vitara", "gran vitara", "vitara 4x4", "grandvitara"]
+        "yaris": [
+            # Nombres oficiales y variantes regionales
+            "yaris", "toyota yaris", "new yaris", "yaris sedan", "yaris hatchback", "yaris hb",
+            "vitz", "toyota vitz", "platz", "toyota platz", "echo", "toyota echo", 
+            "belta", "toyota belta", "vios", "toyota vios",
+            # Versiones específicas
+            "yaris core", "yaris s", "yaris xls", "yaris xle", "yaris le", "yaris l",
+            "yaris spirit", "yaris sport", "yaris cross", "yaris ia", "yaris r",
+            "yaris verso", "yaris ts", "yaris t3", "yaris t4", "yaris sol", "yaris luna",
+            "yaris terra", "yaris active", "yaris live", "yaris comfort",
+            # Errores de escritura comunes
+            "yariz", "yaris", "toyoya yaris", "toyota yariz", "yaris toyota",
+            "yaris 1.3", "yaris 1.5", "yaris automatico", "yaris standard"
+        ],
+        
+        "civic": [
+            # Nombres oficiales y variantes
+            "civic", "honda civic", "civic sedan", "civic hatchback", "civic coupe",
+            "civic type r", "civic si", "civic sir", "civic ex", "civic lx", "civic dx",
+            "civic vti", "civic esi", "civic ls", "civic hybrid", "civic touring",    
+            # Versiones por generación
+            "civic eg", "civic ek", "civic em", "civic es", "civic ep", "civic eu",
+            "civic fn", "civic fa", "civic fd", "civic fb", "civic fc", "civic fk",
+            # Variaciones regionales
+            "civic ferio", "civic aerodeck", "civic shuttle", "civic crx", "cr-x",
+            "civic vx", "civic hx", "civic gx", "civic del sol",
+            # Errores de escritura comunes
+            "civc", "civic honda", "honda civik", "civick", "civic 1.8", "civic vtec",
+            "civic turbo", "civic sport", "civic rs", "civic automatico", "civic standard"
+        ],
+        
+        "corolla": [
+            # Nombres oficiales
+            "corolla", "toyota corolla", "corolla sedan", "corolla hatchback",
+            "corolla cross", "corolla altis", "corolla axio", "corolla fielder",
+            "corolla verso", "corolla wagon", "corolla station wagon",
+            # Versiones específicas
+            "corolla le", "corolla s", "corolla l", "corolla xle", "corolla se",
+            "corolla xrs", "corolla dx", "corolla sr5", "corolla ce", "corolla ve",
+            "corolla gli", "corolla xli", "corolla grande", "corolla fx",
+            "corolla fx16", "corolla twin cam", "corolla ae86", "corolla ae92",
+            # Variaciones regionales
+            "corolla conquest", "corolla csi", "corolla seca", "corolla liftback",
+            "corolla sprinter", "corolla tercios", "corolla ee90", "corolla ae100",
+            # Errores de escritura comunes
+            "toyota corola", "corola", "corollo", "corolla toyota", "corola toyota"
+        ],
+    
+        "sentra": [
+            # Nombres oficiales
+            "sentra", "nissan sentra", "sentra sedan", "sentra clasico", "sentra clásico",
+            "sentra b13", "nissan b13", "sentra b14", "sentra b15", "sentra b16", "sentra b17",        
+            # Versiones específicas
+            "sentra gxe", "sentra se", "sentra xe", "sentra e", "sentra gx", "sentra sl",
+            "sentra sr", "sentra sv", "sentra spec-v", "sentra se-r", "sentra ser",
+            "sentra 200sx", "200sx", "sentra nx", "sentra ga16", "sentra sr20",        
+            # Variaciones regionales
+            "sunny", "nissan sunny", "pulsar sedan", "tsuru", "nissan tsuru",
+            "almera", "nissan almera", "bluebird sylphy", "sylphy",        
+            # Errores de escritura comunes
+            "sentran", "nissan sentran", "sentr4", "sentra nissan", "sentra b-13"
+        ],
+        
+        "rav4": [
+            # Nombres oficiales
+            "rav4", "rav-4", "toyota rav4", "toyota rav-4", "rav 4", "toyota rav 4",
+            # Versiones específicas
+            "rav4 le", "rav4 xle", "rav4 limited", "rav4 sport", "rav4 adventure",
+            "rav4 trd", "rav4 hybrid", "rav4 prime", "rav4 l", "rav4 xse",
+            "rav4 base", "rav4 edge", "rav4 cruiser", "rav4 gx", "rav4 gxl",
+            "rav4 vx", "rav4 sx", "rav4 cv", "rav4 x",
+            # Generaciones
+            "rav4 xa10", "rav4 xa20", "rav4 xa30", "rav4 xa40", "rav4 xa50",
+            "rav4 3 door", "rav4 5 door", "rav4 3dr", "rav4 5dr",        
+            # Errores de escritura comunes
+            "rab4", "rav 4", "toyota rab4", "toyota raw4", "raw4", "rav-4 toyota"
+        ],
+        
+        "cr-v": [
+            # Nombres oficiales
+            "cr-v", "crv", "honda cr-v", "honda crv", "cr v", "honda cr v",
+            # Versiones específicas
+            "cr-v lx", "cr-v ex", "cr-v ex-l", "cr-v touring", "cr-v se", "cr-v hybrid",
+            "crv lx", "crv ex", "crv exl", "crv touring", "crv se", "crv hybrid",
+            "cr-v awd", "cr-v 4wd", "cr-v rt", "cr-v rd", "cr-v re", "cr-v rm",
+            # Variaciones regionales
+            "cr-v turbo", "cr-v vtec", "cr-v dohc", "cr-v prestige", "cr-v elegance",
+            "cr-v comfort", "cr-v executive", "cr-v lifestyle", "cr-v sport",
+            # Errores de escritura comunes
+            "cr b", "honda cr b", "crv honda", "cr-v honda", "honda cr-b", "cr-c"
+        ],
+        
+        "tucson": [
+            # Nombres oficiales
+            "tucson", "hyundai tucson", "tuczon", "tucsón", "tucson suv",
+            # Versiones específicas
+            "tucson gls", "tucson se", "tucson limited", "tucson sport", "tucson value",
+            "tucson gl", "tucson premium", "tucson ultimate", "tucson n line",
+            "tucson hybrid", "tucson phev", "tucson turbo", "tucson awd", "tucson 4wd",
+            # Generaciones
+            "tucson jm", "tucson lm", "tucson tl", "tucson nx4", "tucson ix35", "ix35",
+            "tucson 2004", "tucson 2010", "tucson 2016", "tucson 2022",
+            # Errores de escritura comunes
+            "hyundai tuczon", "hyundai tucsón", "tucson hyundai", "tucsan", "tuckson"
+        ],
+        
+        "kia picanto": [
+            # Nombres oficiales
+            "picanto", "kia picanto", "picanto hatchback", "picanto 5dr",
+            # Versiones específicas
+            "picanto lx", "picanto ex", "picanto s", "picanto x-line", "picanto xline",
+            "picanto gt", "picanto 1.0", "picanto 1.2", "picanto manual", "picanto automatico",
+            "picanto ion", "picanto concept", "picanto city", "picanto active",
+            # Variaciones regionales
+            "morning", "kia morning", "visto", "kia visto", "eurostar",
+            # Errores de escritura comunes
+            "pikanto", "kia pikanto", "picanto kia", "picanto 1.2", "picanto mt", "picanto at"
+        ],
+        
+        "chevrolet spark": [
+            # Nombres oficiales
+            "spark", "chevrolet spark", "chevy spark", "spark hatchback", "spark city",
+            # Versiones específicas
+            "spark ls", "spark lt", "spark ltz", "spark activ", "spark 1lt", "spark 2lt",
+            "spark manual", "spark automatico", "spark cvt", "spark life", "spark active",
+            "spark gt", "spark rs", "spark classic", "spark van",
+            # Variaciones regionales
+            "matiz", "chevrolet matiz", "daewoo matiz", "beat", "chevrolet beat",
+            "barina spark", "holden barina spark", "aveo", "chevrolet aveo hatchback",
+            # Errores de escritura comunes
+            "sp4rk", "chevrolet sp4rk", "spark chevrolet", "chevy sp4rk"
+        ],
+        
+        "nissan march": [
+            # Nombres oficiales
+            "march", "nissan march", "march hatchback", "march 5dr",
+            # Versiones específicas
+            "march sense", "march advance", "march exclusive", "march sr", "march s",
+            "march active", "march visia", "march acenta", "march tekna", "march nismo",
+            "march 1.6", "march cvt", "march manual", "march automatico",
+            # Variaciones regionales
+            "micra", "nissan micra", "micra k10", "micra k11", "micra k12", "micra k13",
+            "micra k14", "note", "nissan note", "versa note", "nissan versa note",
+            # Errores de escritura comunes
+            "m4rch", "nissan m4rch", "march nissan", "marcha", "nissan marcha"
+        ],
+        
+        "suzuki alto": [
+            # Nombres oficiales
+            "alto", "suzuki alto", "alto hatchback", "alto 800", "alto k10",
+            # Versiones específicas
+            "alto std", "alto lx", "alto lxi", "alto vx", "alto vxi", "alto zx", "alto zxi",
+            "alto works", "alto turbo", "alto ss40", "alto ca71v", "alto ha36s",
+            "alto lapin", "alto hustle", "alto van", "alto 0.8", "alto 1.0",
+            # Variaciones regionales
+            "celerio", "suzuki celerio", "a-star", "suzuki a-star", "pixis epoch",
+            "daihatsu pixis epoch", "wagon r", "suzuki wagon r",
+            # Errores de escritura comunes
+            "alt0", "suzuki alt0", "alto suzuki", "suzuky alto"
+        ],
+        
+        "suzuki swift": [
+            # Nombres oficiales
+            "swift", "suzuki swift", "swift hatchback", "swift 5dr", "swift 3dr",
+            # Versiones específicas
+            "swift gl", "swift gls", "swift glx", "swift ga", "swift rs", "swift sport",
+            "swift gti", "swift dzire", "swift sedan", "swift 1.2", "swift 1.3", "swift 1.4",
+            "swift manual", "swift automatico", "swift cvt", "swift turbo",
+            # Generaciones
+            "swift sf310", "swift sf413", "swift rs413", "swift rs415", "swift fz",
+            "swift nz", "swift zc", "swift zd", "swift sport zc31s", "swift sport zc32s",
+            # Errores de escritura comunes
+            "swft", "suzuki swft", "swift suzuki", "suzuky swift", "swyft"
+        ],
+        
+        "hyundai accent": [
+            # Nombres oficiales
+            "accent", "hyundai accent", "accent sedan", "accent hatchback",
+            # Versiones específicas
+            "accent gl", "accent gls", "accent se", "accent limited", "accent rb", "accent verna",
+            "accent blue", "accent era", "accent mc", "accent lc", "accent x3", "accent tagaz",
+            "accent 1.4", "accent 1.6", "accent manual", "accent automatico",
+            # Variaciones regionales
+            "verna", "hyundai verna", "brio", "hyundai brio", "pony", "hyundai pony",
+            "excel", "hyundai excel", "solaris", "hyundai solaris", "rb15", "hyundai rb",
+            # Errores de escritura comunes
+            "acent", "hyundai acent", "acsent", "hyundai acsent", "accent hyundai", "accen"
+        ],
+        
+        "mitsubishi mirage": [
+            # Nombres oficiales
+            "mirage", "mitsubishi mirage", "mirage hatchback", "mirage sedan",
+            # Versiones específicas
+            "mirage de", "mirage es", "mirage se", "mirage gt", "mirage ls", "mirage glx",
+            "mirage gls", "mirage cyborg", "mirage asti", "mirage dingo", "mirage space star",
+            "mirage 1.2", "mirage cvt", "mirage manual", "mirage automatico",
+            # Variaciones regionales
+            "space star", "mitsubishi space star", "attrage", "mitsubishi attrage",
+            "lancer mirage", "colt", "mitsubishi colt", "lancer cedia",
+            # Errores de escritura comunes
+            "mirage mitsubishi", "mitsubishi mirage", "mirage 1.2", "miraje"
+        ],
+        
+        "suzuki grand vitara": [
+            # Nombres oficiales
+            "grand vitara", "suzuki grand vitara", "gran vitara", "suzuki gran vitara",
+            "grand vitara suv", "grand vitara 4x4", "grandvitara",
+            # Versiones específicas
+            "grand vitara jlx", "grand vitara glx", "grand vitara sz", "grand vitara jx",
+            "grand vitara xl-7", "grand vitara xl7", "grand vitara nomade", "grand vitara limited",
+            "grand vitara se", "grand vitara premium", "grand vitara sport", "vitara 4x4",
+            "grand vitara 2.0", "grand vitara 2.4", "grand vitara v6",
+            # Variaciones regionales
+            "vitara", "suzuki vitara", "escudo", "suzuki escudo", "sidekick", "suzuki sidekick",
+            "tracker", "geo tracker", "chevrolet tracker", "vitara brezza",
+            # Errores de escritura comunes
+            "suzuki grandvitara", "grand bitara", "gran bitara", "vitara grand"
+        ],
+        
+        "hyundai i10": [
+            # Nombres oficiales
+            "i10", "hyundai i10", "i-10", "hyundai i-10", "i 10", "hyundai i 10",
+            # Versiones específicas
+            "i10 gl", "i10 gls", "i10 comfort", "i10 active", "i10 style", "i10 premium",
+            "i10 classic", "i10 magna", "i10 sportz", "i10 asta", "i10 era", "i10 n line",
+            "i10 1.0", "i10 1.1", "i10 1.2", "i10 manual", "i10 automatico",
+            # Variaciones regionales
+            "atos", "hyundai atos", "atos prime", "hyundai atos prime", "santro",
+            "hyundai santro", "santro xing", "grand i10", "hyundai grand i10",
+            # Errores de escritura comunes
+            "hyundai i-10", "i10 hyundai", "hyundai 110", "hyundai l10"
+        ],
+        
+        "kia rio": [
+            # Nombres oficiales
+            "rio", "kia rio", "rio sedan", "rio hatchback", "rio 5", "rio5",
+            # Versiones específicas
+            "rio lx", "rio ex", "rio s", "rio sx", "rio x", "rio x-line", "rio xline",
+            "rio hatch", "rio 1.4", "rio 1.6", "rio manual", "rio automatico", "rio cvt",
+            "rio base", "rio sport", "rio premium", "rio comfort",
+            # Variaciones regionales
+            "pride", "kia pride", "rio pride", "xceed", "kia xceed", "stonic", "kia stonic",
+            "k2", "kia k2", "r7", "kia r7",
+            # Errores de escritura comunes
+            "kia ryo", "rio kia", "kia rio5", "kia rio 5", "ryo", "kia rio x"
+        ],
+        
+        "toyota": [
+            # Nombres generales de marca
+            "toyota", "toyoya", "toyota motor", "toyota motors", "toyota company",
+            "toyota japan", "toyota auto", "toyota car", "toyota vehiculo",
+            # Errores de escritura comunes
+            "toyoya", "toyotas", "toyata", "toyota"
+        ],
+        
+        "honda": [
+            # Nombres generales de marca
+            "honda", "honda motor", "honda motors", "honda company", "honda japan",
+            "honda auto", "honda car", "honda vehiculo", "honda motorcycle",
+            # Errores de escritura comunes
+            "hondas", "honda motor company", "honda corp"
+        ]
     }
+
+
+
+
+
+
+    
     variantes = sinonimos.get(modelo_l, []) + [modelo_l]
     texto_limpio = unicodedata.normalize("NFKD", texto_l).encode("ascii", "ignore").decode("ascii")
     return any(v in texto_limpio for v in variantes)
