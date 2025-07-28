@@ -34,8 +34,8 @@ WEIGHT_WINDOW     =  95
 WEIGHT_GENERAL    =  70
 
 PENALTY_INVALID   = -30    # contextos engañosos: nacido, edad, etc.
-BONUS_VEHICULO    =  10    # presencia de palabras vehículo
-BONUS_PRECIO_HIGH =   5    # bonus si precio encaja con año
+BONUS_VEHICULO    =  15    # presencia de palabras vehículo
+BONUS_PRECIO_HIGH =  10    # bonus si precio encaja con año
 # ----------------------------------------------------
 
 PRECIOS_POR_DEFECTO = {
@@ -184,7 +184,7 @@ def validar_precio_coherente(precio: int, modelo: str, anio: int) -> bool:
 
     # Si hay datos confiables, usar rango dinámico basado en precio_ref real
     if muestra >= MUESTRA_MINIMA_CONFIABLE:
-        margen_bajo = 0.1 * precio_ref  # más permisivo para gangas
+        margen_bajo = 0.3 * precio_ref  # más permisivo para gangas
         margen_alto = 2.5 * precio_ref
     else:
         # Si no hay muestra confiable, usar rangos clásicos con precio por defecto
@@ -198,7 +198,7 @@ def limpiar_precio(texto: str) -> int:
     s = re.sub(r"[Qq\$\.,]", "", texto.lower())
     matches = re.findall(r"\b\d{3,7}\b", s)
     año_actual = datetime.now().year
-    candidatos = [int(x) for x in matches if int(x) < 1990 or int(x) > año_actual + 1]
+    candidatos = [int(x) for x in matches if int(x) < 1990 and int(x) > año_actual + 1]
     return candidatos[0] if candidatos else 0
 
 def filtrar_outliers(precios: List[int]) -> List[int]:
@@ -207,8 +207,8 @@ def filtrar_outliers(precios: List[int]) -> List[int]:
     try:
         q1, q3 = statistics.quantiles(precios, n=4)[0], statistics.quantiles(precios, n=4)[2]
         iqr = q3 - q1
-        lim_inf = q1 - 1.5 * iqr
-        lim_sup = q3 + 1.5 * iqr
+        lim_inf = q1 - 2.0 * iqr
+        lim_sup = q3 + 2.0 * iqr
         filtrados = [p for p in precios if lim_inf <= p <= lim_sup]
         return filtrados if len(filtrados) >= 2 else precios
     except:
