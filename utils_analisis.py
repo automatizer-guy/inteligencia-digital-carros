@@ -23,7 +23,7 @@ DEPRECIACION_ANUAL = 0.08
 MUESTRA_MINIMA_CONFIABLE = 5
 MUESTRA_MINIMA_MEDIA = 2
 CURRENT_YEAR = datetime.now().year
-MIN_YEAR = 1990
+MIN_YEAR = 1980
 MAX_YEAR = CURRENT_YEAR + 1
 
 # ----------------------------------------------------
