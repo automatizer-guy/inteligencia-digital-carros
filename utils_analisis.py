@@ -205,17 +205,17 @@ def coincide_modelo(texto: str, modelo: str) -> bool:
     modelo_l = modelo.lower()
     sinonimos = {
         "accent": ["acent", "acsent", "accent rb", "hyundai rb", "rb15", "hyundai acent", "accen"],
-        "civic": ["civc", "civic lx", "civic ex", "civic sport", "cvic", "civic 1.8", "honda civic"],
+        "civic": ["civc", "civic lx", "civic ex", "civic sport", "cvic", "civic 1.8", "honda civic", "Honda Civic SI"],
         "sentra": ["sentran", "sentra b13", "nissan b13", "nissan sentra", "sentr4", "sentra clásico", "Nissan Sentra GXE"],
         "rio": ["rio5", "kia rio", "rio lx", "rio x", "rio x-line", "kia hatchback", "kia ryo"],
-        "swift": ["swift sport", "swift gl", "suzuki swift", "Suzuki swift gti", "swift dzire", "swft", "swift 1.2"],
+        "swift": ["swift sport", "Suzuky swift", "swift gl", "suzuki swift", "Suzuki swift gti", "swift dzire", "swft", "swift 1.2"],
         "march": ["nissan march", "march active", "march sense", "m4rch"],
         "yaris": ["toyota yaris", "yaris hb", "yariz", "yaris core", "yaris s"],
         "cr-v": ["crv", "cr-v lx", "honda cr-v", "cr b", "crv ex", "crv turbo"],
         "tucson": ["hyundai tucson", "tucsón", "tuczon", "tucson gls", "tucson ix"],
-        "spark": ["chevrolet spark", "spark gt", "sp4rk", "spark life"],
+        "spark": ["chevrolet spark", "spark gt", "sp4rk", "spark life", "Spark"],
         "picanto": ["kia picanto", "picanto xline", "pikanto", "picanto 1.2"],
-        "alto": ["suzuki alto", "alto 800", "alt0", "alto std"],
+        "alto": ["suzuki alto", "alto 800", "alt0", "alto std", "Suzuky" ],
         "grand vitara": ["suzuki grand vitara", "gran vitara", "vitara 4x4", "grandvitara"]
     }
     variantes = sinonimos.get(modelo_l, []) + [modelo_l]
