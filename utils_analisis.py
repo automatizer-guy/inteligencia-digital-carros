@@ -74,7 +74,7 @@ def create_model_pattern():
 _PATTERN_YEAR_AFTER_MODEL = create_model_pattern()
 
 _PATTERN_YEAR_AROUND_KEYWORD = re.compile(
-    r"\b(?:año|modelo)[:\s]+['`´]?(?P<y>\d{2,4})\b",
+    r"\b(?:año|modelo|año:|modelo:)[:\s]+['`´]?(?P<y>\d{2,4})\b",
     flags=re.IGNORECASE
 )
 
