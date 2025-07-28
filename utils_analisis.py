@@ -74,7 +74,7 @@ def create_model_pattern():
 _PATTERN_YEAR_AFTER_MODEL = create_model_pattern()
 
 _PATTERN_YEAR_AROUND_KEYWORD = re.compile(
-    r"(modelo|m/|versión|año|m.|modelo:|año:|del|del:)[^\d]{0,5}([12]\d{3})", flags=re.IGNORECASE
+    r"(modelo|m/|versión|año|m.|modelo:|año:|del|del:|md|md:)[^\d]{0,5}([12]\d{3})", flags=re.IGNORECASE
 )
 
 
@@ -357,7 +357,7 @@ def coincide_modelo(texto: str, modelo: str) -> bool:
             # Versiones específicas
             "march sense", "march advance", "march exclusive", "march sr", "march s",
             "march active", "march visia", "march acenta", "march tekna", "march nismo",
-            "march 1.6", "march cvt", "march manual", "march automatico",
+            "march 1.6", "march cvt", "march manual", "march automatico", "Nissan March collet",
             # Variaciones regionales
             "micra", "nissan micra", "micra k10", "micra k11", "micra k12", "micra k13",
             "micra k14", "note", "nissan note", "versa note", "nissan versa note",
