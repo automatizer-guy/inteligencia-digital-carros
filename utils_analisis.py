@@ -764,25 +764,60 @@ def calcular_roi_real(modelo: str, precio_compra: int, anio: int, costo_extra: i
     }
 
 @timeit
-def puntuar_anuncio(texto: str, roi_info: Optional[Dict] = None) -> int:
-    precio = limpiar_precio(texto)
-    anio = extraer_anio(texto)
-    modelo = next((m for m in MODELOS_INTERES if coincide_modelo(texto, m)), None)
-    if not (modelo and anio and precio):
-        return 0
+def puntuar_anuncio(anuncio: Dict[str, Any]) -> int:
+    score = 0
+    texto = anuncio.get("texto", "")
+    modelo = anuncio.get("modelo", "")
+    anio = anuncio.get("anio", CURRENT_YEAR)
+    precio = anuncio.get("precio", 0)
+
+    # Penalización si contiene palabras negativas
+    if contiene_negativos(texto):
+        score -= 3
+
+    # Bonus si incluye palabras positivas como "vehículo"
+    if "vehículo" in texto.lower():
+        score += BONUS_VEHICULO
+
+    # Penalización si parece extranjero
+    if es_extranjero(texto):
+        score -= 2
+
+    # Validación de precio
     if not validar_precio_coherente(precio, modelo, anio):
-        return 0
-    roi = roi_info["roi"] if roi_info else calcular_roi_real(modelo, precio, anio)["roi"]
-    score = 4
-    if roi >= 25: score += 4
-    elif roi >= 15: score += 3
-    elif roi >= 10: score += 2
-    elif roi >= 5: score += 1
-    else: score -= 1
-    if precio <= 25000: score += 2
-    elif precio <= 35000: score += 1
-    if len(texto.split()) >= 8: score += 1
-    return max(0, min(score, 10))
+        score += PENALTY_INVALID
+        return score  # No continuar si el precio no es confiable
+
+    # ROI y referencia
+    roi_info = get_precio_referencia(modelo, anio)
+    roi_valor = anuncio.get("roi", roi_info.get("roi", 0))
+
+    confianza = roi_info.get("confianza", "baja")
+    muestra = roi_info.get("muestra", 0)
+    precio_ref = roi_info.get("precio", PRECIOS_POR_DEFECTO.get(modelo, 50000))
+
+    # Ganga detectada
+    if precio < 0.8 * precio_ref:
+        score += 1
+
+    # ROI muy bueno
+    if roi_valor >= ROI_MINIMO:
+        score += 2
+
+    # Bonus si la confianza estadística es alta
+    if confianza == "alta" and muestra >= MUESTRA_MINIMA_CONFIABLE:
+        score += 1
+
+    # Penalización por ROI dudoso con mala base
+    if confianza == "baja" and muestra < MUESTRA_MINIMA_CONFIABLE and roi_valor < 5:
+        score -= 1
+
+    # Bonus por texto largo (más informativo)
+    if len(texto) > 300:
+        score += 1
+
+    return score
+
 
 @timeit
 def insertar_anuncio_db(link, modelo, anio, precio, km, roi, score, relevante=False,
