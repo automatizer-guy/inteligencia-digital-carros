@@ -73,10 +73,10 @@ def create_model_pattern():
 
 _PATTERN_YEAR_AFTER_MODEL = create_model_pattern()
 
-_PATTERN_YEAR_AROUND_KEYWORD = re.compile(
-    r"\b(?:año|modelo|año:|modelo:)[:\s]+['`´]?(?P<y>\d{2,4})\b",
-    flags=re.IGNORECASE
+_PATTERN_YEAR_KEYWORD_STRONG = re.compile(
+    r"(modelo|m/|versión|año|m.|modeo:|año:|del|del:)[^\d]{0,5}([12]\d{3})", flags=re.IGNORECASE
 )
+
 
 _PATTERN_PRICE = re.compile(
     r"\b(?:q|\$)?\s*[\d.,]+(?:\s*quetzales?)?\b",
