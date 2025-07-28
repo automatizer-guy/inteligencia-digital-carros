@@ -175,7 +175,8 @@ def es_extranjero(texto: str) -> bool:
     return any(p in texto.lower() for p in LUGARES_EXTRANJEROS)
 
 def validar_precio_coherente(precio: int, modelo: str, anio: int) -> bool:
-    if precio < 5000 or precio > 500000:
+    # CORRECCIÓN: Rango más permisivo para precios bajos
+    if precio < 3000 or precio > 500000:
         return False
 
     ref_info = get_precio_referencia(modelo, anio)
@@ -194,11 +195,13 @@ def validar_precio_coherente(precio: int, modelo: str, anio: int) -> bool:
     return margen_bajo <= precio <= margen_alto
 
 
+
 def limpiar_precio(texto: str) -> int:
     s = re.sub(r"[Qq\$\.,]", "", texto.lower())
     matches = re.findall(r"\b\d{3,7}\b", s)
     año_actual = datetime.now().year
-    candidatos = [int(x) for x in matches if int(x) < 1990 and int(x) > año_actual + 1]
+    # CORRECCIÓN CRÍTICA: Lógica invertida corregida
+    candidatos = [int(x) for x in matches if not (1990 <= int(x) <= año_actual + 1)]
     return candidatos[0] if candidatos else 0
 
 def filtrar_outliers(precios: List[int]) -> List[int]:
