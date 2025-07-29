@@ -584,6 +584,22 @@ def extraer_anio(texto, modelo=None, precio=None, debug=False):
             if norm and MIN_YEAR <= norm <= MAX_YEAR:
                 return norm
 
+
+    def puntuar_candidato_ano(anio: int, contexto: str, modelo: Optional[str] = None) -> int:
+        score = 0
+        if modelo and coincide_modelo(contexto, modelo):
+            score += 50  # vínculo año-modelo
+        if re.search(r"\b(suv|sedan|motor|traspaso|carro|vehículo)\b", contexto.lower()):
+            score += 30  # contexto vehicular
+        if anio > datetime.now().year:
+            score -= 40  # año irreal
+        if re.search(_PATTERN_INVALID_CTX, contexto):
+            score -= 30  # contexto engañoso
+        return score
+
+
+    
+    
     def calcular_score(año: int, contexto: str, fuente: str, precio: Optional[int] = None) -> int:
         # Base
         if fuente == 'modelo':  score = WEIGHT_MODEL
