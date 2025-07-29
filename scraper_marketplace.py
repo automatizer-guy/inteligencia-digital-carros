@@ -139,9 +139,17 @@ async def procesar_lote_urls(page: Page, urls_lote: List[str], modelo: str,
 
     return nuevos_en_lote
 
-def procesar_anuncio_individual(url: str, texto: str, modelo: str, contador: Dict[str, int],
-                              procesados: List[str], potenciales: List[str], 
-                              relevantes: List[str], sin_anio_ejemplos: List[Tuple[str, str]]) -> bool:
+async def procesar_anuncio_individual(
+    url: str,
+    texto: str,
+    modelo: str,
+    contador: Dict[str, int],
+    procesados: List[str],
+    potenciales: List[str],
+    relevantes: List[str],
+    sin_anio_ejemplos: List[Tuple[str, str]]
+) -> bool:
+
     """Procesa un anuncio individual y retorna True si fue procesado exitosamente"""
     
     texto = texto.strip()
