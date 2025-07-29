@@ -180,6 +180,11 @@ def inicializar_tabla_anuncios():
         conn.commit()
 
 
+def normalizar_formatos_ano(texto: str) -> str:
+    # Convierte 2,009 o 2.009 → 2009
+    texto = re.sub(r'\b(\d)[,\.](\d{3})\b', r'\1\2', texto)
+    return texto
+
 
 
 def limpiar_emojis_numericos(texto: str) -> str:
@@ -553,7 +558,8 @@ def es_candidato_año(raw: str) -> bool:
         return False
 
 def extraer_anio(texto, modelo=None, precio=None, debug=False):
-    texto = limpiar_emojis_numericos(texto)  # ← AQUI VA LA INVOCACIÓN
+    texto = limpiar_emojis_numericos(texto) 
+    texto = normalizar_formatos_ano(texto)  
     texto = texto.lower()
     candidatos = {}
 
@@ -962,7 +968,8 @@ def anuncio_diferente(a: Dict[str, Any], b: Dict[str, Any]) -> bool:
     return any(str(a.get(c)) != str(b.get(c)) for c in campos_clave)
 
 def analizar_mensaje(texto: str) -> Optional[Dict[str, Any]]:
-    texto = limpiar_emojis_numericos(texto)  # ← AQUI VA
+    texto = limpiar_emojis_numericos(texto) 
+    texto = normalizar_formatos_ano(texto)  
     precio = limpiar_precio(texto)
     anio = extraer_anio(texto)
     modelo = next((m for m in MODELOS_INTERES if coincide_modelo(texto, m)), None)
