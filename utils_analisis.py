@@ -572,14 +572,25 @@ def extraer_anio(texto, modelo=None, precio=None, debug=False):
     # 0) Búsqueda prioritaria: año tras modelo o cerca de "año"/"modelo"
     for pat in (_PATTERN_YEAR_AROUND_MODEL, _PATTERN_YEAR_AROUND_KEYWORD):
         m = pat.search(texto)
-        if m:
-            raw = m.group("y") if pat == _PATTERN_YEAR_AROUND_MODEL else m.group(2)
+        if not m:
+            continue
+    
+        if pat == _PATTERN_YEAR_AROUND_MODEL:
+            raw = m.groupdict().get("y1") or m.groupdict().get("y2")
+        else:
+            raw = m.group(2)
+    
+        if not raw:
+            continue  # evita errores si raw está vacío
+    
+        try:
             año = int(raw)
-            # Normalizar dos dígitos (ej. '19 → 2019')
             norm = normalizar_año_corto(año) if len(raw) == 2 else año
-            # Verificar rango razonable
-            if norm and MIN_YEAR <= norm <= MAX_YEAR:
+            if MIN_YEAR <= norm <= MAX_YEAR:
                 return norm
+        except ValueError:
+            continue  # skip si raw no es convertible
+
 
 
     def puntuar_candidato_ano(anio: int, contexto: str, modelo: Optional[str] = None) -> int:
