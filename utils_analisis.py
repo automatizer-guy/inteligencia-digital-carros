@@ -179,6 +179,23 @@ def inicializar_tabla_anuncios():
         
         conn.commit()
 
+
+
+
+def limpiar_emojis_numericos(texto: str) -> str:
+    mapa_emojis = {
+        '0️⃣': '0', '1️⃣': '1', '2️⃣': '2', '3️⃣': '3', '4️⃣': '4',
+        '5️⃣': '5', '6️⃣': '6', '7️⃣': '7', '8️⃣': '8', '9️⃣': '9',
+        '⓪': '0', '①': '1', '②': '2', '③': '3', '④': '4',
+        '⑤': '5', '⑥': '6', '⑦': '7', '⑧': '8', '⑨': '9'
+    }
+    for emoji, digito in mapa_emojis.items():
+        texto = texto.replace(emoji, digito)
+    return texto
+
+
+
+
 def limpiar_link(link: Optional[str]) -> str:
     if not link:
         return ""
