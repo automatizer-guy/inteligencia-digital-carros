@@ -680,7 +680,10 @@ def extraer_anio(texto, modelo=None, precio=None, debug=False):
         return None
 
 
-    return max(candidatos.items(), key=lambda x: x[1])[0]
+    mejores = [(a, puntuar_candidato_ano(a, texto, modelo)) for a in candidatos]
+    anio_final = max(mejores, key=lambda x: x[1])[0]
+    return anio_final
+
 
 def _remover_precios_del_texto_mejorado(texto: str) -> str:
     """
