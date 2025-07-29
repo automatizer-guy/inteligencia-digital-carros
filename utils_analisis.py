@@ -936,7 +936,14 @@ def analizar_mensaje(texto: str) -> Optional[Dict[str, Any]]:
     if not validar_precio_coherente(precio, modelo, anio):
         return None
     roi_data = calcular_roi_real(modelo, precio, anio)
-    score = puntuar_anuncio(texto, roi_data)
+    score = puntuar_anuncio({
+        "texto": texto,
+        "modelo": modelo,
+        "anio": anio,
+        "precio": precio,
+        "roi": roi_data.get("roi", 0)
+    })  # ✅ Argumento único tipo dict
+
     url = next((l for l in texto.split() if l.startswith("http")), "")
     return {
         "url": limpiar_link(url),  # Cambié link por url para mantener consistencia
