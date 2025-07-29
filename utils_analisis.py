@@ -588,13 +588,12 @@ def extraer_anio(texto, modelo=None, precio=None, debug=False):
     def puntuar_candidato_ano(anio: int, contexto: str, modelo: Optional[str] = None) -> int:
         score = 0
         if modelo and coincide_modelo(contexto, modelo):
-            score += 50  # vínculo año-modelo
-        if re.search(r"\b(suv|sedan|motor|traspaso|carro|vehículo)\b", contexto.lower()):
-            score += 30  # contexto vehicular
+            score += 40
+        score += _score_contexto_vehicular_mejorado(contexto, [modelo] if modelo else [])
         if anio > datetime.now().year:
-            score -= 40  # año irreal
+            score -= 40
         if re.search(_PATTERN_INVALID_CTX, contexto):
-            score -= 30  # contexto engañoso
+            score -= 30
         return score
 
 
