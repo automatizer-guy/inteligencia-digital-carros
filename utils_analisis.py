@@ -553,6 +553,7 @@ def es_candidato_año(raw: str) -> bool:
         return False
 
 def extraer_anio(texto, modelo=None, precio=None, debug=False):
+    texto = limpiar_emojis_numericos(texto)  # ← AQUI VA LA INVOCACIÓN
     texto = texto.lower()
     candidatos = {}
 
@@ -961,6 +962,7 @@ def anuncio_diferente(a: Dict[str, Any], b: Dict[str, Any]) -> bool:
     return any(str(a.get(c)) != str(b.get(c)) for c in campos_clave)
 
 def analizar_mensaje(texto: str) -> Optional[Dict[str, Any]]:
+    texto = limpiar_emojis_numericos(texto)  # ← AQUI VA
     precio = limpiar_precio(texto)
     anio = extraer_anio(texto)
     modelo = next((m for m in MODELOS_INTERES if coincide_modelo(texto, m)), None)
