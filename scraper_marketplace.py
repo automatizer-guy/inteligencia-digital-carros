@@ -165,11 +165,26 @@ def procesar_anuncio_individual(url: str, texto: str, modelo: str, contador: Dic
         return False
 
     anio = extraer_anio(texto)
+
+    # Intento expandir descripción solo si no hay año válido
+    if not anio or not (1990 <= anio <= datetime.now().year):
+        ver_mas = await page.query_selector("div[role='main'] span:has-text('Ver más')")
+        if ver_mas:
+            await ver_mas.click()
+            await asyncio.sleep(1.5)
+            texto_expandido = await page.inner_text("div[role='main']")
+            anio_expandido = extraer_anio(texto_expandido)
+            if anio_expandido and (1990 <= anio_expandido <= datetime.now().year):
+                anio = anio_expandido
+    
+    # Segunda validación después del intento expandido
     if not anio or not (1990 <= anio <= datetime.now().year):
         contador["sin_anio"] += 1
         if len(sin_anio_ejemplos) < MAX_EJEMPLOS_SIN_ANIO:
             sin_anio_ejemplos.append((texto, url))
         return False
+
+
 
     roi_data = calcular_roi_real(modelo, precio, anio)
     score = puntuar_anuncio({
