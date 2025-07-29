@@ -65,13 +65,27 @@ _PATTERN_YEAR_FULL = re.compile(r"\b(19\d{2}|20\d{2})\b")
 _PATTERN_YEAR_SHORT = re.compile(r"['`´]?(\d{2})\b")
 
 # Crear patrones sin lookbehind variable
-def create_model_pattern():
-    modelos_escapados = [re.escape(m) for m in MODELOS_INTERES]
-    # Usar captura de grupo en lugar de lookbehind
-    pattern = rf"\b(?:{'|'.join(modelos_escapados)})\s+['`\u00b4]?(?P<y>\d{{2,4}})\b"
-    return re.compile(pattern, flags=re.IGNORECASE)
+def create_model_year_pattern(sinonimos: Dict[str, List[str]]) -> re.Pattern:
+    # Unir todas las variantes de todos los modelos
+    variantes = []
+    for lista in sinonimos.values():
+        variantes.extend(lista)
 
-_PATTERN_YEAR_AFTER_MODEL = create_model_pattern()
+    # Escapar todas las variantes para el regex
+    modelos_escapados = [re.escape(v) for v in variantes]
+    modelos_union = '|'.join(modelos_escapados)
+
+    # Regex: año antes o después del modelo (formato 2 o 4 dígitos)
+    pattern = rf"""
+        \b(?P<y1>\d{{2,4}})\s+(?:{modelos_union})\b  |  # año antes
+        \b(?:{modelos_union})\s+(?P<y2>\d{{2,4}})\b     # año después
+    """
+
+    return re.compile(pattern, flags=re.IGNORECASE | re.VERBOSE)
+
+
+_PATTERN_YEAR_AROUND_MODEL = create_model_year_pattern(sinonimos)
+
 
 _PATTERN_YEAR_AROUND_KEYWORD = re.compile(
     r"(modelo|m/|versión|año|m.|modelo:|año:|del|del:|md|md:)[^\d]{0,5}([12]\d{3})", flags=re.IGNORECASE
@@ -533,10 +547,10 @@ def extraer_anio(texto, modelo=None, precio=None, debug=False):
     texto = _PATTERN_INVALID_CTX.sub("", texto)
 
     # 0) Búsqueda prioritaria: año tras modelo o cerca de "año"/"modelo"
-    for pat in (_PATTERN_YEAR_AFTER_MODEL, _PATTERN_YEAR_AROUND_KEYWORD):
+    for pat in (_PATTERN_YEAR_AROUND_MODEL, _PATTERN_YEAR_AROUND_KEYWORD):
         m = pat.search(texto)
         if m:
-            raw = m.group("y") if pat == _PATTERN_YEAR_AFTER_MODEL else m.group(2)
+            raw = m.group("y") if pat == _PATTERN_YEAR_AROUND_MODEL else m.group(2)
             año = int(raw)
             # Normalizar dos dígitos (ej. '19 → 2019')
             norm = normalizar_año_corto(año) if len(raw) == 2 else año
