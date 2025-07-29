@@ -127,7 +127,7 @@ async def procesar_lote_urls(page: Page, urls_lote: List[str], modelo: str,
             continue
 
         # Procesamiento del anuncio (mantiene la lógica original)
-        if not procesar_anuncio_individual(url, texto, modelo, contador, 
+        if not await procesar_anuncio_individual(url, texto, modelo, contador, 
                                          procesados, potenciales, relevantes, sin_anio_ejemplos):
             continue
             
