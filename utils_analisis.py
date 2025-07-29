@@ -63,6 +63,8 @@ LUGARES_EXTRANJEROS = [
 # Patrones precompilados para extraer año
 _PATTERN_YEAR_FULL = re.compile(r"\b(19\d{2}|20\d{2})\b")
 _PATTERN_YEAR_SHORT = re.compile(r"['`´]?(\d{2})\b")
+_PATTERN_YEAR_EMOJI = re.compile(r"([0-9️⃣]{4,8})")
+_PATTERN_YEAR_SPECIAL = re.compile(r"\b(\d{1,2}[,.]\d{3})\b")
 
 # Crear patrones sin lookbehind variable
 def create_model_year_pattern(sinonimos: Dict[str, List[str]]) -> re.Pattern:
