@@ -157,7 +157,14 @@ def procesar_anuncio_individual(url: str, texto: str, modelo: str, contador: Dic
         return False
 
     roi_data = calcular_roi_real(modelo, precio, anio)
-    score = puntuar_anuncio(texto, roi_data)
+    score = puntuar_anuncio({
+        "texto": texto,
+        "modelo": modelo,
+        "anio": anio,
+        "precio": precio,
+        "roi": roi_data.get("roi", 0)
+    })  # ✅ Argumento único tipo dict
+
     relevante = score >= SCORE_MIN_TELEGRAM and roi_data["roi"] >= ROI_MINIMO
 
     mensaje_base = (
