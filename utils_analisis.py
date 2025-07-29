@@ -86,179 +86,7 @@ def create_model_year_pattern(sinonimos: Dict[str, List[str]]) -> re.Pattern:
     return re.compile(pattern, flags=re.IGNORECASE | re.VERBOSE)
 
 
-_PATTERN_YEAR_AROUND_MODEL = create_model_year_pattern(sinonimos)
-
-
-_PATTERN_YEAR_AROUND_KEYWORD = re.compile(
-    r"(modelo|m/|versión|año|m.|modelo:|año:|del|del:|md|md:)[^\d]{0,5}([12]\d{3})", flags=re.IGNORECASE
-)
-
-
-_PATTERN_PRICE = re.compile(
-    r"\b(?:q|\$)?\s*[\d.,]+(?:\s*quetzales?)?\b",
-    flags=re.IGNORECASE
-)
-_PATTERN_INVALID_CTX = re.compile(
-    r"\b(?:miembro desde|publicado en|nacido en|creado en|registro|Se unió a Facebook en|perfil creado|calcomania|calcomania:|calcomania del|calcomania del:)\b.*?(19\d{2}|20\d{2})",
-    flags=re.IGNORECASE
-)
-
-def timeit(func):
-    def wrapper(*args, **kwargs):
-        if not DEBUG:
-            return func(*args, **kwargs)
-        start = time.perf_counter()
-        result = func(*args, **kwargs)
-        elapsed = time.perf_counter() - start
-        print(f"⌛ {func.__name__} took {elapsed:.3f}s")
-        return result
-    return wrapper
-
-@contextmanager
-def get_db_connection():
-    conn = sqlite3.connect(DB_PATH, check_same_thread=False)
-    try:
-        yield conn
-    finally:
-        conn.close()
-
-_conn: Optional[sqlite3.Connection] = None
-
-def get_conn():
-    global _conn
-    if _conn is None:
-        _conn = sqlite3.connect(DB_PATH, check_same_thread=False)
-    return _conn
-
-@timeit
-def inicializar_tabla_anuncios():
-    with get_db_connection() as conn:
-        cur = conn.cursor()
-        
-        # Verificar si la tabla existe
-        cur.execute("""
-            SELECT name FROM sqlite_master 
-            WHERE type='table' AND name='anuncios'
-        """)
-        tabla_existe = cur.fetchone() is not None
-        
-        if not tabla_existe:
-            # Crear tabla con estructura básica
-            cur.execute("""
-                CREATE TABLE anuncios (
-                    link TEXT PRIMARY KEY,
-                    modelo TEXT,
-                    anio INTEGER,
-                    precio INTEGER,
-                    km TEXT,
-                    fecha_scrape DATE,
-                    roi REAL,
-                    score INTEGER
-                )
-            """)
-            print("✅ Tabla anuncios creada con estructura básica")
-        
-        # Verificar columnas existentes
-        cur.execute("PRAGMA table_info(anuncios)")
-        columnas_existentes = {row[1] for row in cur.fetchall()}
-        
-        # Agregar columnas adicionales si no existen
-        nuevas_columnas = {
-            "relevante": "BOOLEAN DEFAULT 0",
-            "confianza_precio": "TEXT DEFAULT 'baja'",
-            "muestra_precio": "INTEGER DEFAULT 0"
-        }
-        
-        for nombre, definicion in nuevas_columnas.items():
-            if nombre not in columnas_existentes:
-                try:
-                    cur.execute(f"ALTER TABLE anuncios ADD COLUMN {nombre} {definicion}")
-                    print(f"✅ Columna '{nombre}' agregada")
-                except sqlite3.OperationalError as e:
-                    print(f"⚠️ Error al agregar columna '{nombre}': {e}")
-        
-        conn.commit()
-
-
-def normalizar_formatos_ano(texto: str) -> str:
-    # Convierte 2,009 o 2.009 → 2009
-    texto = re.sub(r'\b(\d)[,\.](\d{3})\b', r'\1\2', texto)
-    return texto
-
-
-
-def limpiar_emojis_numericos(texto: str) -> str:
-    mapa_emojis = {
-        '0️⃣': '0', '1️⃣': '1', '2️⃣': '2', '3️⃣': '3', '4️⃣': '4',
-        '5️⃣': '5', '6️⃣': '6', '7️⃣': '7', '8️⃣': '8', '9️⃣': '9',
-        '⓪': '0', '①': '1', '②': '2', '③': '3', '④': '4',
-        '⑤': '5', '⑥': '6', '⑦': '7', '⑧': '8', '⑨': '9'
-    }
-    for emoji, digito in mapa_emojis.items():
-        texto = texto.replace(emoji, digito)
-    return texto
-
-
-
-
-def limpiar_link(link: Optional[str]) -> str:
-    if not link:
-        return ""
-    return ''.join(c for c in link.strip() if c.isascii() and c.isprintable())
-
-def contiene_negativos(texto: str) -> bool:
-    return any(p in texto.lower() for p in PALABRAS_NEGATIVAS)
-
-def es_extranjero(texto: str) -> bool:
-    return any(p in texto.lower() for p in LUGARES_EXTRANJEROS)
-
-def validar_precio_coherente(precio: int, modelo: str, anio: int) -> bool:
-    # CORRECCIÓN: Rango más permisivo para precios bajos
-    if precio < 3000 or precio > 500000:
-        return False
-
-    ref_info = get_precio_referencia(modelo, anio)
-    precio_ref = ref_info.get("precio", PRECIOS_POR_DEFECTO.get(modelo, 50000))
-    muestra = ref_info.get("muestra", 0)
-
-    # Si hay datos confiables, usar rango dinámico basado en precio_ref real
-    if muestra >= MUESTRA_MINIMA_CONFIABLE:
-        margen_bajo = 0.3 * precio_ref  # más permisivo para gangas
-        margen_alto = 2.5 * precio_ref
-    else:
-        # Si no hay muestra confiable, usar rangos clásicos con precio por defecto
-        margen_bajo = 0.2 * precio_ref
-        margen_alto = 2.5 * precio_ref
-
-    return margen_bajo <= precio <= margen_alto
-
-
-
-def limpiar_precio(texto: str) -> int:
-    s = re.sub(r"[Qq\$\.,]", "", texto.lower())
-    matches = re.findall(r"\b\d{3,7}\b", s)
-    año_actual = datetime.now().year
-    # CORRECCIÓN CRÍTICA: Lógica invertida corregida
-    candidatos = [int(x) for x in matches if not (1990 <= int(x) <= año_actual + 1)]
-    return candidatos[0] if candidatos else 0
-
-def filtrar_outliers(precios: List[int]) -> List[int]:
-    if len(precios) < 4:
-        return precios
-    try:
-        q1, q3 = statistics.quantiles(precios, n=4)[0], statistics.quantiles(precios, n=4)[2]
-        iqr = q3 - q1
-        lim_inf = q1 - 2.0 * iqr
-        lim_sup = q3 + 2.0 * iqr
-        filtrados = [p for p in precios if lim_inf <= p <= lim_sup]
-        return filtrados if len(filtrados) >= 2 else precios
-    except:
-        return precios
-
-def coincide_modelo(texto: str, modelo: str) -> bool:
-    texto_l = unicodedata.normalize("NFKD", texto.lower())
-    modelo_l = modelo.lower()
-    sinonimos = {
+sinonimos = {
         "yaris": [
             # Nombres oficiales y variantes regionales
             "yaris", "toyota yaris", "new yaris", "yaris sedan", "yaris hatchback", "yaris hb",
@@ -525,10 +353,179 @@ def coincide_modelo(texto: str, modelo: str) -> bool:
 
 
 
+_PATTERN_YEAR_AROUND_MODEL = create_model_year_pattern(sinonimos)
+
+
+_PATTERN_YEAR_AROUND_KEYWORD = re.compile(
+    r"(modelo|m/|versión|año|m.|modelo:|año:|del|del:|md|md:)[^\d]{0,5}([12]\d{3})", flags=re.IGNORECASE
+)
+
+
+_PATTERN_PRICE = re.compile(
+    r"\b(?:q|\$)?\s*[\d.,]+(?:\s*quetzales?)?\b",
+    flags=re.IGNORECASE
+)
+_PATTERN_INVALID_CTX = re.compile(
+    r"\b(?:miembro desde|publicado en|nacido en|creado en|registro|Se unió a Facebook en|perfil creado|calcomania|calcomania:|calcomania del|calcomania del:)\b.*?(19\d{2}|20\d{2})",
+    flags=re.IGNORECASE
+)
+
+def timeit(func):
+    def wrapper(*args, **kwargs):
+        if not DEBUG:
+            return func(*args, **kwargs)
+        start = time.perf_counter()
+        result = func(*args, **kwargs)
+        elapsed = time.perf_counter() - start
+        print(f"⌛ {func.__name__} took {elapsed:.3f}s")
+        return result
+    return wrapper
+
+@contextmanager
+def get_db_connection():
+    conn = sqlite3.connect(DB_PATH, check_same_thread=False)
+    try:
+        yield conn
+    finally:
+        conn.close()
+
+_conn: Optional[sqlite3.Connection] = None
+
+def get_conn():
+    global _conn
+    if _conn is None:
+        _conn = sqlite3.connect(DB_PATH, check_same_thread=False)
+    return _conn
+
+@timeit
+def inicializar_tabla_anuncios():
+    with get_db_connection() as conn:
+        cur = conn.cursor()
+        
+        # Verificar si la tabla existe
+        cur.execute("""
+            SELECT name FROM sqlite_master 
+            WHERE type='table' AND name='anuncios'
+        """)
+        tabla_existe = cur.fetchone() is not None
+        
+        if not tabla_existe:
+            # Crear tabla con estructura básica
+            cur.execute("""
+                CREATE TABLE anuncios (
+                    link TEXT PRIMARY KEY,
+                    modelo TEXT,
+                    anio INTEGER,
+                    precio INTEGER,
+                    km TEXT,
+                    fecha_scrape DATE,
+                    roi REAL,
+                    score INTEGER
+                )
+            """)
+            print("✅ Tabla anuncios creada con estructura básica")
+        
+        # Verificar columnas existentes
+        cur.execute("PRAGMA table_info(anuncios)")
+        columnas_existentes = {row[1] for row in cur.fetchall()}
+        
+        # Agregar columnas adicionales si no existen
+        nuevas_columnas = {
+            "relevante": "BOOLEAN DEFAULT 0",
+            "confianza_precio": "TEXT DEFAULT 'baja'",
+            "muestra_precio": "INTEGER DEFAULT 0"
+        }
+        
+        for nombre, definicion in nuevas_columnas.items():
+            if nombre not in columnas_existentes:
+                try:
+                    cur.execute(f"ALTER TABLE anuncios ADD COLUMN {nombre} {definicion}")
+                    print(f"✅ Columna '{nombre}' agregada")
+                except sqlite3.OperationalError as e:
+                    print(f"⚠️ Error al agregar columna '{nombre}': {e}")
+        
+        conn.commit()
+
+
+def normalizar_formatos_ano(texto: str) -> str:
+    # Convierte 2,009 o 2.009 → 2009
+    texto = re.sub(r'\b(\d)[,\.](\d{3})\b', r'\1\2', texto)
+    return texto
 
 
 
-    
+def limpiar_emojis_numericos(texto: str) -> str:
+    mapa_emojis = {
+        '0️⃣': '0', '1️⃣': '1', '2️⃣': '2', '3️⃣': '3', '4️⃣': '4',
+        '5️⃣': '5', '6️⃣': '6', '7️⃣': '7', '8️⃣': '8', '9️⃣': '9',
+        '⓪': '0', '①': '1', '②': '2', '③': '3', '④': '4',
+        '⑤': '5', '⑥': '6', '⑦': '7', '⑧': '8', '⑨': '9'
+    }
+    for emoji, digito in mapa_emojis.items():
+        texto = texto.replace(emoji, digito)
+    return texto
+
+
+
+
+def limpiar_link(link: Optional[str]) -> str:
+    if not link:
+        return ""
+    return ''.join(c for c in link.strip() if c.isascii() and c.isprintable())
+
+def contiene_negativos(texto: str) -> bool:
+    return any(p in texto.lower() for p in PALABRAS_NEGATIVAS)
+
+def es_extranjero(texto: str) -> bool:
+    return any(p in texto.lower() for p in LUGARES_EXTRANJEROS)
+
+def validar_precio_coherente(precio: int, modelo: str, anio: int) -> bool:
+    # CORRECCIÓN: Rango más permisivo para precios bajos
+    if precio < 3000 or precio > 500000:
+        return False
+
+    ref_info = get_precio_referencia(modelo, anio)
+    precio_ref = ref_info.get("precio", PRECIOS_POR_DEFECTO.get(modelo, 50000))
+    muestra = ref_info.get("muestra", 0)
+
+    # Si hay datos confiables, usar rango dinámico basado en precio_ref real
+    if muestra >= MUESTRA_MINIMA_CONFIABLE:
+        margen_bajo = 0.3 * precio_ref  # más permisivo para gangas
+        margen_alto = 2.5 * precio_ref
+    else:
+        # Si no hay muestra confiable, usar rangos clásicos con precio por defecto
+        margen_bajo = 0.2 * precio_ref
+        margen_alto = 2.5 * precio_ref
+
+    return margen_bajo <= precio <= margen_alto
+
+
+
+def limpiar_precio(texto: str) -> int:
+    s = re.sub(r"[Qq\$\.,]", "", texto.lower())
+    matches = re.findall(r"\b\d{3,7}\b", s)
+    año_actual = datetime.now().year
+    # CORRECCIÓN CRÍTICA: Lógica invertida corregida
+    candidatos = [int(x) for x in matches if not (1990 <= int(x) <= año_actual + 1)]
+    return candidatos[0] if candidatos else 0
+
+def filtrar_outliers(precios: List[int]) -> List[int]:
+    if len(precios) < 4:
+        return precios
+    try:
+        q1, q3 = statistics.quantiles(precios, n=4)[0], statistics.quantiles(precios, n=4)[2]
+        iqr = q3 - q1
+        lim_inf = q1 - 2.0 * iqr
+        lim_sup = q3 + 2.0 * iqr
+        filtrados = [p for p in precios if lim_inf <= p <= lim_sup]
+        return filtrados if len(filtrados) >= 2 else precios
+    except:
+        return precios
+
+def coincide_modelo(texto: str, modelo: str) -> bool:
+    texto_l = unicodedata.normalize("NFKD", texto.lower())
+    modelo_l = modelo.lower()
+
     variantes = sinonimos.get(modelo_l, []) + [modelo_l]
     texto_limpio = unicodedata.normalize("NFKD", texto_l).encode("ascii", "ignore").decode("ascii")
     return any(v in texto_limpio for v in variantes)
