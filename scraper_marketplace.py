@@ -27,9 +27,9 @@ ROI_POTENCIAL_MIN = ROI_MINIMO - 10
 
 # Configuración optimizada
 MAX_SCROLLS_POR_SORT = 15  # Reducido de 25
-MIN_DELAY = 1.2  # Reducido de 2.0
-MAX_DELAY = 2.5  # Reducido de 4.0
-DELAY_ENTRE_ANUNCIOS = 1.8  # Reducido de 2.5
+MIN_DELAY = 2  # Reducido de 2.0
+MAX_DELAY = 4  # Reducido de 4.0
+DELAY_ENTRE_ANUNCIOS = 2  # Reducido de 2.5
 MAX_CONSECUTIVOS_SIN_NUEVOS = 3  # Reducido de 5
 BATCH_SIZE_SCROLL = 8  # Procesar en lotes pequeños
 
@@ -74,11 +74,26 @@ async def extraer_items_pagina(page: Page) -> List[Dict[str, str]]:
         return []
 
 async def scroll_hasta(page: Page) -> bool:
+    # Simular movimiento de mouse humano antes del scroll
+    await page.mouse.move(
+        random.randint(100, 800),
+        random.randint(100, 600)
+    )
+    await asyncio.sleep(random.uniform(0.5, 1.2))  # Pausa entre movimiento y scroll
+
+    # Evaluar altura inicial de la página
     prev = await page.evaluate("document.body.scrollHeight")
-    await page.mouse.wheel(0, random.randint(350, 450))  # Scroll variable
-    await asyncio.sleep(random.uniform(0.6, 1.0))  # Delay más corto
+
+    # Scroll más suave y realista
+    await page.mouse.wheel(0, random.randint(150, 300))
+    await asyncio.sleep(random.uniform(1.5, 2.5))  # Delay más humano
+
+    # Evaluar nueva altura de la página
     now = await page.evaluate("document.body.scrollHeight")
+
+    # Devolver si hubo cambio de altura (scroll efectivo)
     return now > prev
+
 
 async def procesar_lote_urls(page: Page, urls_lote: List[str], modelo: str, 
                            vistos_globales: Set[str], contador: Dict[str, int],
