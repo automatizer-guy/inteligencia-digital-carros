@@ -1,8 +1,31 @@
 from correcciones import guardar_correccion
 
 # Ejemplos: podés duplicar estas líneas para añadir más correcciones
-from correcciones import guardar_correccion
 
+guardar_correccion("CR-V 2000", 2000)
+guardar_correccion("CR-V 2,000", 2000)
+guardar_correccion("Vendo Honda CR-V LX - 2007", 2007)
+guardar_correccion("Vendo bonita Honda Crv
+
+💥Modelo 2005", 2005)
+guardar_correccion("Sé vende honda CR-V modelo 2004", 2004)
+guardar_correccion("Honda CR-V modelo 2010", 2010)
+guardar_correccion("Toyota rav4 automática 2008", 2008)
+guardar_correccion("Se vende Toyota rav4 4x4 modelo 2009", 2009)
+guardar_correccion("TOYOTA RAV4 MODELO 2004. 4X4", 2004)
+guardar_correccion("GANGA!!! EN VENTA TOYOTA RAV4 4X4. MODELO 98", 1998)
+guardar_correccion("✅HERMOSA TOYOTA RAV4 SPORT😎
+✅MODELO 2009", 2009)
+guardar_correccion("Toyota 🔥 RAV4 
+✅Modelo 1997", 1997)
+guardar_correccion("Honda ex 2011", 2011)
+guardar_correccion("Honda Fit Sport 2011, 2011)
+guardar_correccion("Honda Fit, 2016 EX acepto, vehículo, 2016)
+guardar_correccion("Honda civic ex modelo 2000", 2000)
+guardar_correccion("HONDA ELEMENT 2010 AWD", 2010)
+guardar_correccion("Ganga honda Accord 2011 Recibo vehículo 4 cilindros 2.4", 2011)
+
+                
 guardar_correccion("Suzuki Grand Vitara Limited 2011",2011)
 guardar_correccion("Suzuki Grand 
 Vitara Limited
