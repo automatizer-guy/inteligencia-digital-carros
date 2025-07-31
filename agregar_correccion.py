@@ -3,6 +3,44 @@ from correcciones import guardar_correccion
 # Ejemplos: podés duplicar estas líneas para añadir más correcciones
 from correcciones import guardar_correccion
 
+guardar_correccion("Suzuki Grand 
+Vitara Limited
+        2011", 2011)
+guardar_correccion("Suzuki Grand Vitara Limited 2011", 2011)
+guardar_correccion("Chevrolet tracker 4WD 2.0 2003 automático", 2003)
+guardar_correccion("Chevrolet Tracker 4WD
+Año 2003", 2003)
+guardar_correccion("Nissas micra SV modelo 2015", 2015)
+guardar_correccion("NISSAN MICRA SV
+MODELO: 2015", 2015)
+guardar_correccion("2016 Nissan 2016", 2016)
+guardar_correccion("Nissan Versa Note S  2016", 2016)
+guardar_correccion("Nissan Versa 2015", 2015)
+guardar_correccion("Nissan Versa Note S  2015", 2015)
+guardar_correccion("NISSAN VERSA NOTE S HACHBACK MODELO 2015", 2015)
+guardar_correccion("NISSAN VERSA NOTE S HACHBACK MODELO 2015 MECÁNICO 4 CILINDROS GASOLINA 1600", 2015)
+guardar_correccion("Vendo nissan sentra modelo 87 activo", 1987)
+guardar_correccion("Vendo nissan sentra modelo 87 activo", 1987) 
+guardar_correccion("Honda civic 
+Modelo 96", 1996)
+guardar_correccion("🔰honda civic modelo 99", 1999)
+guardar_correccion("Vendo honda civic modelo 96 línea DX", 1996)
+guardar_correccion("iiiiii Vendo Suzuki Swift!!!!
+✅modelo 2006", 2006)
+guardar_correccion("Suzuki Swift Sport
+Modelo 2013", 2013)
+guardar_correccion("Vendo o cambio Suzuki Swift mecánico 2015", 2015)
+guardar_correccion("Vendo o cambio Suzuki Swift 
+Modelo 2015", 2015) 
+guardar_correccion("Vendo suzuki alto modelo 2011", 2011)
+guardar_correccion("Vendo suzuki alto 
+Modelo: 2011", 2011)
+guardar_correccion("HYUNDAI ACCENT PREMIUM GLS 2013 AUTOMATICO 🚘", 2013)
+guardar_correccion("VENDO LINDO HYUNDAI ACCENT PREMIUM 2013 gls", 2013)
+guardar_correccion("Hyundai Accent GS 2016", 2016)
+guardar_correccion("HONDA CR-V 4WD. (4*4) AUTOMÁTICA MODELO 2002", 2002)
+guardar_correccion("Honda CR-V automática 4x4 modelo 2006 elegante a toda prueba precio fijo precio fijo", 2006)
+guardar_correccion("Vendo camioneta Honda CR-V LX 2WD automática modelo 2005 Motor 2.4 Cc", 2005)
 guardar_correccion("civic 98", 1998)
 guardar_correccion("hondita 09", 2009)
 guardar_correccion("Vendo o cambio Suzuki Swift mecánico 2015", 2015)
