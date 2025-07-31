@@ -7,6 +7,7 @@ import statistics
 from datetime import datetime
 from typing import Optional, Dict, Any, List, Tuple
 from contextlib import contextmanager
+from correcciones import obtener_correccion
 
 def escapar_multilinea(texto: str) -> str:
     return re.sub(r'([_*\[\]()~`>#+=|{}.!\\-])', r'\\\1', texto)
@@ -559,6 +560,12 @@ def extraer_anio(texto, modelo=None, precio=None, debug=False):
     texto = normalizar_formatos_ano(texto)  
     texto = texto.lower()
     candidatos = {}
+    correccion_manual = obtener_correccion(texto)
+    if correccion_manual:
+        if debug:
+            print(f"✅ Corrección manual aplicada para: {texto[:50]} → {correccion_manual}")
+        return correccion_manual
+
 
     def normalizar_año_corto(a):
         if a < 100:
