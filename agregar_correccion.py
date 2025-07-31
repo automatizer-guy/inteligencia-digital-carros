@@ -2,6 +2,8 @@ from correcciones import guardar_correccion
 
 # Ejemplos: podés duplicar estas líneas para añadir más correcciones
 
+guardar_correccion("Remato Toyota yaris año 2007 automático, aire acondicionado frío, motor y caja a toda prueba", 2007)
+guardar_correccion("Vendo precioso Toyota Yaris automático modelo 07 recién ingreso tel 59860626", 2007)
 guardar_correccion("CR-V 2000", 2000)
 guardar_correccion("CR-V 2,000", 2000)
 guardar_correccion("Vendo Honda CR-V LX - 2007", 2007)
