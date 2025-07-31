@@ -558,14 +558,15 @@ def es_candidato_año(raw: str) -> bool:
 def extraer_anio(texto, modelo=None, precio=None, debug=False):
     texto = limpiar_emojis_numericos(texto) 
     texto = normalizar_formatos_ano(texto)  
+    texto_original = texto  # ✅ NUEVO: Guardar texto original
     texto = texto.lower()
     candidatos = {}
-    correccion_manual = obtener_correccion(texto)
+
+    correccion_manual = obtener_correccion(texto_original)
     if correccion_manual:
         if debug:
-            print(f"✅ Corrección manual aplicada para: {texto[:50]} → {correccion_manual}")
+            print(f"✅ Corrección manual aplicada para: {texto_original[:50]} → {correccion_manual}")
         return correccion_manual
-
 
     def normalizar_año_corto(a):
         if a < 100:
