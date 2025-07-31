@@ -3,10 +3,10 @@ from correcciones import guardar_correccion
 # Ejemplos: podés duplicar estas líneas para añadir más correcciones
 from correcciones import guardar_correccion
 
+guardar_correccion("Suzuki Grand Vitara Limited 2011",2011)
 guardar_correccion("Suzuki Grand 
 Vitara Limited
         2011", 2011)
-guardar_correccion("Suzuki Grand Vitara Limited 2011", 2011)
 guardar_correccion("Chevrolet tracker 4WD 2.0 2003 automático", 2003)
 guardar_correccion("Chevrolet Tracker 4WD
 Año 2003", 2003)
