@@ -186,4 +186,134 @@ def estadisticas_correcciones():
         # Mostrar estadísticas del sistema inteligente
         detector.estadisticas_sistema()
     else:
-        # Estadísticas básicas
+        # Estadísticas básicas originales
+        correcciones = cargar_correcciones()
+        
+        if not correcciones:
+            print("📊 No hay correcciones guardadas")
+            return
+        
+        # Contar por décadas
+        por_decada = {}
+        for año in correcciones.values():
+            decada = (año // 10) * 10
+            por_decada[decada] = por_decada.get(decada, 0) + 1
+        
+        print("📊 Estadísticas de correcciones:")
+        print(f"  Total: {len(correcciones)}")
+        print("  Por década:")
+        for decada in sorted(por_decada.keys()):
+            print(f"    {decada}s: {por_decada[decada]} correcciones")
+        
+        # Años más comunes
+        años_comunes = {}
+        for año in correcciones.values():
+            años_comunes[año] = años_comunes.get(año, 0) + 1
+        
+        print("  Años más frecuentes:")
+        for año, count in sorted(años_comunes.items(), key=lambda x: -x[1])[:5]:
+            print(f"    {año}: {count} correcciones")
+
+def limpiar_correcciones_duplicadas():
+    """
+    Limpia correcciones duplicadas o muy similares
+    🔄 COMPATIBLE: Función original mantenida
+    """
+    correcciones = cargar_correcciones()
+    original_count = len(correcciones)
+    
+    # Agrupar por año y encontrar textos muy similares
+    por_año = {}
+    for texto, año in correcciones.items():
+        if año not in por_año:
+            por_año[año] = []
+        por_año[año].append(texto)
+    
+    correcciones_limpias = {}
+    
+    for año, textos in por_año.items():
+        textos_únicos = []
+        
+        for texto in textos:
+            # Verificar si es muy similar a algún texto ya guardado
+            es_similar = False
+            for texto_único in textos_únicos:
+                # Calcular similitud básica
+                palabras1 = set(texto.split())
+                palabras2 = set(texto_único.split())
+                intersection = len(palabras1.intersection(palabras2))
+                union = len(palabras1.union(palabras2))
+                similitud = intersection / union if union > 0 else 0
+                
+                if similitud > 0.8:  # 80% de similitud
+                    es_similar = True
+                    break
+            
+            if not es_similar:
+                textos_únicos.append(texto)
+                correcciones_limpias[texto] = año
+    
+    # Guardar correcciones limpias
+    try:
+        with open(CORRECCIONES_FILE, "w", encoding="utf-8") as f:
+            json.dump(correcciones_limpias, f, indent=2, ensure_ascii=False)
+        
+        print(f"🧹 Limpieza completada:")
+        print(f"  - Antes: {original_count} correcciones")
+        print(f"  - Después: {len(correcciones_limpias)} correcciones")
+        print(f"  - Eliminadas: {original_count - len(correcciones_limpias)} duplicadas")
+        
+        # Si hay detector inteligente, recargar y re-aprender
+        detector = _get_detector()
+        if detector:
+            detector.cargar_y_aprender()
+            print("🧠 Patrones re-aprendidos con correcciones limpias")
+        
+    except Exception as e:
+        print(f"❌ Error al limpiar correcciones: {e}")
+
+def test_sistema_inteligente():
+    """
+    🧪 FUNCIÓN DE TESTING: Prueba el sistema inteligente
+    """
+    print("🧪 PROBANDO SISTEMA INTELIGENTE DE DETECCIÓN")
+    print("="*50)
+    
+    casos_prueba = [
+        "Toyota yaris modelo 09",
+        "Honda civic modelo 03", 
+        "Suzuki swift año 2011",
+        "Toyota yaris del 2012",
+        "Honda accord 2015",
+        "Nissan sentra modelo 05 activo",
+        "Vendo toyota corolla modelo 08",
+        "Hyundai accent modelo 14 automático"
+    ]
+    
+    aciertos = 0
+    for i, caso in enumerate(casos_prueba, 1):
+        print(f"\n📱 CASO {i}: '{caso}'")
+        resultado = obtener_correccion(caso, debug=True)
+        
+        if resultado:
+            print(f"  ✅ DETECTADO: {resultado}")
+            aciertos += 1
+        else:
+            print(f"  ❌ No detectado")
+    
+    print(f"\n📊 RESULTADO: {aciertos}/{len(casos_prueba)} casos exitosos")
+    print(f"📈 Tasa de éxito: {aciertos/len(casos_prueba)*100:.1f}%")
+
+# FUNCIÓN PRINCIPAL PARA COMPATIBILIDAD TOTAL
+def main():
+    """Función principal para testing"""
+    detector = _get_detector()
+    
+    if detector:
+        print("🚀 Sistema inteligente cargado exitosamente")
+        test_sistema_inteligente()
+    else:
+        print("📋 Usando sistema básico (detector inteligente no disponible)")
+
+if __name__ == "__main__":
+    main()
