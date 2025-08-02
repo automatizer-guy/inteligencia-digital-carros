@@ -623,37 +623,23 @@ def extraer_anio(texto, modelo=None, precio=None, debug=False):
 
     
     
-    def calcular_score(año: int, contexto: str, fuente: str, precio: Optional[int] = None) -> int:
-        # Base
-        if fuente == 'modelo':  score = WEIGHT_MODEL
-        elif fuente == 'titulo': score = WEIGHT_TITLE
-        elif fuente == 'ventana': score = WEIGHT_WINDOW
-        else:                    score = WEIGHT_GENERAL
+def calcular_score(año: int, contexto: str, fuente: str, precio: Optional[int] = None) -> int:
+    """
+    VERSIÓN ACTUALIZADA - Ahora usa el sistema unificado internamente
+    pero mantiene la misma interfaz externa para compatibilidad
+    """
+    # Crear dict compatible con la nueva función
+    anuncio_data = {
+        "texto": contexto,
+        "modelo": "",  # No disponible en esta interfaz legacy
+        "anio": año,
+        "precio": precio or 0,
+        "roi": 0  # No disponible en esta interfaz legacy
+    }
     
-        # Penalizar contextos "engañosos"
-        for mal in ('nacido', 'edad', 'años', 'miembro desde', 'se unió', 'Facebook en'):
-            if mal in contexto:
-                score += PENALTY_INVALID
-                break
-    
-        # Bonus si habla de carro/motor/etc.
-        for veh in ('modelo', 'año', 'motor', 'caja', 'carro',
-                    'vehículo', 'vendo', 'automático', 'standard'):
-            if veh in contexto:
-                score += BONUS_VEHICULO
-                break
-            if re.search(r"(modelo|gxe|lx|le|gt|clásico)[^\n]{0,15}\b\d{2}\b", contexto):
-                score += 20  # Bonus por patrón fuerte de año corto en contexto vehicular
+    resultado = calcular_score_unificado(anuncio_data, contexto, fuente)
+    return resultado["score_total"]
 
-    
-        # Ajuste por precio
-        if precio is not None:
-            if MIN_YEAR + 25 <= año <= MAX_YEAR and 1500 <= precio <= 80000:
-                score += BONUS_PRECIO_HIGH
-            elif MIN_YEAR <= año < MIN_YEAR + 25 and precio < 30000:
-                score += BONUS_PRECIO_HIGH
-    
-        return score
 
     def agregar_año(raw, contexto, fuente=''):
         try:
@@ -810,6 +796,175 @@ def _score_contexto_vehicular_mejorado(texto: str, modelos_detectados: List[str]
     
     return max(0, puntuacion)
 
+
+
+
+
+
+
+
+
+def calcular_score_unificado(anuncio_data: dict, contexto_year: str = "", fuente_year: str = "") -> dict:
+    """
+    Nueva función unificada que combina toda la lógica de scoring.
+    Retorna un dict con score detallado para debugging.
+    
+    Args:
+        anuncio_data: dict con 'texto', 'modelo', 'anio', 'precio', etc.
+        contexto_year: contexto donde se encontró el año (para compatibilidad)
+        fuente_year: fuente del año ('modelo', 'titulo', etc.) (para compatibilidad)
+    """
+    texto = anuncio_data.get("texto", "")
+    modelo = anuncio_data.get("modelo", "")
+    anio = anuncio_data.get("anio", CURRENT_YEAR)
+    precio = anuncio_data.get("precio", 0)
+    roi = anuncio_data.get("roi", 0)
+    
+    # Inicializar componentes del score
+    score_components = {
+        "base_year": 0,
+        "contexto_vehicular": 0,
+        "validacion_precio": 0,
+        "roi_bonus": 0,
+        "penalizaciones": 0,
+        "bonus_varios": 0
+    }
+    
+    # 1. SCORE BASE DEL AÑO (manteniendo lógica de calcular_score original)
+    if fuente_year == 'modelo':
+        score_components["base_year"] = WEIGHT_MODEL
+    elif fuente_year == 'titulo':
+        score_components["base_year"] = WEIGHT_TITLE
+    elif fuente_year == 'ventana':
+        score_components["base_year"] = WEIGHT_WINDOW
+    else:
+        score_components["base_year"] = WEIGHT_GENERAL
+    
+    # 2. CONTEXTO VEHICULAR (usando lógica mejorada)
+    score_components["contexto_vehicular"] = _calcular_score_contexto_vehicular(
+        texto, modelo, contexto_year
+    )
+    
+    # 3. VALIDACIÓN DE PRECIO
+    if validar_precio_coherente(precio, modelo, anio):
+        score_components["validacion_precio"] = 10
+    else:
+        score_components["validacion_precio"] = PENALTY_INVALID
+    
+    # 4. EVALUACIÓN ROI
+    if roi >= ROI_MINIMO:
+        score_components["roi_bonus"] = 20
+    elif roi >= 5:
+        score_components["roi_bonus"] = 10
+    else:
+        score_components["roi_bonus"] = -5
+    
+    # 5. PENALIZACIONES VARIAS (de puntuar_anuncio original)
+    penalizaciones = 0
+    
+    # Palabras negativas
+    if contiene_negativos(texto):
+        penalizaciones -= 30
+    
+    # Lugares extranjeros
+    if es_extranjero(texto):
+        penalizaciones -= 20
+    
+    # Contextos inválidos en el año
+    if re.search(_PATTERN_INVALID_CTX, contexto_year):
+        penalizaciones -= 30
+    
+    score_components["penalizaciones"] = penalizaciones
+    
+    # 6. BONUS VARIOS
+    bonus = 0
+    
+    # Bonus por palabras vehiculares
+    if "vehículo" in texto.lower():
+        bonus += BONUS_VEHICULO
+    
+    # Bonus por texto extenso
+    if len(texto) > 300:
+        bonus += 5
+    
+    # Bonus por precio coherente con año
+    if MIN_YEAR + 25 <= anio <= MAX_YEAR and 1500 <= precio <= 80000:
+        bonus += BONUS_PRECIO_HIGH
+    
+    score_components["bonus_varios"] = bonus
+    
+    # CALCULAR SCORE TOTAL
+    score_total = sum(score_components.values())
+    
+    return {
+        "score_total": score_total,
+        "components": score_components,
+        "es_relevante": score_total >= SCORE_MIN_TELEGRAM and roi >= ROI_MINIMO,
+        "es_valido_db": score_total >= SCORE_MIN_DB
+    }
+
+
+def _calcular_score_contexto_vehicular(texto: str, modelo: str, contexto_year: str = "") -> int:
+    """
+    Versión optimizada del scoring de contexto vehicular
+    """
+    score = 0
+    
+    # Bonus fuerte si el modelo está presente
+    if modelo and modelo.lower() in texto.lower():
+        score += 15
+    
+    # Patterns vehiculares fuertes (+8 cada uno)
+    patterns_fuertes = [
+        r"\b(modelo|año|del año|versión|m/)\b",
+        r"\b(carro|auto|vehículo|camioneta|pickup)\b",
+        r"\b(motor|transmisión|mecánico|automático)\b",
+    ]
+    
+    for pattern in patterns_fuertes:
+        if re.search(pattern, texto, re.IGNORECASE):
+            score += 8
+    
+    # Patterns vehiculares moderados (+3 cada uno)
+    patterns_moderados = [
+        r"\b(toyota|honda|nissan|ford|chevrolet|volkswagen|hyundai|kia|mazda|mitsubishi|suzuki)\b",
+        r"\b(sedan|hatchback|suv|coupe)\b",
+        r"\b(kilometraje|km|millas|gasolina|diésel)\b",
+        r"\b(papeles|documentos|traspaso)\b"
+    ]
+    
+    for pattern in patterns_moderados:
+        if re.search(pattern, texto, re.IGNORECASE):
+            score += 3
+    
+    # Bonus especial si el contexto del año también es vehicular
+    if contexto_year:
+        for pattern in patterns_fuertes:
+            if re.search(pattern, contexto_year, re.IGNORECASE):
+                score += 5
+                break
+    
+    # Penalizaciones por contextos no vehiculares
+    patterns_negativos = [
+        r"\b(casa|departamento|oficina|vivienda|terreno|local)\b",
+        r"\b(perfil|usuario|miembro|facebook|página)\b",
+        r"\b(nacido|empleado|graduado|familia)\b"
+    ]
+    
+    for pattern in patterns_negativos:
+        if re.search(pattern, texto, re.IGNORECASE):
+            score -= 10
+    
+    return max(0, min(score, 50))  # Cap entre 0 y 50
+
+
+
+
+
+
+
+
+
 @timeit
 def get_precio_referencia(modelo: str, anio: int, tolerancia: Optional[int] = None) -> Dict[str, Any]:
     with get_db_connection() as conn:
@@ -850,57 +1005,24 @@ def calcular_roi_real(modelo: str, precio_compra: int, anio: int, costo_extra: i
 
 @timeit
 def puntuar_anuncio(anuncio: Dict[str, Any]) -> int:
-    score = 0
-
-    texto = anuncio.get("texto", "")
-    modelo = anuncio.get("modelo", "")
-    anio = anuncio.get("anio", CURRENT_YEAR)
-    precio = anuncio.get("precio", 0)
-
-    # Penalización si contiene palabras negativas
-    if contiene_negativos(texto):
-        score -= 3
-
-    # Bonus si incluye palabras positivas como "vehículo"
-    if "vehículo" in texto.lower():
-        score += BONUS_VEHICULO
-
-    # Penalización si parece extranjero
-    if es_extranjero(texto):
-        score -= 2
-
-    # Validación de precio (sin return anticipado)
-    if not validar_precio_coherente(precio, modelo, anio):
-        score += PENALTY_INVALID  # -50
-
-    # ROI y referencia del modelo-año
-    roi_info = get_precio_referencia(modelo, anio)
-    precio_ref = roi_info.get("precio", PRECIOS_POR_DEFECTO.get(modelo, 50000))
-    roi_valor = anuncio.get("roi", roi_info.get("roi", 0))
-    confianza = roi_info.get("confianza", "baja")
-    muestra = roi_info.get("muestra", 0)
-
-    # Ganga detectada (precio muy por debajo del mercado)
-    if precio < 0.8 * precio_ref:
-        score += 1
-
-    # ROI fuerte
-    if roi_valor >= ROI_MINIMO:
-        score += 2
-
-    # Bonus por confianza estadística alta
-    if confianza == "alta" and muestra >= MUESTRA_MINIMA_CONFIABLE:
-        score += 1
-
-    # Penalización por ROI débil con poca muestra
-    if confianza == "baja" and muestra < MUESTRA_MINIMA_CONFIABLE and roi_valor < 5:
-        score -= 1
-
-    # Bonus si el texto es extenso e informativo
-    if len(texto) > 300:
-        score += 1
-
-    return score
+    """
+    VERSIÓN ACTUALIZADA - Ahora usa el sistema unificado internamente
+    pero mantiene la misma interfaz externa para compatibilidad
+    """
+    # Calcular ROI si no está presente
+    roi = anuncio.get("roi")
+    if roi is None:
+        roi_data = calcular_roi_real(
+            anuncio.get("modelo", ""), 
+            anuncio.get("precio", 0), 
+            anuncio.get("anio", CURRENT_YEAR)
+        )
+        roi = roi_data.get("roi", 0)
+    
+    # Usar la nueva función unificada
+    anuncio_completo = {**anuncio, "roi": roi}
+    resultado = calcular_score_unificado(anuncio_completo)
+    return resultado["score_total"]
 
 
 
