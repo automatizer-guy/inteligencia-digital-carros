@@ -480,25 +480,33 @@ def contiene_negativos(texto: str) -> bool:
 def es_extranjero(texto: str) -> bool:
     return any(p in texto.lower() for p in LUGARES_EXTRANJEROS)
 
-def validar_precio_coherente(precio: int, modelo: str, anio: int) -> bool:
-    # CORRECCIÓN: Rango más permisivo para precios bajos
-    if precio < 3000 or precio > 500000:
-        return False
-
+def validar_precio_coherente(precio: int, modelo: str, anio: int) -> tuple[bool, str]:
+    """
+    Retorna (es_valido, razon) en lugar de solo bool
+    """
+    if precio < 3000:
+        return False, "precio_muy_bajo"
+    if precio > 500000:
+        return False, "precio_muy_alto"
+    
     ref_info = get_precio_referencia(modelo, anio)
     precio_ref = ref_info.get("precio", PRECIOS_POR_DEFECTO.get(modelo, 50000))
     muestra = ref_info.get("muestra", 0)
 
-    # Si hay datos confiables, usar rango dinámico basado en precio_ref real
     if muestra >= MUESTRA_MINIMA_CONFIABLE:
-        margen_bajo = 0.3 * precio_ref  # más permisivo para gangas
+        margen_bajo = 0.3 * precio_ref
         margen_alto = 2.5 * precio_ref
     else:
-        # Si no hay muestra confiable, usar rangos clásicos con precio por defecto
         margen_bajo = 0.2 * precio_ref
         margen_alto = 2.5 * precio_ref
 
-    return margen_bajo <= precio <= margen_alto
+    if precio < margen_bajo:
+        return False, "precio_sospechosamente_bajo"
+    if precio > margen_alto:
+        return False, "precio_muy_alto_para_modelo"
+    
+    return True, "valido"
+
 
 
 
