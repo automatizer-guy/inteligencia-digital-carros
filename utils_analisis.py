@@ -509,7 +509,7 @@ def validar_precio_coherente(precio: int, modelo: str, anio: int) -> bool:
     """
     Wrapper para mantener compatibilidad con el código existente.
     """
-    resultado = validar_precio_coherente_mejorado(precio, modelo, anio)
+    resultado = validar_precio_coherente(precio, modelo, anio)
     return resultado['valido']
 
 
