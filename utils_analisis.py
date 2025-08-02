@@ -505,7 +505,7 @@ def contiene_negativos(texto: str) -> bool:
 def es_extranjero(texto: str) -> bool:
     return any(p in texto.lower() for p in LUGARES_EXTRANJEROS)
 
-def validar_precio_coherente(precio: int, modelo: str, anio: int) -> bool:
+def validar_precio_coherente(precio: int, modelo: str, anio: int, debug: bool = False) -> bool:
     """
     Wrapper para mantener compatibilidad con el código existente.
     """
