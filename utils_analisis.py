@@ -975,7 +975,7 @@ def calcular_roi_real(modelo: str, precio_compra: int, anio: int, costo_extra: i
     }
 
 @timeit
-def puntuar_anuncio_mejorado(anuncio: Dict[str, Any], debug: bool = False) -> int:
+def puntuar_anuncio(anuncio: Dict[str, Any], debug: bool = False) -> int:
     """
     Función mejorada que reemplaza puntuar_anuncio() con el nuevo sistema.
     Mantiene compatibilidad retornando solo el score entero.
