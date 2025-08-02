@@ -17,8 +17,8 @@ os.makedirs(os.path.dirname(DB_PATH), exist_ok=True)
 
 DEBUG = os.getenv("DEBUG", "False").lower() in ("1", "true", "yes")
 SCORE_MIN_DB = 0
-SCORE_MIN_TELEGRAM = 6
-ROI_MINIMO = 10.0
+SCORE_MIN_TELEGRAM = 4
+ROI_MINIMO = 8
 TOLERANCIA_PRECIO_REF = 1
 DEPRECIACION_ANUAL = 0.08
 MUESTRA_MINIMA_CONFIABLE = 5
@@ -29,14 +29,14 @@ MAX_YEAR = CURRENT_YEAR + 1
 
 # ----------------------------------------------------
 # Configuración de pesos para calcular_score
-WEIGHT_MODEL      = 110
-WEIGHT_TITLE      = 100
-WEIGHT_WINDOW     =  95
-WEIGHT_GENERAL    =  70
+WEIGHT_MODEL      = 50
+WEIGHT_TITLE      = 45
+WEIGHT_WINDOW     = 40
+WEIGHT_GENERAL    = 30
 
-PENALTY_INVALID   = -30    # contextos engañosos: nacido, edad, etc.
-BONUS_VEHICULO    =  15    # presencia de palabras vehículo
-BONUS_PRECIO_HIGH =  10    # bonus si precio encaja con año
+PENALTY_INVALID   = -50    # contextos engañosos: nacido, edad, etc.
+BONUS_VEHICULO    = 8    # presencia de palabras vehículo
+BONUS_PRECIO_HIGH = 5    # bonus si precio encaja con año
 # ----------------------------------------------------
 
 PRECIOS_POR_DEFECTO = {
