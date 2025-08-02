@@ -980,7 +980,7 @@ def puntuar_anuncio(anuncio: Dict[str, Any], debug: bool = False) -> int:
     Función mejorada que reemplaza puntuar_anuncio() con el nuevo sistema.
     Mantiene compatibilidad retornando solo el score entero.
     """
-    resultado = calcular_score_consolidado(anuncio, debug)
+    resultado = calcular_score(anuncio, debug)
     return resultado['score']
 
 
