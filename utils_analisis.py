@@ -1010,35 +1010,65 @@ def anuncio_diferente(a: Dict[str, Any], b: Dict[str, Any]) -> bool:
     return any(str(a.get(c)) != str(b.get(c)) for c in campos_clave)
 
 def analizar_mensaje(texto: str) -> Optional[Dict[str, Any]]:
-    texto = limpiar_emojis_numericos(texto) 
-    texto = normalizar_formatos_ano(texto)  
+    """
+    Versión mejorada de analizar_mensaje con mejor logging y debugging
+    """
+    # Preprocesamiento
+    texto = limpiar_emojis_numericos(texto)
+    texto = normalizar_formatos_ano(texto)
+    
+    # Extracción básica
     precio = limpiar_precio(texto)
-    anio = extraer_anio(texto)
+    anio = extraer_anio(texto, debug=DEBUG)
     modelo = next((m for m in MODELOS_INTERES if coincide_modelo(texto, m)), None)
-    if not (modelo and anio and precio):
+    
+    # Validación básica
+    if not modelo:
+        if DEBUG: print(f"❌ No se detectó modelo válido")
         return None
-    if not validar_precio_coherente(precio, modelo, anio):
+    
+    if not anio:
+        if DEBUG: print(f"❌ No se detectó año válido")
         return None
-    roi_data = calcular_roi_real(modelo, precio, anio)
-    score = puntuar_anuncio({
+    
+    if not precio:
+        if DEBUG: print(f"❌ No se detectó precio válido")
+        return None
+    
+    # Evaluación con el nuevo sistema
+    engine = ScoringEngine()
+    resultado = engine.evaluar_anuncio({
         "texto": texto,
         "modelo": modelo,
         "anio": anio,
-        "precio": precio,
-        "roi": roi_data.get("roi", 0)
-    })  # ✅ Argumento único tipo dict
-
+        "precio": precio
+    })
+    
+    if resultado["descartado"]:
+        if DEBUG: print(f"❌ Anuncio descartado: {resultado['razon_descarte']}")
+        return None
+    
+    # Construir respuesta
     url = next((l for l in texto.split() if l.startswith("http")), "")
-    return {
-        "url": limpiar_link(url),  # Cambié link por url para mantener consistencia
+    roi_data = resultado["roi_data"]
+    
+    response = {
+        "url": limpiar_link(url),
         "modelo": modelo,
-        "año": anio,  # Cambié anio por año para mantener consistencia
+        "año": anio,
         "precio": precio,
         "roi": roi_data["roi"],
-        "score": score,
-        "relevante": score >= SCORE_MIN_TELEGRAM and roi_data["roi"] >= ROI_MINIMO,
+        "score": resultado["score"],
+        "relevante": resultado["relevante"],
         "km": "",
         "confianza_precio": roi_data["confianza"],
         "muestra_precio": roi_data["muestra"],
-        "roi_data": roi_data
+        "roi_data": roi_data,
+        "razones_score": resultado["razones"]  # Para debugging
     }
+    
+    if DEBUG:
+        print(f"✅ Anuncio analizado: {modelo} {anio} - Score: {resultado['score']}")
+        print(f"   Razones: {', '.join(resultado['razones'])}")
+    
+    return response
