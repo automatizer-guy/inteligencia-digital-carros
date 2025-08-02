@@ -507,6 +507,115 @@ def validar_precio_coherente(precio: int, modelo: str, anio: int) -> tuple[bool,
     
     return True, "valido"
 
+class ScoringEngine:
+    def __init__(self):
+        self.threshold_descarte = -50
+        self.threshold_relevante = 30
+    
+    def evaluar_anuncio(self, anuncio_data: dict) -> dict:
+        """
+        Sistema unificado que reemplaza tanto calcular_score como puntuar_anuncio
+        """
+        score = 0
+        razones = []
+        
+        texto = anuncio_data.get("texto", "")
+        modelo = anuncio_data.get("modelo", "")
+        anio = anuncio_data.get("anio", CURRENT_YEAR)
+        precio = anuncio_data.get("precio", 0)
+        
+        # 1. Evaluación de contexto negativo
+        es_critico, penalizacion_negativa = evaluar_contexto_negativo(texto)
+        if es_critico:
+            return {
+                "score": -100,
+                "descartado": True,
+                "razon_descarte": "contexto_critico_negativo",
+                "relevante": False
+            }
+        score += penalizacion_negativa
+        
+        # 2. Validación de precio
+        precio_valido, razon_precio = validar_precio_coherente_v2(precio, modelo, anio)
+        if not precio_valido:
+            score -= 40
+            razones.append(f"precio_invalido_{razon_precio}")
+        else:
+            score += 10
+            razones.append("precio_coherente")
+        
+        # 3. Scoring de contexto vehicular
+        score_vehicular = self._score_contexto_vehicular(texto, modelo)
+        score += score_vehicular
+        
+        # 4. ROI y oportunidad
+        roi_info = calcular_roi_real(modelo, precio, anio)
+        roi_valor = roi_info.get("roi", 0)
+        
+        if roi_valor >= ROI_MINIMO:
+            score += 20
+            razones.append(f"roi_excelente_{roi_valor}")
+        elif roi_valor >= 5:
+            score += 10
+            razones.append(f"roi_bueno_{roi_valor}")
+        else:
+            score -= 5
+            razones.append(f"roi_bajo_{roi_valor}")
+        
+        # 5. Confianza estadística
+        confianza = roi_info.get("confianza", "baja")
+        muestra = roi_info.get("muestra", 0)
+        
+        if confianza == "alta":
+            score += 15
+            razones.append(f"confianza_alta_muestra_{muestra}")
+        elif confianza == "media":
+            score += 5
+            razones.append(f"confianza_media_muestra_{muestra}")
+        else:
+            score -= 5
+            razones.append("confianza_baja_datos_insuficientes")
+        
+        return {
+            "score": score,
+            "descartado": score <= self.threshold_descarte,
+            "relevante": score >= self.threshold_relevante and roi_valor >= ROI_MINIMO,
+            "razones": razones,
+            "roi_data": roi_info,
+            "razon_descarte": "score_insuficiente" if score <= self.threshold_descarte else None
+        }
+    
+    def _score_contexto_vehicular(self, texto: str, modelo: str) -> int:
+        """Score basado en qué tan vehicular es el contexto"""
+        score = 0
+        
+        # Bonus por modelo detectado
+        if modelo and modelo in texto.lower():
+            score += 15
+        
+        # Patrones vehiculares fuertes
+        patrones_fuertes = [
+            r"\b(modelo|año|del año|versión)\b",
+            r"\b(toyota|honda|nissan|ford|chevrolet|hyundai|kia|mazda)\b",
+            r"\b(sedan|hatchback|suv|pickup|camioneta)\b"
+        ]
+        
+        for patron in patrones_fuertes:
+            if re.search(patron, texto, re.IGNORECASE):
+                score += 8
+        
+        # Patrones vehiculares moderados
+        patrones_moderados = [
+            r"\b(motor|transmisión|automático|standard)\b",
+            r"\b(kilometraje|km|gasolina|diesel)\b",
+            r"\b(papeles|documentos|traspaso)\b"
+        ]
+        
+        for patron in patrones_moderados:
+            if re.search(patron, texto, re.IGNORECASE):
+                score += 3
+        
+        return min(score, 40)  # Cap máximo para evitar inflación
 
 
 
