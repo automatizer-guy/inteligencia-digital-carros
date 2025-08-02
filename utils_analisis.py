@@ -662,7 +662,7 @@ def calcular_score(anuncio: Dict[str, Any], debug: bool = False) -> Dict[str, An
     score_detalle['base'] = score_base
     
     # === 2. VALIDACIÓN Y SCORE DE PRECIO ===
-    validacion_precio = validar_precio_coherente_mejorado(precio, modelo, anio, debug)
+    validacion_precio = validar_precio_coherente(precio, modelo, anio, debug)
     
     if validacion_precio['valido']:
         if validacion_precio['confianza'] == 'muy_alta':
