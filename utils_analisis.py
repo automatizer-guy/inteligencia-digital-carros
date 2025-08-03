@@ -17,8 +17,8 @@ os.makedirs(os.path.dirname(DB_PATH), exist_ok=True)
 
 DEBUG = os.getenv("DEBUG", "False").lower() in ("1", "true", "yes")
 SCORE_MIN_DB = 0
-SCORE_MIN_TELEGRAM = 4
-ROI_MINIMO = 8
+SCORE_MIN_TELEGRAM = 6
+ROI_MINIMO = 10.0
 TOLERANCIA_PRECIO_REF = 1
 DEPRECIACION_ANUAL = 0.08
 MUESTRA_MINIMA_CONFIABLE = 5
@@ -28,15 +28,15 @@ MIN_YEAR = 1980
 MAX_YEAR = CURRENT_YEAR + 1
 
 # ----------------------------------------------------
-# Configuración de pesos para calcular_score - REBALANCEADOS
-WEIGHT_MODEL      = 50  # Reducido de 110
-WEIGHT_TITLE      = 45  # Reducido de 100
-WEIGHT_WINDOW     = 40
-WEIGHT_GENERAL    = 30
+# Configuración de pesos para calcular_score
+WEIGHT_MODEL      = 110
+WEIGHT_TITLE      = 100
+WEIGHT_WINDOW     =  95
+WEIGHT_GENERAL    =  70
 
-PENALTY_INVALID   = -50    # Aumentado de -30
-BONUS_VEHICULO    = 8      # Reducido de 15
-BONUS_PRECIO_HIGH = 5
+PENALTY_INVALID   = -30    # contextos engañosos: nacido, edad, etc.
+BONUS_VEHICULO    =  15    # presencia de palabras vehículo
+BONUS_PRECIO_HIGH =  10    # bonus si precio encaja con año
 # ----------------------------------------------------
 
 PRECIOS_POR_DEFECTO = {
@@ -49,15 +49,11 @@ PRECIOS_POR_DEFECTO = {
 }
 MODELOS_INTERES = list(PRECIOS_POR_DEFECTO.keys())
 
-# LISTAS INTELIGENTES - Separar críticos de leves
-CONTEXTOS_NEGATIVOS_CRITICOS = [
-    "solo repuestos", "para repuestos", "desarme", "motor fundido", 
-    "no arranca", "no enciende", "sin motor", "para partes", 
-    "no funciona", "accidentado", "partes disponibles"
-]
-
-CONTEXTOS_NEGATIVOS_LEVES = [
-    "repuesto", "repuestos", "piezas", "partes"
+PALABRAS_NEGATIVAS = [
+    "repuesto", "repuestos", "solo repuestos", "para repuestos", "piezas",
+    "desarme", "motor fundido", "no arranca", "no enciende", "papeles atrasados",
+    "sin motor", "para partes", "no funciona", "accidentado", "partes disponibles", 
+    "partes", "desarme", "solo piezas"
 ]
 
 LUGARES_EXTRANJEROS = [
@@ -71,81 +67,25 @@ _PATTERN_YEAR_SHORT = re.compile(r"['`´]?(\d{2})\b")
 _PATTERN_YEAR_EMOJI = re.compile(r"([0-9️⃣]{4,8})")
 _PATTERN_YEAR_SPECIAL = re.compile(r"\b(\d{1,2}[,.]\d{3})\b")
 
-# FUNCIÓN PARA EVALUAR CONTEXTO NEGATIVO
-def evaluar_contexto_negativo(texto: str) -> Tuple[bool, int]:
-    """
-    Evalúa si el contexto es críticamente negativo.
-    Retorna (es_critico, penalizacion)
-    """
-    texto_lower = texto.lower()
-    
-    # Verificar contextos críticos (descarte automático)
-    for contexto_critico in CONTEXTOS_NEGATIVOS_CRITICOS:
-        if contexto_critico in texto_lower:
-            return True, -100
-    
-    # Verificar contextos leves (solo penalización)
-    penalizacion = 0
-    for contexto_leve in CONTEXTOS_NEGATIVOS_LEVES:
-        if contexto_leve in texto_lower:
-            penalizacion -= 10  # Penalización leve, no descarte
-    
-    return False, penalizacion
-
-# FUNCIÓN MEJORADA PARA VALIDAR PRECIO
-def validar_precio_coherente_v2(precio: int, modelo: str, anio: int) -> Tuple[bool, str]:
-    """
-    Versión mejorada de validación de precios con mejor lógica
-    """
-    if precio < 5000:
-        return False, "precio_muy_bajo"
-    if precio > 400000:
-        return False, "precio_muy_alto"
-    
-    # Validación por edad del vehículo
-    antiguedad = CURRENT_YEAR - anio
-    if antiguedad < 0:
-        return False, "anio_futuro"
-    
-    # Precios mínimos por antigüedad
-    if antiguedad <= 5 and precio < 15000:
-        return False, "muy_nuevo_muy_barato"
-    if antiguedad >= 20 and precio > 80000:
-        return False, "muy_viejo_muy_caro"
-    
-    # Validación por modelo
-    ref_info = get_precio_referencia(modelo, anio)
-    precio_ref = ref_info.get("precio", PRECIOS_POR_DEFECTO.get(modelo, 50000))
-    muestra = ref_info.get("muestra", 0)
-
-    if muestra >= MUESTRA_MINIMA_CONFIABLE:
-        margen_bajo = 0.25 * precio_ref  # Más restrictivo
-        margen_alto = 2.2 * precio_ref   # Más restrictivo
-    else:
-        margen_bajo = 0.15 * precio_ref  # Más permisivo para datos insuficientes
-        margen_alto = 3.0 * precio_ref
-
-    if precio < margen_bajo:
-        return False, "precio_sospechosamente_bajo"
-    if precio > margen_alto:
-        return False, "precio_muy_alto_para_modelo"
-    
-    return True, "valido"
-
+# Crear patrones sin lookbehind variable
 def create_model_year_pattern(sinonimos: Dict[str, List[str]]) -> re.Pattern:
+    # Unir todas las variantes de todos los modelos
     variantes = []
     for lista in sinonimos.values():
         variantes.extend(lista)
 
+    # Escapar todas las variantes para el regex
     modelos_escapados = [re.escape(v) for v in variantes]
     modelos_union = '|'.join(modelos_escapados)
 
+    # Regex: año antes o después del modelo (formato 2 o 4 dígitos)
     pattern = rf"""
         \b(?P<y1>\d{{2,4}})\s+(?:{modelos_union})\b  |  # año antes
         \b(?:{modelos_union})\s+(?P<y2>\d{{2,4}})\b     # año después
     """
 
     return re.compile(pattern, flags=re.IGNORECASE | re.VERBOSE)
+
 
 sinonimos = {
         "yaris": [
@@ -311,7 +251,7 @@ sinonimos = {
         
         "suzuki swift": [
             # Nombres oficiales
-            "swift", "suzuki swift", "swift hatchbook", "swift 5dr", "swift 3dr",
+            "swift", "suzuki swift", "swift hatchback", "swift 5dr", "swift 3dr",
             # Versiones específicas
             "swift gl", "swift gls", "swift glx", "swift ga", "swift rs", "swift sport",
             "swift gti", "swift dzire", "swift sedan", "swift 1.2", "swift 1.3", "swift 1.4",
@@ -412,11 +352,15 @@ sinonimos = {
         ]
     }
 
+
+
 _PATTERN_YEAR_AROUND_MODEL = create_model_year_pattern(sinonimos)
+
 
 _PATTERN_YEAR_AROUND_KEYWORD = re.compile(
     r"(modelo|m/|versión|año|m.|modelo:|año:|del|del:|md|md:)[^\d]{0,5}([12]\d{3})", flags=re.IGNORECASE
 )
+
 
 _PATTERN_PRICE = re.compile(
     r"\b(?:q|\$)?\s*[\d.,]+(?:\s*quetzales?)?\b",
@@ -456,525 +400,637 @@ def get_conn():
 
 @timeit
 def inicializar_tabla_anuncios():
-    # (función sin cambios necesarios)
-    return
+    with get_db_connection() as conn:
+        cur = conn.cursor()
+        
+        # Verificar si la tabla existe
+        cur.execute("""
+            SELECT name FROM sqlite_master 
+            WHERE type='table' AND name='anuncios'
+        """)
+        tabla_existe = cur.fetchone() is not None
+        
+        if not tabla_existe:
+            # Crear tabla con estructura básica
+            cur.execute("""
+                CREATE TABLE anuncios (
+                    link TEXT PRIMARY KEY,
+                    modelo TEXT,
+                    anio INTEGER,
+                    precio INTEGER,
+                    km TEXT,
+                    fecha_scrape DATE,
+                    roi REAL,
+                    score INTEGER
+                )
+            """)
+            print("✅ Tabla anuncios creada con estructura básica")
+        
+        # Verificar columnas existentes
+        cur.execute("PRAGMA table_info(anuncios)")
+        columnas_existentes = {row[1] for row in cur.fetchall()}
+        
+        # Agregar columnas adicionales si no existen
+        nuevas_columnas = {
+            "relevante": "BOOLEAN DEFAULT 0",
+            "confianza_precio": "TEXT DEFAULT 'baja'",
+            "muestra_precio": "INTEGER DEFAULT 0"
+        }
+        
+        for nombre, definicion in nuevas_columnas.items():
+            if nombre not in columnas_existentes:
+                try:
+                    cur.execute(f"ALTER TABLE anuncios ADD COLUMN {nombre} {definicion}")
+                    print(f"✅ Columna '{nombre}' agregada")
+                except sqlite3.OperationalError as e:
+                    print(f"⚠️ Error al agregar columna '{nombre}': {e}")
+        
+        conn.commit()
+
 
 def normalizar_formatos_ano(texto: str) -> str:
-    return re.sub(r'\b(\d)[,\.](\d{3})\b', r'\1\2', texto)
-
-def limpiar_emojis_numericos(texto: str) -> str:
-    # (función sin cambios necesarios)
+    # Convierte 2,009 o 2.009 → 2009
+    texto = re.sub(r'\b(\d)[,\.](\d{3})\b', r'\1\2', texto)
     return texto
 
+
+
+def limpiar_emojis_numericos(texto: str) -> str:
+    mapa_emojis = {
+        '0️⃣': '0', '1️⃣': '1', '2️⃣': '2', '3️⃣': '3', '4️⃣': '4',
+        '5️⃣': '5', '6️⃣': '6', '7️⃣': '7', '8️⃣': '8', '9️⃣': '9',
+        '⓪': '0', '①': '1', '②': '2', '③': '3', '④': '4',
+        '⑤': '5', '⑥': '6', '⑦': '7', '⑧': '8', '⑨': '9'
+    }
+    for emoji, digito in mapa_emojis.items():
+        texto = texto.replace(emoji, digito)
+    return texto
+
+
+
+
 def limpiar_link(link: Optional[str]) -> str:
-    # (función sin cambios necesarios)
-    return ""
+    if not link:
+        return ""
+    return ''.join(c for c in link.strip() if c.isascii() and c.isprintable())
 
 def contiene_negativos(texto: str) -> bool:
-    # NUEVA VERSIÓN - Usar contextos críticos para descarte
-    texto_lower = texto.lower()
-    return any(contexto in texto_lower for contexto in CONTEXTOS_NEGATIVOS_CRITICOS)
+    return any(p in texto.lower() for p in PALABRAS_NEGATIVAS)
 
 def es_extranjero(texto: str) -> bool:
     return any(p in texto.lower() for p in LUGARES_EXTRANJEROS)
 
-def validar_precio_coherente(precio: int, modelo: str, anio: int) -> tuple[bool, str]:
-    """
-    MANTENER INTERFAZ - Usar nueva función internamente
-    """
-    es_valido, razon = validar_precio_coherente_v2(precio, modelo, anio)
-    return es_valido, razon
+def validar_precio_coherente(precio: int, modelo: str, anio: int) -> bool:
+    # CORRECCIÓN: Rango más permisivo para precios bajos
+    if precio < 3000 or precio > 500000:
+        return False
 
-class ScoringEngine:
-    def __init__(self):
-        self.threshold_descarte = -50
-        self.threshold_relevante = 30
-    
-    def evaluar_anuncio(self, anuncio_data: dict) -> dict:
-        """
-        Sistema unificado que reemplaza tanto calcular_score como puntuar_anuncio
-        """
-        score = 0
-        razones = []
-        
-        texto = anuncio_data.get("texto", "")
-        modelo = anuncio_data.get("modelo", "")
-        anio = anuncio_data.get("anio", CURRENT_YEAR)
-        precio = anuncio_data.get("precio", 0)
-        
-        # 1. Evaluación de contexto negativo
-        es_critico, penalizacion_negativa = evaluar_contexto_negativo(texto)
-        if es_critico:
-            return {
-                "score": -100,
-                "descartado": True,
-                "razon_descarte": "contexto_critico_negativo",
-                "relevante": False
-            }
-        score += penalizacion_negativa
-        
-        # 2. Validación de precio
-        precio_valido, razon_precio = validar_precio_coherente_v2(precio, modelo, anio)
-        if not precio_valido:
-            score -= 40
-            razones.append(f"precio_invalido_{razon_precio}")
-        else:
-            score += 10
-            razones.append("precio_coherente")
-        
-        # 3. Scoring de contexto vehicular
-        score_vehicular = self._score_contexto_vehicular(texto, modelo)
-        score += score_vehicular
-        
-        # 4. ROI y oportunidad
-        roi_info = calcular_roi_real(modelo, precio, anio)
-        roi_valor = roi_info.get("roi", 0)
-        
-        if roi_valor >= ROI_MINIMO:
-            score += 20
-            razones.append(f"roi_excelente_{roi_valor}")
-        elif roi_valor >= 5:
-            score += 10
-            razones.append(f"roi_bueno_{roi_valor}")
-        else:
-            score -= 5
-            razones.append(f"roi_bajo_{roi_valor}")
-        
-        # 5. Confianza estadística
-        confianza = roi_info.get("confianza", "baja")
-        muestra = roi_info.get("muestra", 0)
-        
-        if confianza == "alta":
-            score += 15
-            razones.append(f"confianza_alta_muestra_{muestra}")
-        elif confianza == "media":
-            score += 5
-            razones.append(f"confianza_media_muestra_{muestra}")
-        else:
-            score -= 5
-            razones.append("confianza_baja_datos_insuficientes")
-        
-        return {
-            "score": score,
-            "descartado": score <= self.threshold_descarte,
-            "relevante": score >= self.threshold_relevante and roi_valor >= ROI_MINIMO,
-            "razones": razones,
-            "roi_data": roi_info,
-            "razon_descarte": "score_insuficiente" if score <= self.threshold_descarte else None
-        }
-    
-    def _score_contexto_vehicular(self, texto: str, modelo: str) -> int:
-        """Score basado en qué tan vehicular es el contexto"""
-        score = 0
-        
-        # Bonus por modelo detectado
-        if modelo and modelo in texto.lower():
-            score += 15
-        
-        # Patrones vehiculares fuertes
-        patrones_fuertes = [
-            r"\b(modelo|año|del año|versión)\b",
-            r"\b(toyota|honda|nissan|ford|chevrolet|hyundai|kia|mazda)\b",
-            r"\b(sedan|hatchback|suv|pickup|camioneta)\b"
-        ]
-        
-        for patron in patrones_fuertes:
-            if re.search(patron, texto, re.IGNORECASE):
-                score += 8
-        
-        # Patrones vehiculares moderados
-        patrones_moderados = [
-            r"\b(motor|transmisión|automático|standard)\b",
-            r"\b(kilometraje|km|gasolina|diesel)\b",
-            r"\b(papeles|documentos|traspaso)\b"
-        ]
-        
-        for patron in patrones_moderados:
-            if re.search(patron, texto, re.IGNORECASE):
-                score += 3
-        
-        return min(score, 40)  # Cap máximo para evitar inflación
+    ref_info = get_precio_referencia(modelo, anio)
+    precio_ref = ref_info.get("precio", PRECIOS_POR_DEFECTO.get(modelo, 50000))
+    muestra = ref_info.get("muestra", 0)
+
+    # Si hay datos confiables, usar rango dinámico basado en precio_ref real
+    if muestra >= MUESTRA_MINIMA_CONFIABLE:
+        margen_bajo = 0.3 * precio_ref  # más permisivo para gangas
+        margen_alto = 2.5 * precio_ref
+    else:
+        # Si no hay muestra confiable, usar rangos clásicos con precio por defecto
+        margen_bajo = 0.2 * precio_ref
+        margen_alto = 2.5 * precio_ref
+
+    return margen_bajo <= precio <= margen_alto
+
+
 
 def limpiar_precio(texto: str) -> int:
-    # BUG CRÍTICO CORREGIDO - Lógica invertida arreglada
     s = re.sub(r"[Qq\$\.,]", "", texto.lower())
     matches = re.findall(r"\b\d{3,7}\b", s)
-    # CORRECCIÓN: Excluir años del rango de precios
-    candidatos = [int(x) for x in matches if not (MIN_YEAR <= int(x) <= MAX_YEAR)]
+    año_actual = datetime.now().year
+    # CORRECCIÓN CRÍTICA: Lógica invertida corregida
+    candidatos = [int(x) for x in matches if not (1990 <= int(x) <= año_actual + 1)]
     return candidatos[0] if candidatos else 0
 
 def filtrar_outliers(precios: List[int]) -> List[int]:
-    # (función sin cambios necesarios)
-    return precios
+    if len(precios) < 4:
+        return precios
+    try:
+        q1, q3 = statistics.quantiles(precios, n=4)[0], statistics.quantiles(precios, n=4)[2]
+        iqr = q3 - q1
+        lim_inf = q1 - 2.0 * iqr
+        lim_sup = q3 + 2.0 * iqr
+        filtrados = [p for p in precios if lim_inf <= p <= lim_sup]
+        return filtrados if len(filtrados) >= 2 else precios
+    except:
+        return precios
 
 def coincide_modelo(texto: str, modelo: str) -> bool:
-    # (función sin cambios necesarios)
-    return False
+    texto_l = unicodedata.normalize("NFKD", texto.lower())
+    modelo_l = modelo.lower()
+
+    variantes = sinonimos.get(modelo_l, []) + [modelo_l]
+    texto_limpio = unicodedata.normalize("NFKD", texto_l).encode("ascii", "ignore").decode("ascii")
+    return any(v in texto_limpio for v in variantes)
 
 def es_candidato_año(raw: str) -> bool:
-    # (función sin cambios necesarios)
-    return False
+    orig = raw.strip()  
+    # 1) descartar decimales puros
+    if re.fullmatch(r"\d+\.\d+", orig):
+        return False
+
+    # 2) limpiar separadores
+    raw = orig.strip("'\"").replace(",", "").replace(".", "")
+
+    # 3) más de 4 dígitos o ceros iniciales irrelevantes
+    if len(raw) > 4 or raw.startswith("00") or raw.startswith("000"):
+        return False
+
+    # 4) solo descartamos longitud 1; 2 dígitos entran a normalizar
+    if len(raw) < 2:
+        return False
+
+    # 5) convertir y comprobar rango
+    try:
+        año = int(raw)
+        return MIN_YEAR <= año <= MAX_YEAR
+    except ValueError:
+        return False
 
 def extraer_anio(texto, modelo=None, precio=None, debug=False):
-    # (función sin cambios necesarios - muy larga)
-    return None
+    texto = limpiar_emojis_numericos(texto) 
+    texto = normalizar_formatos_ano(texto)  
+    texto_original = texto  # ✅ NUEVO: Guardar texto original
+    texto = texto.lower()
+    candidatos = {}
 
-def calcular_score_unificado(anuncio_data: dict, contexto_year: str = "", fuente_year: str = "") -> dict:
-    """
-    Nueva función unificada que combina toda la lógica de scoring.
-    Retorna un dict con score detallado para debugging.
-    """
-    texto = anuncio_data.get("texto", "")
-    modelo = anuncio_data.get("modelo", "")
-    anio = anuncio_data.get("anio", CURRENT_YEAR)
-    precio = anuncio_data.get("precio", 0)
-    roi = anuncio_data.get("roi", 0)
-    
-    # Inicializar componentes del score
-    score_components = {
-        "base_year": 0,
-        "contexto_vehicular": 0,
-        "validacion_precio": 0,
-        "roi_bonus": 0,
-        "penalizaciones": 0,
-        "bonus_varios": 0
-    }
-    
-    # 1. SCORE BASE DEL AÑO (manteniendo lógica de calcular_score original)
-    if fuente_year == 'modelo':
-        score_components["base_year"] = WEIGHT_MODEL
-    elif fuente_year == 'titulo':
-        score_components["base_year"] = WEIGHT_TITLE
-    elif fuente_year == 'ventana':
-        score_components["base_year"] = WEIGHT_WINDOW
-    else:
-        score_components["base_year"] = WEIGHT_GENERAL
-    
-    # 2. CONTEXTO VEHICULAR (usando lógica mejorada)
-    score_components["contexto_vehicular"] = _calcular_score_contexto_vehicular(
-        texto, modelo, contexto_year
-    )
-    
-    # 3. VALIDACIÓN DE PRECIO
-    precio_valido, _ = validar_precio_coherente_v2(precio, modelo, anio)
-    if precio_valido:
-        score_components["validacion_precio"] = 10
-    else:
-        score_components["validacion_precio"] = PENALTY_INVALID
-    
-    # 4. EVALUACIÓN ROI
-    if roi >= ROI_MINIMO:
-        score_components["roi_bonus"] = 20
-    elif roi >= 5:
-        score_components["roi_bonus"] = 10
-    else:
-        score_components["roi_bonus"] = -5
-    
-    # 5. PENALIZACIONES VARIAS
-    penalizaciones = 0
-    
-    # Palabras negativas críticas (nuevo sistema)
-    es_critico, pen_negativa = evaluar_contexto_negativo(texto)
-    if es_critico:
-        penalizaciones -= 100  # Descarte automático
-    else:
-        penalizaciones += pen_negativa  # Penalización leve
-    
-    # Lugares extranjeros
-    if es_extranjero(texto):
-        penalizaciones -= 20
-    
-    # Contextos inválidos en el año
-    if re.search(_PATTERN_INVALID_CTX, contexto_year):
-        penalizaciones -= 30
-    
-    score_components["penalizaciones"] = penalizaciones
-    
-    # 6. BONUS VARIOS
-    bonus = 0
-    
-    # Bonus por palabras vehiculares
-    if "vehículo" in texto.lower():
-        bonus += BONUS_VEHICULO
-    
-    # Bonus por texto extenso
-    if len(texto) > 300:
-        bonus += 5
-    
-    # Bonus por precio coherente con año
-    if MIN_YEAR + 25 <= anio <= MAX_YEAR and 15000 <= precio <= 200000:
-        bonus += BONUS_PRECIO_HIGH
-    
-    score_components["bonus_varios"] = bonus
-    
-    # CALCULAR SCORE TOTAL
-    score_total = sum(score_components.values())
-    
-    return {
-        "score_total": score_total,
-        "components": score_components,
-        "es_relevante": score_total >= SCORE_MIN_TELEGRAM and roi >= ROI_MINIMO,
-        "es_valido_db": score_total >= SCORE_MIN_DB
-    }
+    correccion_manual = obtener_correccion(texto_original)
+    if correccion_manual:
+        if debug:
+            print(f"✅ Corrección manual aplicada para: {texto_original[:50]} → {correccion_manual}")
+        return correccion_manual
 
-def _calcular_score_contexto_vehicular(texto: str, modelo: str, contexto_year: str = "") -> int:
-    """
-    Versión optimizada del scoring de contexto vehicular
-    """
-    score = 0
+    def normalizar_año_corto(a):
+        if a < 100:
+            return 1900 + a if a > 50 else 2000 + a
+        return a
+
     
-    # Bonus fuerte si el modelo está presente
-    if modelo and modelo.lower() in texto.lower():
-        score += 15
+    # 1) Quitar contextos no válidos (nacido, miembro desde, perfil creado…)
+    texto = _PATTERN_INVALID_CTX.sub("", texto)
+
+    # 0) Búsqueda prioritaria: año tras modelo o cerca de "año"/"modelo"
+    for pat in (_PATTERN_YEAR_AROUND_MODEL, _PATTERN_YEAR_AROUND_KEYWORD):
+        m = pat.search(texto)
+        if not m:
+            continue
     
-    # Patterns vehiculares fuertes (+8 cada uno)
-    patterns_fuertes = [
+        if pat == _PATTERN_YEAR_AROUND_MODEL:
+            raw = m.groupdict().get("y1") or m.groupdict().get("y2")
+        else:
+            raw = m.group(2)
+    
+        if not raw:
+            continue  # evita errores si raw está vacío
+    
+        try:
+            año = int(raw)
+            norm = normalizar_año_corto(año) if len(raw) == 2 else año
+            if MIN_YEAR <= norm <= MAX_YEAR:
+                return norm
+        except ValueError:
+            continue  # skip si raw no es convertible
+
+
+
+    def puntuar_candidato_ano(anio: int, contexto: str, modelo: Optional[str] = None) -> int:
+        score = 0
+        if modelo and coincide_modelo(contexto, modelo):
+            score += 40
+        score += _score_contexto_vehicular_mejorado(contexto, [modelo] if modelo else [])
+        if anio > datetime.now().year:
+            score -= 40
+        if re.search(_PATTERN_INVALID_CTX, contexto):
+            score -= 30
+        return score
+
+
+    
+    
+    def calcular_score(año: int, contexto: str, fuente: str, precio: Optional[int] = None) -> int:
+        # Base
+        if fuente == 'modelo':  score = WEIGHT_MODEL
+        elif fuente == 'titulo': score = WEIGHT_TITLE
+        elif fuente == 'ventana': score = WEIGHT_WINDOW
+        else:                    score = WEIGHT_GENERAL
+    
+        # Penalizar contextos "engañosos"
+        for mal in ('nacido', 'edad', 'años', 'miembro desde', 'se unió', 'Facebook en'):
+            if mal in contexto:
+                score += PENALTY_INVALID
+                break
+    
+        # Bonus si habla de carro/motor/etc.
+        for veh in ('modelo', 'año', 'motor', 'caja', 'carro',
+                    'vehículo', 'vendo', 'automático', 'standard'):
+            if veh in contexto:
+                score += BONUS_VEHICULO
+                break
+            if re.search(r"(modelo|gxe|lx|le|gt|clásico)[^\n]{0,15}\b\d{2}\b", contexto):
+                score += 20  # Bonus por patrón fuerte de año corto en contexto vehicular
+
+    
+        # Ajuste por precio
+        if precio is not None:
+            if MIN_YEAR + 25 <= año <= MAX_YEAR and 1500 <= precio <= 80000:
+                score += BONUS_PRECIO_HIGH
+            elif MIN_YEAR <= año < MIN_YEAR + 25 and precio < 30000:
+                score += BONUS_PRECIO_HIGH
+    
+        return score
+
+    def agregar_año(raw, contexto, fuente=''):
+        try:
+            año = int(raw.strip("'"))
+            año = normalizar_año_corto(año) if año < 100 else año
+            if año and MIN_YEAR <= año <= MAX_YEAR:
+                candidatos[año] = max(candidatos.get(año, 0), calcular_score(año, contexto, fuente, precio))
+        except:
+            pass
+
+    # 1. Búsqueda alrededor del modelo
+    if modelo:
+        idx = texto.find(modelo.lower())
+        if idx != -1:
+            ventana = texto[max(0, idx - 30): idx + len(modelo) + 30]
+            años_modelo = re.findall(r"(?:'|')?(\d{2,4})", ventana)
+            for raw in años_modelo:
+                if es_candidato_año(raw):
+                    agregar_año(raw, ventana, fuente='modelo')
+
+    # 2. Búsqueda en título
+    titulo = texto.split('\n')[0]
+    años_titulo = re.findall(r"(?:'|')?(\d{2,4})", titulo)
+    for raw in años_titulo:
+        if es_candidato_año(raw):
+            agregar_año(raw, titulo, fuente='titulo')
+
+    # 3. General en todo el texto
+    for match in re.finditer(r"(?:'|')?(\d{2,4})", texto):
+        raw = match.group(1)
+        contexto = texto[max(0, match.start() - 20):match.end() + 20]
+        if es_candidato_año(raw):
+            agregar_año(raw, contexto, fuente='texto')
+
+    if not candidatos:
+        if debug:
+            print("❌ No se encontró ningún año válido.")
+        return None
+
+    if debug:
+        print("🎯 Candidatos detectados:")
+        for a, s in sorted(candidatos.items(), key=lambda x: -x[1]):
+            print(f"  - {a}: score {s}")
+            
+    if not candidatos or max(candidatos.values()) < 40:
+        if debug: print("❌ Todos los años tienen score insuficiente o dudoso.")
+        return None
+
+
+    mejores = [(a, puntuar_candidato_ano(a, texto, modelo)) for a in candidatos]
+    anio_final = max(mejores, key=lambda x: x[1])[0]
+    return anio_final
+
+
+def _remover_precios_del_texto_mejorado(texto: str) -> str:
+    """
+    Versión mejorada que remueve patrones de precios del texto más agresivamente.
+    """
+    # Patrones de precios más completos y específicos
+    patrones_precio = [
+        r"\bq\s*[\d,.\s]+\b",  # Q 14,000 o Q14000
+        r"\$\s*[\d,.\s]+\b",   # $14,000
+        r"\b\d{1,3}(?:[,.]\d{3})+\b",  # 14,000 o 14.000
+        r"\bprecio\s*[:\-]?\s*[\d,.\s]+\b",  # precio: 14000
+        r"\bvalor\s*[:\-]?\s*[\d,.\s]+\b",   # valor 14000
+        r"\bcuesta\s*[\d,.\s]+\b",           # cuesta 14000
+        r"\b[\d,.\s]+\s*quetzales?\b",       # 14000 quetzales
+        r"\b[\d,.\s]+\s*mil\b",              # 14 mil
+        r"\bnegociable\s*[\d,.\s]*\b",       # negociable 16000
+        r"\bespecial[,\s]*no\s*negociable\b", # precio especial, no negociable
+        
+        # Patrones específicos para casos problemáticos
+        r"\b(precio|valor)\s*[:\-]?\s*q?\s*\d{1,2}[,.]\d{3}\b",  # precio Q16,000
+        r"\bq\d{2}[,.]\d{3}\b",  # Q16,000 directo
+        r"\b\d{2}[,.]\d{3}\s*(quetzales?|efectivo|negociable)\b",  # 16,000 quetzales
+        
+        # Patrones para precios en formato completo
+        r"\b\d{4,6}\s*(quetzales?|efectivo|negociable|final)\b",  # 15000 quetzales
+        r"\b(Q|q)\s*\d{4,6}\b",  # Q15000
+    ]
+    
+    texto_limpio = texto
+    for patron in patrones_precio:
+        texto_limpio = re.sub(patron, " ", texto_limpio, flags=re.IGNORECASE)
+    
+    # Limpiar espacios múltiples
+    texto_limpio = re.sub(r'\s+', ' ', texto_limpio).strip()
+    
+    return texto_limpio
+
+def _score_contexto_vehicular_mejorado(texto: str, modelos_detectados: List[str] = None) -> int:
+    """
+    Calcula un score mejorado de qué tan probable es que el contexto sea vehicular.
+    """
+    if modelos_detectados is None:
+        modelos_detectados = []
+    
+    puntuacion = 0
+    
+    # BONUS MUY FUERTE: Si hay modelos de vehículos detectados cerca
+    if modelos_detectados:
+        for modelo in modelos_detectados:
+            if modelo and modelo in texto:
+                puntuacion += 10  # Bonus muy alto
+    
+    # PALABRAS VEHICULARES MUY FUERTES (+5 cada una)
+    vehiculares_muy_fuertes = [
         r"\b(modelo|año|del año|versión|m/)\b",
         r"\b(carro|auto|vehículo|camioneta|pickup)\b",
         r"\b(motor|transmisión|mecánico|automático)\b",
     ]
     
-    for pattern in patterns_fuertes:
-        if re.search(pattern, texto, re.IGNORECASE):
-            score += 8
-    
-    # Patterns vehiculares moderados (+3 cada uno)
-    patterns_moderados = [
+    # PALABRAS VEHICULARES FUERTES (+3 cada una)
+    vehiculares_fuertes = [
         r"\b(toyota|honda|nissan|ford|chevrolet|volkswagen|hyundai|kia|mazda|mitsubishi|suzuki)\b",
         r"\b(sedan|hatchback|suv|coupe)\b",
-        r"\b(kilometraje|km|millas|gasolina|diésel)\b",
-        r"\b(papeles|documentos|traspaso)\b"
+        r"\b(kilometraje|km|millas|gasolina|diésel)\b"
     ]
     
-    for pattern in patterns_moderados:
-        if re.search(pattern, texto, re.IGNORECASE):
-            score += 3
+    # PALABRAS VEHICULARES MODERADAS (+1 cada una)
+    vehiculares_moderadas = [
+        r"\b(usado|seminuevo|equipado|papeles|documentos|traspaso)\b",
+        r"\b(llantas|frenos|batería|aceite|aire acondicionado)\b",
+        r"\b(bien cuidado|excelente estado|poco uso)\b"
+    ]
     
-    # Bonus especial si el contexto del año también es vehicular
-    if contexto_year:
-        for pattern in patterns_fuertes:
-            if re.search(pattern, contexto_year, re.IGNORECASE):
-                score += 5
-                break
-    
-    # Penalizaciones por contextos no vehiculares
-    patterns_negativos = [
+    # PALABRAS NEGATIVAS (-5 cada una)
+    penalizaciones_fuertes = [
         r"\b(casa|departamento|oficina|vivienda|terreno|local)\b",
         r"\b(perfil|usuario|miembro|facebook|página)\b",
-        r"\b(nacido|empleado|graduado|familia)\b"
+        r"\b(teléfono|celular|contacto|whatsapp|email)\b"
     ]
     
-    for pattern in patterns_negativos:
-        if re.search(pattern, texto, re.IGNORECASE):
-            score -= 10
+    # PALABRAS NEGATIVAS MODERADAS (-2 cada una)
+    penalizaciones_moderadas = [
+        r"\b(nacido|empleado|graduado|familia|matrimonio)\b",
+        r"\b(publicado|creado|actualizado|visto)\b"
+    ]
     
-    return max(0, min(score, 50))  # Cap entre 0 y 50
-
-def calcular_score(año: int, contexto: str, fuente: str, precio: Optional[int] = None) -> int:
-    """
-    VERSIÓN ACTUALIZADA - Ahora usa el sistema unificado internamente
-    pero mantiene la misma interfaz externa para compatibilidad
-    """
-    # Crear dict compatible con la nueva función
-    anuncio_data = {
-        "texto": contexto,
-        "modelo": "",  # No disponible en esta interfaz legacy
-        "anio": año,
-        "precio": precio or 0,
-        "roi": 0  # No disponible en esta interfaz legacy
-    }
+    for patron in vehiculares_muy_fuertes:
+        puntuacion += 5 * len(re.findall(patron, texto, re.IGNORECASE))
     
-    resultado = calcular_score_unificado(anuncio_data, contexto, fuente)
-    return resultado["score_total"]
+    for patron in vehiculares_fuertes:
+        puntuacion += 3 * len(re.findall(patron, texto, re.IGNORECASE))
+    
+    for patron in vehiculares_moderadas:
+        puntuacion += 1 * len(re.findall(patron, texto, re.IGNORECASE))
+    
+    for patron in penalizaciones_fuertes:
+        puntuacion -= 5 * len(re.findall(patron, texto, re.IGNORECASE))
+        
+    for patron in penalizaciones_moderadas:
+        puntuacion -= 2 * len(re.findall(patron, texto, re.IGNORECASE))
+    
+    return max(0, puntuacion)
 
 @timeit
 def get_precio_referencia(modelo: str, anio: int, tolerancia: Optional[int] = None) -> Dict[str, Any]:
-    # (función sin cambios necesarios)
-    return {"precio": 50000, "confianza": "baja", "muestra": 0, "rango": "default"}
+    with get_db_connection() as conn:
+        cur = conn.cursor()
+        cur.execute("""
+            SELECT precio FROM anuncios 
+            WHERE modelo=? AND ABS(anio - ?) <= ? AND precio > 0
+            ORDER BY precio
+        """, (modelo, anio, tolerancia or TOLERANCIA_PRECIO_REF))
+        precios = [row[0] for row in cur.fetchall()]
+    if len(precios) >= MUESTRA_MINIMA_CONFIABLE:
+        pf = filtrar_outliers(precios)
+        med = statistics.median(pf)
+        return {"precio": int(med), "confianza": "alta", "muestra": len(pf), "rango": f"{min(pf)}-{max(pf)}"}
+    elif len(precios) >= MUESTRA_MINIMA_MEDIA:
+        med = statistics.median(precios)
+        return {"precio": int(med), "confianza": "media", "muestra": len(precios), "rango": f"{min(precios)}-{max(precios)}"}
+    else:
+        return {"precio": PRECIOS_POR_DEFECTO.get(modelo, 50000), "confianza": "baja", "muestra": 0, "rango": "default"}
 
 @timeit
 def calcular_roi_real(modelo: str, precio_compra: int, anio: int, costo_extra: int = 2000) -> Dict[str, Any]:
-    # (función sin cambios necesarios)
-    return {"roi": 0.0, "precio_referencia": 50000, "confianza": "baja", "muestra": 0}
+    ref = get_precio_referencia(modelo, anio)
+    años_ant = max(0, datetime.now().year - anio)
+    f_dep = (1 - DEPRECIACION_ANUAL) ** años_ant
+    p_dep = ref["precio"] * f_dep
+    inv_total = precio_compra + costo_extra
+    roi = ((p_dep - inv_total) / inv_total) * 100 if inv_total > 0 else 0.0
+    return {
+        "roi": round(roi, 1),
+        "precio_referencia": ref["precio"],
+        "precio_depreciado": int(p_dep),
+        "confianza": ref["confianza"],
+        "muestra": ref["muestra"],
+        "inversion_total": inv_total,
+        "años_antiguedad": años_ant
+    }
 
 @timeit
 def puntuar_anuncio(anuncio: Dict[str, Any]) -> int:
-    """
-    VERSIÓN ACTUALIZADA - Ahora usa el sistema unificado internamente
-    pero mantiene la misma interfaz externa para compatibilidad
-    """
-    # Calcular ROI si no está presente
-    roi = anuncio.get("roi")
-    if roi is None:
-        roi_data = calcular_roi_real(
-            anuncio.get("modelo", ""), 
-            anuncio.get("precio", 0), 
-            anuncio.get("anio", CURRENT_YEAR)
-        )
-        roi = roi_data.get("roi", 0)
-    
-    # Usar la nueva función unificada
-    anuncio_completo = {**anuncio, "roi": roi}
-    resultado = calcular_score_unificado(anuncio_completo)
-    return resultado["score_total"]
+    score = 0
+
+    texto = anuncio.get("texto", "")
+    modelo = anuncio.get("modelo", "")
+    anio = anuncio.get("anio", CURRENT_YEAR)
+    precio = anuncio.get("precio", 0)
+
+    # Penalización si contiene palabras negativas
+    if contiene_negativos(texto):
+        score -= 3
+
+    # Bonus si incluye palabras positivas como "vehículo"
+    if "vehículo" in texto.lower():
+        score += BONUS_VEHICULO
+
+    # Penalización si parece extranjero
+    if es_extranjero(texto):
+        score -= 2
+
+    # Validación de precio (sin return anticipado)
+    if not validar_precio_coherente(precio, modelo, anio):
+        score += PENALTY_INVALID  # -50
+
+    # ROI y referencia del modelo-año
+    roi_info = get_precio_referencia(modelo, anio)
+    precio_ref = roi_info.get("precio", PRECIOS_POR_DEFECTO.get(modelo, 50000))
+    roi_valor = anuncio.get("roi", roi_info.get("roi", 0))
+    confianza = roi_info.get("confianza", "baja")
+    muestra = roi_info.get("muestra", 0)
+
+    # Ganga detectada (precio muy por debajo del mercado)
+    if precio < 0.8 * precio_ref:
+        score += 1
+
+    # ROI fuerte
+    if roi_valor >= ROI_MINIMO:
+        score += 2
+
+    # Bonus por confianza estadística alta
+    if confianza == "alta" and muestra >= MUESTRA_MINIMA_CONFIABLE:
+        score += 1
+
+    # Penalización por ROI débil con poca muestra
+    if confianza == "baja" and muestra < MUESTRA_MINIMA_CONFIABLE and roi_valor < 5:
+        score -= 1
+
+    # Bonus si el texto es extenso e informativo
+    if len(texto) > 300:
+        score += 1
+
+    return score
+
+
 
 @timeit
 def insertar_anuncio_db(link, modelo, anio, precio, km, roi, score, relevante=False,
                         confianza_precio=None, muestra_precio=None):
-    # (función sin cambios necesarios)
-    return
+    conn = get_conn()
+    cur = conn.cursor()
+    
+    # Verificar si existen las columnas adicionales
+    cur.execute("PRAGMA table_info(anuncios)")
+    columnas_existentes = {row[1] for row in cur.fetchall()}
+    
+    if all(col in columnas_existentes for col in ["relevante", "confianza_precio", "muestra_precio"]):
+        # Insertar con columnas adicionales
+        cur.execute("""
+        INSERT OR REPLACE INTO anuncios 
+        (link, modelo, anio, precio, km, roi, score, relevante, confianza_precio, muestra_precio, fecha_scrape)
+        VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, DATE('now'))
+        """, (link, modelo, anio, precio, km, roi, score, relevante, confianza_precio, muestra_precio))
+    else:
+        # Insertar solo con columnas básicas
+        cur.execute("""
+        INSERT OR REPLACE INTO anuncios 
+        (link, modelo, anio, precio, km, roi, score, fecha_scrape)
+        VALUES (?, ?, ?, ?, ?, ?, ?, DATE('now'))
+        """, (link, modelo, anio, precio, km, roi, score))
+    
+    conn.commit()
 
 def existe_en_db(link: str) -> bool:
-    # (función sin cambios necesarios)
-    return False
+    with get_db_connection() as conn:
+        cur = conn.cursor()
+        cur.execute("SELECT 1 FROM anuncios WHERE link = ?", (limpiar_link(link),))
+        return cur.fetchone() is not None
 
 @timeit
 def get_rendimiento_modelo(modelo: str, dias: int = 7) -> float:
-    # (función sin cambios necesarios)
-    return 0.0
+    with get_db_connection() as conn:
+        cur = conn.cursor()
+        cur.execute("""
+            SELECT SUM(CASE WHEN score >= ? THEN 1 ELSE 0 END) * 1.0 / COUNT(*)
+            FROM anuncios WHERE modelo = ? AND fecha_scrape >= date('now', ?)
+        """, (SCORE_MIN_DB, modelo, f"-{dias} days"))
+        result = cur.fetchone()[0]
+        return round(result or 0.0, 3)
 
 @timeit
 def modelos_bajo_rendimiento(threshold: float = 0.005, dias: int = 7) -> List[str]:
-    # (función sin cambios necesarios)
-    return []
+    return [m for m in MODELOS_INTERES if get_rendimiento_modelo(m, dias) < threshold]
 
 def get_estadisticas_db() -> Dict[str, Any]:
-    # (función sin cambios necesarios)
-    return {"total_anuncios": 0}
+    with get_db_connection() as conn:
+        cur = conn.cursor()
+        cur.execute("SELECT COUNT(*) FROM anuncios")
+        total = cur.fetchone()[0]
+        
+        # Verificar si existe la columna confianza_precio
+        cur.execute("PRAGMA table_info(anuncios)")
+        columnas_existentes = {row[1] for row in cur.fetchall()}
+        
+        if "confianza_precio" in columnas_existentes:
+            cur.execute("SELECT COUNT(*) FROM anuncios WHERE confianza_precio = 'alta'")
+            alta_conf = cur.fetchone()[0]
+            cur.execute("SELECT COUNT(*) FROM anuncios WHERE confianza_precio = 'baja'")
+            baja_conf = cur.fetchone()[0]
+        else:
+            alta_conf = 0
+            baja_conf = total
+        
+        cur.execute("""
+            SELECT modelo, COUNT(*) FROM anuncios 
+            GROUP BY modelo ORDER BY COUNT(*) DESC
+        """)
+        por_modelo = dict(cur.fetchall())
+        
+        return {
+            "total_anuncios": total,
+            "alta_confianza": alta_conf,
+            "baja_confianza": baja_conf,
+            "porcentaje_defaults": round((baja_conf / total) * 100, 1) if total else 0,
+            "por_modelo": por_modelo
+        }
 
 def obtener_anuncio_db(link: str) -> Optional[Dict[str, Any]]:
-    # (función sin cambios necesarios)
-    return None
+    with get_db_connection() as conn:
+        cur = conn.cursor()
+        cur.execute("""
+            SELECT modelo, anio, precio, km, roi, score
+            FROM anuncios
+            WHERE link = ?
+        """, (limpiar_link(link),))
+        row = cur.fetchone()
+        if row:
+            return {
+                "modelo": row[0],
+                "anio": row[1],
+                "precio": row[2],
+                "km": row[3],
+                "roi": row[4],
+                "score": row[5]
+            }
+        return None
 
 def anuncio_diferente(a: Dict[str, Any], b: Dict[str, Any]) -> bool:
-    # (función sin cambios necesarios)
-    return False
-
-def debug_scoring(texto: str, modelo: str = "", anio: int = None, precio: int = 0, mostrar_detalles: bool = True):
-    """
-    NUEVA FUNCIÓN - Para debuggear por qué un anuncio tiene cierto score
-    """
-    print(f"\n🔍 DEBUGGING SCORE para: {texto[:100]}...")
-    print("=" * 60)
-    
-    # Preparar datos
-    if not anio:
-        anio = extraer_anio(texto, modelo, precio, debug=True) or CURRENT_YEAR
-    
-    if not modelo:
-        modelo = next((m for m in MODELOS_INTERES if coincide_modelo(texto, m)), "")
-    
-    if not precio:
-        precio = limpiar_precio(texto)
-    
-    print(f"📋 Datos extraídos:")
-    print(f"   Modelo: {modelo or 'NO DETECTADO'}")
-    print(f"   Año: {anio}")
-    print(f"   Precio: Q{precio:,}" if precio else "   Precio: NO DETECTADO")
-    
-    # Evaluar con sistema unificado
-    anuncio_data = {
-        "texto": texto,
-        "modelo": modelo,
-        "anio": anio,
-        "precio": precio
-    }
-    
-    resultado_unificado = calcular_score_unificado(anuncio_data)
-    
-    print(f"\n📊 SCORE TOTAL: {resultado_unificado['score_total']}")
-    print(f"✅ Es relevante: {resultado_unificado['es_relevante']}")
-    print(f"✅ Es válido para DB: {resultado_unificado['es_valido_db']}")
-    
-    if mostrar_detalles:
-        print(f"\n🔧 COMPONENTES DEL SCORE:")
-        for componente, valor in resultado_unificado['components'].items():
-            emoji = "✅" if valor > 0 else "❌" if valor < 0 else "⚪"
-            print(f"   {emoji} {componente}: {valor:+d}")
-    
-    # Evaluación de contexto negativo
-    es_critico, pen_negativa = evaluar_contexto_negativo(texto)
-    if es_critico:
-        print(f"\n🚨 CONTEXTO CRÍTICO NEGATIVO DETECTADO (descarte automático)")
-    elif pen_negativa < 0:
-        print(f"\n⚠️ Contexto negativo leve detectado (penalización: {pen_negativa})")
-    
-    # Evaluación de precio
-    if precio:
-        precio_valido, razon_precio = validar_precio_coherente_v2(precio, modelo, anio)
-        if not precio_valido:
-            print(f"\n💰 PRECIO INVÁLIDO: {razon_precio}")
-        else:
-            print(f"\n💰 Precio válido")
-    
-    # ROI si es posible calcularlo
-    if modelo and precio:
-        roi_data = calcular_roi_real(modelo, precio, anio)
-        print(f"\n📈 ROI ESTIMADO: {roi_data['roi']:.1f}%")
-        print(f"   Confianza: {roi_data['confianza']} (muestra: {roi_data['muestra']})")
-    
-    return resultado_unificado
+    campos_clave = ["modelo", "anio", "precio", "km", "roi", "score"]
+    return any(str(a.get(c)) != str(b.get(c)) for c in campos_clave)
 
 def analizar_mensaje(texto: str) -> Optional[Dict[str, Any]]:
-    """
-    Versión mejorada de analizar_mensaje con mejor logging y debugging
-    """
-    # Preprocesamiento
-    texto = limpiar_emojis_numericos(texto)
-    texto = normalizar_formatos_ano(texto)
-    
-    # Extracción básica
+    texto = limpiar_emojis_numericos(texto) 
+    texto = normalizar_formatos_ano(texto)  
     precio = limpiar_precio(texto)
-    anio = extraer_anio(texto, debug=DEBUG)
+    anio = extraer_anio(texto)
     modelo = next((m for m in MODELOS_INTERES if coincide_modelo(texto, m)), None)
-    
-    # Validación básica
-    if not modelo:
-        if DEBUG: print(f"❌ No se detectó modelo válido")
+    if not (modelo and anio and precio):
         return None
-    
-    if not anio:
-        if DEBUG: print(f"❌ No se detectó año válido")
+    if not validar_precio_coherente(precio, modelo, anio):
         return None
-    
-    if not precio:
-        if DEBUG: print(f"❌ No se detectó precio válido")
-        return None
-    
-    # Evaluación con el nuevo sistema
-    engine = ScoringEngine()
-    resultado = engine.evaluar_anuncio({
+    roi_data = calcular_roi_real(modelo, precio, anio)
+    score = puntuar_anuncio({
         "texto": texto,
         "modelo": modelo,
         "anio": anio,
-        "precio": precio
-    })
-    
-    if resultado["descartado"]:
-        if DEBUG: print(f"❌ Anuncio descartado: {resultado['razon_descarte']}")
-        return None
-    
-    # Construir respuesta
+        "precio": precio,
+        "roi": roi_data.get("roi", 0)
+    })  # ✅ Argumento único tipo dict
+
     url = next((l for l in texto.split() if l.startswith("http")), "")
-    roi_data = resultado["roi_data"]
-    
-    response = {
-        "url": limpiar_link(url),
+    return {
+        "url": limpiar_link(url),  # Cambié link por url para mantener consistencia
         "modelo": modelo,
-        "año": anio,
+        "año": anio,  # Cambié anio por año para mantener consistencia
         "precio": precio,
         "roi": roi_data["roi"],
-        "score": resultado["score"],
-        "relevante": resultado["relevante"],
+        "score": score,
+        "relevante": score >= SCORE_MIN_TELEGRAM and roi_data["roi"] >= ROI_MINIMO,
         "km": "",
         "confianza_precio": roi_data["confianza"],
         "muestra_precio": roi_data["muestra"],
-        "roi_data": roi_data,
-        "razones_score": resultado["razones"]  # Para debugging
+        "roi_data": roi_data
     }
-    
-    if DEBUG:
-        print(f"✅ Anuncio analizado: {modelo} {anio} - Score: {resultado['score']}")
-        print(f"   Razones: {', '.join(resultado['razones'])}")
-    
-    return response
