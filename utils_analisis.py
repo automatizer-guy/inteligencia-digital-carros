@@ -880,20 +880,27 @@ def _calcular_score_contexto_vehicular(texto: str, modelo: str, contexto_year: s
 
 def calcular_score(año: int, contexto: str, fuente: str, precio: Optional[int] = None) -> int:
     """
-    VERSIÓN ACTUALIZADA - Ahora usa el sistema unificado internamente
-    pero mantiene la misma interfaz externa para compatibilidad
+    MANTENER INTERFAZ V1 - Usar ScoringEngine internamente cuando sea posible
     """
-    # Crear dict compatible con la nueva función
-    anuncio_data = {
+    # Si tenemos datos suficientes, usar ScoringEngine
+    if precio and año and contexto:
+        engine = get_scoring_engine()
+        resultado = engine.evaluar_anuncio({
+            "texto": contexto,
+            "modelo": "",  # No disponible en esta interfaz legacy
+            "anio": año,
+            "precio": precio
+        })
+        return resultado["score"]
+    
+    # Fallback al método original para casos incompletos
+    return calcular_score_unificado({
         "texto": contexto,
-        "modelo": "",  # No disponible en esta interfaz legacy
+        "modelo": "",
         "anio": año,
         "precio": precio or 0,
-        "roi": 0  # No disponible en esta interfaz legacy
-    }
-    
-    resultado = calcular_score_unificado(anuncio_data, contexto, fuente)
-    return resultado["score_total"]
+        "roi": 0
+    }, contexto, fuente)["score_total"]
 
 @timeit
 def get_precio_referencia(modelo: str, anio: int, tolerancia: Optional[int] = None) -> Dict[str, Any]:
@@ -934,67 +941,29 @@ def calcular_roi_real(modelo: str, precio_compra: int, anio: int, costo_extra: i
     }
 
 @timeit
-def analizar_mensaje(texto: str) -> Optional[Dict[str, Any]]:
+def puntuar_anuncio(anuncio: Dict[str, Any]) -> int:
     """
-    INTERFAZ ORIGINAL DE V1 - Mejorada internamente
+    INTERFAZ ORIGINAL DE V1 - Solo retorna int
+    Internamente usa ScoringEngine pero mantiene compatibilidad
     """
-    # Preprocesamiento (igual que v1)
-    texto = limpiar_emojis_numericos(texto)
-    texto = normalizar_formatos_ano(texto)
+    # Calcular ROI si no está presente
+    roi = anuncio.get("roi")
+    if roi is None:
+        roi_data = calcular_roi_real(
+            anuncio.get("modelo", ""), 
+            anuncio.get("precio", 0), 
+            anuncio.get("anio", CURRENT_YEAR)
+        )
+        roi = roi_data.get("roi", 0)
     
-    # Extracción básica (igual que v1)
-    precio = limpiar_precio(texto)
-    anio = extraer_anio(texto, debug=DEBUG)
-    modelo = next((m for m in MODELOS_INTERES if coincide_modelo(texto, m)), None)
-    
-    # Validación básica (igual que v1)
-    if not (modelo and anio and precio):
-        return None
-    
-    # NUEVA MEJORA: Usar ScoringEngine para evaluación avanzada
+    # Usar ScoringEngine internamente
     engine = get_scoring_engine()
-    resultado_scoring = engine.evaluar_anuncio({
-        "texto": texto,
-        "modelo": modelo,
-        "anio": anio,
-        "precio": precio
-    })
+    anuncio_completo = {**anuncio, "roi": roi}
+    resultado = engine.evaluar_anuncio(anuncio_completo)
     
-    # Si el ScoringEngine lo descarta, usar la validación original como fallback
-    if resultado_scoring["descartado"]:
-        # Usar validación original de v1 como fallback
-        if not validar_precio_coherente(precio, modelo, anio):
-            return None
-    
-    # Calcular ROI (igual que v1)
-    roi_data = calcular_roi_real(modelo, precio, anio)
-    
-    # MEJORADO: Usar score del ScoringEngine si está disponible
-    score = resultado_scoring.get("score", 0)
-    if score <= 0:  # Fallback al método original si el score es muy bajo
-        score = puntuar_anuncio({
-            "texto": texto,
-            "modelo": modelo,
-            "anio": anio,
-            "precio": precio,
-            "roi": roi_data["roi"]
-        })
-    
-    # Construir respuesta (MANTENER INTERFAZ V1)
-    url = next((l for l in texto.split() if l.startswith("http")), "")
-    return {
-        "url": limpiar_link(url),
-        "modelo": modelo,
-        "año": anio,
-        "precio": precio,
-        "roi": roi_data["roi"],
-        "score": score,
-        "relevante": score >= SCORE_MIN_TELEGRAM and roi_data["roi"] >= ROI_MINIMO,
-        "km": "",
-        "confianza_precio": roi_data["confianza"],
-        "muestra_precio": roi_data["muestra"],
-        "roi_data": roi_data
-    }
+    # MANTENER INTERFAZ V1: Solo retornar el score como int
+    return resultado["score"]
+
 
 @timeit
 def insertar_anuncio_db(link, modelo, anio, precio, km, roi, score, relevante=False,
@@ -1229,9 +1198,101 @@ def analizar_mensaje(texto: str) -> Optional[Dict[str, Any]]:
         "muestra_precio": roi_data["muestra"],
         "roi_data": roi_data
     }
+
     
     if DEBUG:
         print(f"✅ Anuncio analizado: {modelo} {anio} - Score: {resultado['score']}")
         print(f"   Razones: {', '.join(resultado['razones'])}")
     
     return response
+
+def analizar_mensaje_detallado(texto: str) -> Optional[Dict[str, Any]]:
+    """
+    NUEVA FUNCIÓN - Usa ScoringEngine con detalles completos
+    No reemplaza analizar_mensaje, es adicional
+    """
+    # Preprocesamiento
+    texto = limpiar_emojis_numericos(texto)
+    texto = normalizar_formatos_ano(texto)
+    
+    # Extracción básica
+    precio = limpiar_precio(texto)
+    anio = extraer_anio(texto, debug=DEBUG)
+    modelo = next((m for m in MODELOS_INTERES if coincide_modelo(texto, m)), None)
+    
+    if not (modelo and anio and precio):
+        return None
+    
+    # Usar ScoringEngine completo
+    engine = get_scoring_engine()
+    resultado = engine.evaluar_anuncio({
+        "texto": texto,
+        "modelo": modelo,
+        "anio": anio,
+        "precio": precio
+    })
+    
+    if resultado["descartado"]:
+        return None
+    
+    # Respuesta con detalles de debugging
+    url = next((l for l in texto.split() if l.startswith("http")), "")
+    roi_data = resultado["roi_data"]
+    
+    return {
+        "url": limpiar_link(url),
+        "modelo": modelo,
+        "año": anio,
+        "precio": precio,
+        "roi": roi_data["roi"],
+        "score": resultado["score"],
+        "relevante": resultado["relevante"],
+        "km": "",
+        "confianza_precio": roi_data["confianza"],
+        "muestra_precio": roi_data["muestra"],
+        "roi_data": roi_data,
+        # EXTRAS PARA DEBUGGING
+        "razones_score": resultado.get("razones", []),
+        "descartado": resultado["descartado"],
+        "razon_descarte": resultado.get("razon_descarte")
+    }
+
+
+def test_scoring_integration():
+    """
+    Función para verificar que la integración funciona
+    """
+    print("🧪 Testing ScoringEngine integration...")
+    
+    # Test básico
+    engine = get_scoring_engine()
+    resultado = engine.evaluar_anuncio({
+        "texto": "Vendo Toyota Yaris 2015 Q25000 excelente estado",
+        "modelo": "yaris",
+        "anio": 2015,
+        "precio": 25000
+    })
+    
+    print(f"✅ ScoringEngine test: Score={resultado['score']}, Relevante={resultado['relevante']}")
+    
+    # Test de compatibilidad con v1
+    anuncio_test = {
+        "texto": "Vendo Toyota Yaris 2015 Q25000 excelente estado",
+        "modelo": "yaris",
+        "anio": 2015,
+        "precio": 25000
+    }
+    
+    score_v1 = puntuar_anuncio(anuncio_test)
+    print(f"✅ puntuar_anuncio compatibility: Score={score_v1}")
+    
+    # Test de analizar_mensaje
+    mensaje_test = "Vendo Toyota Yaris 2015 Q25000 excelente estado"
+    resultado_mensaje = analizar_mensaje(mensaje_test)
+    
+    if resultado_mensaje:
+        print(f"✅ analizar_mensaje compatibility: Score={resultado_mensaje['score']}")
+    else:
+        print("❌ analizar_mensaje failed")
+    
+    print("🧪 Integration test completed!")
