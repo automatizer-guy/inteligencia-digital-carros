@@ -427,6 +427,17 @@ _PATTERN_INVALID_CTX = re.compile(
     flags=re.IGNORECASE
 )
 
+
+_scoring_engine = None
+
+def get_scoring_engine():
+    """Singleton para ScoringEngine"""
+    global _scoring_engine
+    if _scoring_engine is None:
+        _scoring_engine = ScoringEngine()
+    return _scoring_engine
+
+
 def timeit(func):
     def wrapper(*args, **kwargs):
         if not DEBUG:
