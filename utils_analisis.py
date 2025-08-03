@@ -93,7 +93,7 @@ def evaluar_contexto_negativo(texto: str) -> Tuple[bool, int]:
     return False, penalizacion
 
 # FUNCIÓN MEJORADA PARA VALIDAR PRECIO
-def validar_precio_coherente_v2(precio: int, modelo: str, anio: int) -> Tuple[bool, str]:
+def validar_precio_coherente(precio: int, modelo: str, anio: int) -> bool:
     """
     Versión mejorada de validación de precios con mejor lógica
     """
