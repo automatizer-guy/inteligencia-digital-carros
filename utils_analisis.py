@@ -507,7 +507,7 @@ def limpiar_precio(texto: str) -> int:
     matches = re.findall(r"\b\d{3,7}\b", s)
     año_actual = datetime.now().year
     # CORRECCIÓN CRÍTICA: Lógica invertida corregida
-    candidatos = [int(x) for x in matches if not (1990 <= int(x) <= año_actual + 1)]
+    candidatos = [int(x) for x in matches if not (MIN_YEAR <= int(x) <= MAX_YEAR)]
     return candidatos[0] if candidatos else 0
 
 def filtrar_outliers(precios: List[int]) -> List[int]:
