@@ -579,7 +579,8 @@ def es_candidato_año(raw: str) -> bool:
     except ValueError:
         return False
 
-# FUNCIÓN PRINCIPAL MEJORADA: Extracción de año con validación estricta
+# REEMPLAZA SOLO LA FUNCIÓN extraer_anio en tu código existente
+
 def extraer_anio(texto, modelo=None, precio=None, debug=False):
     if not texto or not isinstance(texto, str):
         if debug:
@@ -590,8 +591,7 @@ def extraer_anio(texto, modelo=None, precio=None, debug=False):
     texto = normalizar_formatos_ano(texto)  
     texto_original = texto
     texto = texto.lower()
-    candidatos = {}
-
+    
     # 1) PRIORIDAD MÁXIMA: Correcciones manuales
     correccion_manual = obtener_correccion(texto_original)
     if correccion_manual:
@@ -604,53 +604,129 @@ def extraer_anio(texto, modelo=None, precio=None, debug=False):
             return 1900 + a if a > 50 else 2000 + a
         return a
 
-    # 2) Limpiar contextos inválidos ANTES de buscar
-    texto_limpio = _PATTERN_INVALID_CTX.sub("", texto)
-    
-    # 3) PRIORIDAD ALTA: Búsqueda específica cerca del modelo detectado
-    if modelo:
-        # Buscar el modelo en el texto y extraer ventana de contexto
-        for variante in sinonimos.get(modelo.lower(), [modelo.lower()]):
-            idx = texto_limpio.find(variante)
-            if idx != -1:
-                # Ventana de 50 caracteres alrededor del modelo
-                ventana = texto_limpio[max(0, idx - 50): idx + len(variante) + 50]
-                
-                # Buscar años específicamente en esta ventana
-                for match in re.finditer(r"(?:'|')?(\d{2,4})", ventana):
-                    raw = match.group(1)
-                    if es_candidato_año(raw):
-                        try:
-                            año = int(raw.strip("'"))
-                            año = normalizar_año_corto(año) if año < 100 else año
-                            if MIN_YEAR <= año <= MAX_YEAR:
-                                # Score muy alto por estar cerca del modelo
-                                candidatos[año] = candidatos.get(año, 0) + 100
-                                if debug:
-                                    print(f"🎯 Año {año} encontrado cerca del modelo {modelo}")
-                        except ValueError:
-                            continue
+    # CAMBIO CRÍTICO: Lista de candidatos con prioridades claras en lugar de diccionario acumulativo
+    candidatos_prioritarios = []  # [(año, prioridad, fuente)]
 
-    # 4) PRIORIDAD MEDIA: Patrones específicos modelo-año
-    for pat in (_PATTERN_YEAR_AROUND_MODEL, _PATTERN_YEAR_AROUND_KEYWORD):
-        match = pat.search(texto_limpio)
-        if match:
-            if pat == _PATTERN_YEAR_AROUND_MODEL:
-                raw = match.groupdict().get("y1") or match.groupdict().get("y2")
-            else:
-                raw = match.group(2)
+    # 2) MÁXIMA PRIORIDAD: Patrones modelo-año específicos
+    if modelo:
+        modelo_variantes = sinonimos.get(modelo.lower(), [modelo.lower()])
+        for variante in modelo_variantes:
+            variante_escaped = re.escape(variante)
             
-            if raw and es_candidato_año(raw):
+            # Patrón: "honda crv 2003" (año después del modelo)
+            patron_despues = rf'\b{variante_escaped}\s+[^\d]*?(\d{{2,4}})\b'
+            for match in re.finditer(patron_despues, texto):
+                raw = match.group(1)
+                if es_candidato_año(raw):
+                    try:
+                        año = int(raw)
+                        año = normalizar_año_corto(año) if len(raw) == 2 else año
+                        if MIN_YEAR <= año <= MAX_YEAR:
+                            candidatos_prioritarios.append((año, 1000, f"modelo_después_{variante}"))
+                            if debug:
+                                print(f"🎯 ALTA PRIORIDAD: {año} después de {variante}")
+                    except ValueError:
+                        continue
+            
+            # Patrón: "2003 honda crv" (año antes del modelo)  
+            patron_antes = rf'\b(\d{{2,4}})\s+[^\d]*?{variante_escaped}\b'
+            for match in re.finditer(patron_antes, texto):
+                raw = match.group(1)
+                if es_candidato_año(raw):
+                    try:
+                        año = int(raw)
+                        año = normalizar_año_corto(año) if len(raw) == 2 else año
+                        if MIN_YEAR <= año <= MAX_YEAR:
+                            candidatos_prioritarios.append((año, 1000, f"modelo_antes_{variante}"))
+                            if debug:
+                                print(f"🎯 ALTA PRIORIDAD: {año} antes de {variante}")
+                    except ValueError:
+                        continue
+
+    # 3) ALTA PRIORIDAD: Palabras clave específicas
+    patron_keywords = r'\b(?:modelo|m/|versión|año|del|año:|modelo:)\s*[^\d]{0,10}?(\d{2,4})\b'
+    for match in re.finditer(patron_keywords, texto):
+        raw = match.group(1)
+        if es_candidato_año(raw):
+            try:
+                año = int(raw)
+                año = normalizar_año_corto(año) if len(raw) == 2 else año
+                if MIN_YEAR <= año <= MAX_YEAR:
+                    candidatos_prioritarios.append((año, 900, "keyword"))
+                    if debug:
+                        print(f"🔑 KEYWORD: {año}")
+            except ValueError:
+                continue
+
+    # 4) PRIORIDAD MEDIA: Primera línea/título
+    primera_linea = texto.split('\n')[0] if '\n' in texto else texto[:150]
+    for match in re.finditer(r'\b(\d{2,4})\b', primera_linea):
+        raw = match.group(1)
+        if es_candidato_año(raw):
+            try:
+                año = int(raw)
+                año = normalizar_año_corto(año) if len(raw) == 2 else año
+                if MIN_YEAR <= año <= MAX_YEAR:
+                    # Verificar que no sea un precio obvio
+                    contexto = primera_linea[max(0, match.start()-20):match.end()+20]
+                    if not re.search(rf'[q$]\s*{re.escape(raw)}', contexto, re.IGNORECASE):
+                        candidatos_prioritarios.append((año, 800, "titulo"))
+                        if debug:
+                            print(f"📄 TITULO: {año}")
+            except ValueError:
+                continue
+
+    # 5) BAJA PRIORIDAD: Búsqueda general (solo si no hay candidatos de alta prioridad)
+    if not any(prioridad >= 800 for _, prioridad, _ in candidatos_prioritarios):
+        for match in re.finditer(r'\b(\d{2,4})\b', texto):
+            raw = match.group(1)
+            if es_candidato_año(raw):
                 try:
                     año = int(raw)
                     año = normalizar_año_corto(año) if len(raw) == 2 else año
                     if MIN_YEAR <= año <= MAX_YEAR:
-                        candidatos[año] = candidatos.get(año, 0) + 80
+                        # Filtros estrictos para búsqueda general
+                        contexto = texto[max(0, match.start()-30):match.end()+30]
+                        
+                        # Descartar contextos obviamente malos
+                        if any(malo in contexto for malo in ['nacido', 'miembro desde', 'facebook', 'perfil']):
+                            continue
+                        
+                        # Descartar si parece precio
+                        if re.search(rf'[q$]\s*{re.escape(raw)}', contexto, re.IGNORECASE):
+                            continue
+                            
+                        candidatos_prioritarios.append((año, 100, "general"))
                         if debug:
-                            print(f"🎯 Año {año} encontrado con patrón específico")
+                            print(f"🔍 GENERAL: {año}")
                 except ValueError:
                     continue
 
+    # SELECCIÓN FINAL: Por prioridad más alta, luego por frecuencia
+    if not candidatos_prioritarios:
+        if debug:
+            print("❌ No se encontraron candidatos")
+        return None
+
+    # Agrupar por año y encontrar la máxima prioridad para cada uno
+    años_con_max_prioridad = {}
+    for año, prioridad, fuente in candidatos_prioritarios:
+        if año not in años_con_max_prioridad or prioridad > años_con_max_prioridad[año][0]:
+            años_con_max_prioridad[año] = (prioridad, fuente)
+
+    if debug:
+        print("🎯 Candidatos finales:")
+        for año, (prioridad, fuente) in sorted(años_con_max_prioridad.items(), key=lambda x: x[1][0], reverse=True):
+            print(f"  - {año}: prioridad={prioridad}, fuente={fuente}")
+
+    # Retornar el año con mayor prioridad
+    año_final = max(años_con_max_prioridad.items(), key=lambda x: x[1][0])[0]
+    
+    if debug:
+        print(f"✅ Año seleccionado: {año_final}")
+    
+    return año_final
+    
     def calcular_score_mejorado(año: int, contexto: str, fuente: str, precio: Optional[int] = None) -> int:
         score = 0
         
