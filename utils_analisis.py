@@ -492,16 +492,19 @@ def validar_precio_coherente(precio: int, modelo: str, anio: int) -> bool:
     muestra = ref_info.get("muestra", 0)
 
     # Rangos más coherentes según la confianza de datos
-    if muestra >= MUESTRA_MINIMA_CONFIABLE:
-        # Con datos confiables, ser más restrictivo pero permitir gangas
-        margen_bajo = 0.25 * precio_ref  # 25% del precio de referencia
-        margen_alto = 2.0 * precio_ref   # Máximo el doble
+    if "reparar" in texto.lower() or "repuesto" in texto.lower():
+        margen_bajo = 0.1 * precio_ref
     else:
-        # Sin datos confiables, usar rangos más amplios
-        margen_bajo = 0.15 * precio_ref
-        margen_alto = 2.5 * precio_ref
-
-    return margen_bajo <= precio <= margen_alto
+        if muestra >= MUESTRA_MINIMA_CONFIABLE:
+            # Con datos confiables, ser más restrictivo pero permitir gangas
+            margen_bajo = 0.25 * precio_ref  # 25% del precio de referencia
+            margen_alto = 2.0 * precio_ref   # Máximo el doble
+        else:
+            # Sin datos confiables, usar rangos más amplios
+            margen_bajo = 0.15 * precio_ref
+            margen_alto = 2.5 * precio_ref
+    
+        return margen_bajo <= precio <= margen_alto
 
 # MEJORADO: Extracción de precio más robusta
 def limpiar_precio(texto: str) -> int:
@@ -648,6 +651,14 @@ def extraer_anio(texto, modelo=None, precio=None, debug=False):
                                 print(f"🎯 ALTA PRIORIDAD: {año} antes de {variante}")
                     except ValueError:
                         continue
+
+        # ⚡ Corte inmediato si hay un único año fuerte
+        años_fuertes = [a for a, p, f in candidatos_prioritarios if p >= 1000]
+        if len(set(años_fuertes)) == 1:
+            if debug:
+                print(f"✅ Corte inmediato: {años_fuertes[0]} (modelo+año claro)")
+            return años_fuertes[0]
+
 
     # 3) ALTA PRIORIDAD: Palabras clave específicas
     patron_keywords = r'\b(?:modelo|m/|versión|año|del|año:|modelo:)\s*[^\d]{0,10}?(\d{2,4})\b'
