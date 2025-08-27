@@ -591,7 +591,13 @@ def extraer_anio(texto, modelo=None, precio=None, debug=False):
     texto = normalizar_formatos_ano(texto)  
     texto_original = texto
     texto = texto.lower()
-    
+
+        # 🚫 Validación inicial: descartar si no hay contexto vehicular fuerte
+    if not re.search(r'\b(modelo|año|versión|motor|vehículo|carro|auto|transmisión|automático|mecánico|gasolina|diésel)\b', texto):
+        if debug:
+            print("❌ No hay contexto vehicular suficiente para extraer año")
+        return None
+
     # 1) PRIORIDAD MÁXIMA: Correcciones manuales
     correccion_manual = obtener_correccion(texto_original)
     if correccion_manual:
