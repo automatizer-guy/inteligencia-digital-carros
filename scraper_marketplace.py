@@ -25,42 +25,13 @@ MIN_PRECIO_VALIDO = 3000
 MAX_EJEMPLOS_SIN_ANIO = 5
 ROI_POTENCIAL_MIN = ROI_MINIMO - 10
 
-# Configuración con más variabilidad humana
-BASE_SCROLLS = 15
-SCROLL_VARIATION = 5  # ±5 scrolls aleatorios
-MIN_DELAY = 2.5  # Ligeramente aumentado para ser más humano
-MAX_DELAY = 5.5
-DELAY_ENTRE_ANUNCIOS = (2.0, 4.0)  # Rango variable
-MAX_CONSECUTIVOS_SIN_NUEVOS = 3
-BATCH_SIZE_SCROLL = (6, 10)  # Rango variable
-
-# Pool de User Agents realistas
-USER_AGENTS = [
-    "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36",
-    "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/119.0.0.0 Safari/537.36",
-    "Mozilla/5.0 (Windows NT 10.0; Win64; x64; rv:120.0) Gecko/20100101 Firefox/120.0",
-    "Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36",
-    "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36 Edg/120.0.0.0"
-]
-
-def obtener_delay_humano(base_min: float, base_max: float, factor_fatiga: float = 0) -> float:
-    """Genera delays más humanos con ligera variación por 'fatiga'"""
-    base_delay = random.uniform(base_min, base_max)
-    fatiga_extra = factor_fatiga * random.uniform(0, 0.5)  # Máximo 0.5s extra por fatiga
-    return base_delay + fatiga_extra
-
-def simular_comportamiento_humano_previo(page: Page) -> None:
-    """Simula pequeños comportamientos humanos antes de acciones importantes"""
-    async def _simular():
-        # Ocasionalmente simular movimiento de mouse "distraído"
-        if random.random() < 0.3:  # 30% de probabilidad
-            await page.mouse.move(
-                random.randint(200, 600),
-                random.randint(150, 400)
-            )
-            await asyncio.sleep(random.uniform(0.2, 0.8))
-    
-    return _simular()
+# Configuración optimizada
+MAX_SCROLLS_POR_SORT = 15  # Reducido de 25
+MIN_DELAY = 2  # Reducido de 2.0
+MAX_DELAY = 4  # Reducido de 4.0
+DELAY_ENTRE_ANUNCIOS = 2  # Reducido de 2.5
+MAX_CONSECUTIVOS_SIN_NUEVOS = 3  # Reducido de 5
+BATCH_SIZE_SCROLL = 8  # Procesar en lotes pequeños
 
 def limpiar_url(link: str) -> str:
     if not link:
@@ -80,26 +51,15 @@ async def cargar_contexto_con_cookies(browser: Browser) -> BrowserContext:
         logger.error(f"❌ Error al parsear FB_COOKIES_JSON: {e}")
         return await browser.new_context(locale="es-ES")
 
-    # User agent aleatorio para cada sesión
-    selected_ua = random.choice(USER_AGENTS)
-    
     context = await browser.new_context(
         locale="es-ES",
-        user_agent=selected_ua,
-        # Viewport ligeramente variable
-        viewport={
-            'width': random.randint(1280, 1440),
-            'height': random.randint(720, 900)
-        }
+        user_agent = "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/138.0.0.0 Safari/537.36 Edg/138.0.0.0"
     )
     await context.add_cookies(cookies)
     return context
 
 async def extraer_items_pagina(page: Page) -> List[Dict[str, str]]:
     try:
-        # Pequeña pausa humana antes de extraer
-        await asyncio.sleep(random.uniform(0.3, 0.8))
-        
         items = await page.query_selector_all("a[href*='/marketplace/item']")
         resultados = []
         for a in items:
@@ -113,56 +73,49 @@ async def extraer_items_pagina(page: Page) -> List[Dict[str, str]]:
         logger.error(f"❌ Error al extraer items: {e}")
         return []
 
-async def scroll_hasta(page: Page, factor_fatiga: float = 0) -> bool:
-    # Comportamiento humano previo ocasional
-    if random.random() < 0.4:  # 40% probabilidad
-        await simular_comportamiento_humano_previo(page)
+async def scroll_hasta(page: Page) -> bool:
+    # Simular movimiento de mouse humano antes del scroll
+    await page.mouse.move(
+        random.randint(100, 800),
+        random.randint(100, 600)
+    )
+    await asyncio.sleep(random.uniform(0.5, 1.2))  # Pausa entre movimiento y scroll
 
-    # Scroll más variable y humano
-    scroll_amount = random.randint(120, 350)  # Cantidad más variable
-    
-    # Ocasionalmente hacer scroll "imperfecto" (como humano distraído)
-    if random.random() < 0.15:  # 15% probabilidad
-        scroll_amount = random.randint(50, 120)  # Scroll más pequeño
-
+    # Evaluar altura inicial de la página
     prev = await page.evaluate("document.body.scrollHeight")
 
-    # Scroll con posible componente horizontal mínimo (más humano)
-    horizontal_drift = random.randint(-10, 10)
-    await page.mouse.wheel(horizontal_drift, scroll_amount)
-    
-    # Delay con factor de fatiga
-    delay = obtener_delay_humano(1.8, 3.2, factor_fatiga)
-    await asyncio.sleep(delay)
+    # Scroll más suave y realista
+    await page.mouse.wheel(0, random.randint(150, 300))
+    await asyncio.sleep(random.uniform(1.5, 2.5))  # Delay más humano
 
+    # Evaluar nueva altura de la página
     now = await page.evaluate("document.body.scrollHeight")
+
+    # Devolver si hubo cambio de altura (scroll efectivo)
     return now > prev
+
 
 async def procesar_lote_urls(page: Page, urls_lote: List[str], modelo: str, 
                            vistos_globales: Set[str], contador: Dict[str, int],
                            procesados: List[str], potenciales: List[str], 
-                           relevantes: List[str], sin_anio_ejemplos: List[Tuple[str, str]],
-                           factor_fatiga: float = 0) -> int:
-    """Procesa un lote de URLs con mejor gestión de errores y comportamiento más humano"""
+                           relevantes: List[str], sin_anio_ejemplos: List[Tuple[str, str]]) -> int:
+    """Procesa un lote de URLs con mejor gestión de errores y timeouts"""
     nuevos_en_lote = 0
     
-    for i, url in enumerate(urls_lote):
+    for url in urls_lote:
         if url in vistos_globales:
             contador["duplicado"] += 1
             continue
         vistos_globales.add(url)
 
         try:
-            # Timeout ligeramente aumentado para ser menos agresivo
-            await asyncio.wait_for(page.goto(url), timeout=18)
-            
-            # Delay variable entre anuncios con factor de fatiga
-            delay_anuncio = obtener_delay_humano(*DELAY_ENTRE_ANUNCIOS, factor_fatiga)
-            await asyncio.sleep(delay_anuncio)
+            # Timeout más agresivo para cada página
+            await asyncio.wait_for(page.goto(url), timeout=15)
+            await asyncio.sleep(DELAY_ENTRE_ANUNCIOS)
             
             # Extraer texto con timeout
             try:
-                texto = await asyncio.wait_for(page.inner_text("div[role='main']"), timeout=12)
+                texto = await asyncio.wait_for(page.inner_text("div[role='main']"), timeout=10)
                 if not texto or len(texto.strip()) < 100:
                     raise ValueError("Texto insuficiente")
             except Exception:
@@ -180,10 +133,9 @@ async def procesar_lote_urls(page: Page, urls_lote: List[str], modelo: str,
             
         nuevos_en_lote += 1
         
-        # Pausa adaptativa con más variabilidad
-        if nuevos_en_lote % random.randint(2, 4) == 0:  # Cada 2-4 éxitos
-            pausa = obtener_delay_humano(2.5, 4.5, factor_fatiga)
-            await asyncio.sleep(pausa)
+        # Pausa adaptativa basada en el éxito
+        if nuevos_en_lote % 3 == 0:
+            await asyncio.sleep(random.uniform(2.0, 3.5))
 
     return nuevos_en_lote
 
@@ -198,6 +150,7 @@ async def procesar_anuncio_individual(
     relevantes: List[str],
     sin_anio_ejemplos: List[Tuple[str, str]]
 ) -> bool:
+
     """Procesa un anuncio individual y retorna True si fue procesado exitosamente"""
     
     texto = texto.strip()
@@ -222,16 +175,12 @@ async def procesar_anuncio_individual(
 
     anio = extraer_anio(texto)
 
-    # Intento expandir descripción con comportamiento más humano
+    # Intento expandir descripción solo si no hay año válido
     if not anio or not (1990 <= anio <= datetime.now().year):
         ver_mas = await page.query_selector("div[role='main'] span:has-text('Ver más')")
         if ver_mas:
-            # Pequeña pausa antes del clic (más humano)
-            await asyncio.sleep(random.uniform(0.5, 1.2))
             await ver_mas.click()
-            
-            # Espera variable para cargar contenido
-            await asyncio.sleep(random.uniform(1.8, 2.5))
+            await asyncio.sleep(1.5)
             texto_expandido = await page.inner_text("div[role='main']")
             anio_expandido = extraer_anio(texto_expandido)
             if anio_expandido and (1990 <= anio_expandido <= datetime.now().year):
@@ -244,6 +193,8 @@ async def procesar_anuncio_individual(
             sin_anio_ejemplos.append((texto, url))
         return False
 
+
+
     roi_data = calcular_roi_real(modelo, precio, anio)
     score = puntuar_anuncio({
         "texto": texto,
@@ -251,7 +202,7 @@ async def procesar_anuncio_individual(
         "anio": anio,
         "precio": precio,
         "roi": roi_data.get("roi", 0)
-    })
+    })  # ✅ Argumento único tipo dict
 
     relevante = score >= SCORE_MIN_TELEGRAM and roi_data["roi"] >= ROI_MINIMO
 
@@ -302,27 +253,19 @@ async def procesar_anuncio_individual(
 async def procesar_ordenamiento_optimizado(page: Page, modelo: str, sort: str, 
                                          vistos_globales: Set[str], contador: Dict[str, int],
                                          procesados: List[str], potenciales: List[str], 
-                                         relevantes: List[str], sin_anio_ejemplos: List[Tuple[str, str]],
-                                         modelo_index: int = 0) -> int:
-    """Versión optimizada con comportamiento más humano"""
+                                         relevantes: List[str], sin_anio_ejemplos: List[Tuple[str, str]]) -> int:
+    """Versión optimizada del procesamiento por ordenamiento"""
     
     url_busq = f"https://www.facebook.com/marketplace/guatemala/search/?query={modelo.replace(' ', '%20')}&minPrice=1000&maxPrice=60000&sortBy={sort}"
     await page.goto(url_busq)
-    
-    # Delay inicial variable
-    await asyncio.sleep(obtener_delay_humano(MIN_DELAY, MAX_DELAY))
+    await asyncio.sleep(random.uniform(MIN_DELAY, MAX_DELAY))
 
-    # Scrolls con variabilidad
-    max_scrolls = BASE_SCROLLS + random.randint(-SCROLL_VARIATION, SCROLL_VARIATION)
     scrolls_realizados = 0
     consec_repetidos = 0
     nuevos_total = 0
     urls_pendientes = []
-    
-    # Factor de fatiga basado en progreso
-    factor_fatiga_base = modelo_index * 0.1  # Aumenta ligeramente con cada modelo
 
-    while scrolls_realizados < max_scrolls:
+    while scrolls_realizados < MAX_SCROLLS_POR_SORT:
         # Extraer URLs en lote
         items = await extraer_items_pagina(page)
         urls_nuevas = []
@@ -339,22 +282,14 @@ async def procesar_ordenamiento_optimizado(page: Page, modelo: str, sort: str,
 
         urls_pendientes.extend(urls_nuevas)
         
-        # Batch size variable
-        batch_size = random.randint(*BATCH_SIZE_SCROLL)
-        
         # Procesar en lotes cuando tengamos suficientes URLs o al final
-        if len(urls_pendientes) >= batch_size or scrolls_realizados >= max_scrolls - 1:
+        if len(urls_pendientes) >= BATCH_SIZE_SCROLL or scrolls_realizados >= MAX_SCROLLS_POR_SORT - 1:
             if urls_pendientes:
-                lote_actual = urls_pendientes[:batch_size]
-                urls_pendientes = urls_pendientes[batch_size:]
+                lote_actual = urls_pendientes[:BATCH_SIZE_SCROLL]
+                urls_pendientes = urls_pendientes[BATCH_SIZE_SCROLL:]
                 
-                factor_fatiga_actual = factor_fatiga_base + (scrolls_realizados / max_scrolls) * 0.2
-                
-                nuevos_en_lote = await procesar_lote_urls(
-                    page, lote_actual, modelo, vistos_globales, 
-                    contador, procesados, potenciales, relevantes, 
-                    sin_anio_ejemplos, factor_fatiga_actual
-                )
+                nuevos_en_lote = await procesar_lote_urls(page, lote_actual, modelo, vistos_globales, 
+                                                        contador, procesados, potenciales, relevantes, sin_anio_ejemplos)
                 nuevos_total += nuevos_en_lote
                 
                 if nuevos_en_lote == 0:
@@ -369,26 +304,21 @@ async def procesar_ordenamiento_optimizado(page: Page, modelo: str, sort: str,
             logger.info(f"🔄 Salida temprana en {sort}: {consec_repetidos} scrolls consecutivos sin nuevos")
             break
             
-        # Factor de fatiga para scrolls
-        factor_fatiga_scroll = factor_fatiga_base + (scrolls_realizados / max_scrolls) * 0.15
-        if not await scroll_hasta(page, factor_fatiga_scroll):
+        if not await scroll_hasta(page):
             logger.info(f"🔄 Fin de contenido detectado en {sort}")
             break
 
     # Procesar URLs restantes
     if urls_pendientes:
-        await procesar_lote_urls(
-            page, urls_pendientes, modelo, vistos_globales, 
-            contador, procesados, potenciales, relevantes, sin_anio_ejemplos
-        )
+        await procesar_lote_urls(page, urls_pendientes, modelo, vistos_globales, 
+                               contador, procesados, potenciales, relevantes, sin_anio_ejemplos)
 
     return nuevos_total
 
 async def procesar_modelo(page: Page, modelo: str,
                           procesados: List[str],
                           potenciales: List[str],
-                          relevantes: List[str],
-                          modelo_index: int = 0) -> int:
+                          relevantes: List[str]) -> int:
     vistos_globales = set()
     sin_anio_ejemplos = []
     contador = {k: 0 for k in [
@@ -397,32 +327,24 @@ async def procesar_modelo(page: Page, modelo: str,
         "actualizados", "repetidos"
     ]}
     
-    # Orden aleatorio de sorts para cada modelo
-    SORT_OPTS = ["best_match", "price_asc"]
-    if random.random() < 0.3:  # 30% probabilidad de incluir newest ocasionalmente
-        SORT_OPTS.append("newest")
-    random.shuffle(SORT_OPTS)
-    
+    # Ordenamientos optimizados: priorizamos los más efectivos
+    SORT_OPTS = ["best_match", "price_asc"]  # Removido "newest" por generar muchos duplicados
     inicio = datetime.now()
     total_nuevos = 0
 
-    for i, sort in enumerate(SORT_OPTS):
+    for sort in SORT_OPTS:
         logger.info(f"🔍 Procesando {modelo} con ordenamiento: {sort}")
         try:
             nuevos_sort = await asyncio.wait_for(
-                procesar_ordenamiento_optimizado(
-                    page, modelo, sort, vistos_globales, contador,
-                    procesados, potenciales, relevantes, sin_anio_ejemplos, modelo_index
-                ), 
-                timeout=200  # Timeout ligeramente aumentado
+                procesar_ordenamiento_optimizado(page, modelo, sort, vistos_globales, contador,
+                                                procesados, potenciales, relevantes, sin_anio_ejemplos), 
+                timeout=180  # 3 minutos por ordenamiento
             )
             total_nuevos += nuevos_sort
             logger.info(f"✅ {sort}: {nuevos_sort} nuevos anuncios procesados")
             
-            # Pausa variable entre ordenamientos
-            if i < len(SORT_OPTS) - 1:  # No pausar después del último
-                pausa_sort = obtener_delay_humano(4.0, 8.0, modelo_index * 0.1)
-                await asyncio.sleep(pausa_sort)
+            # Pausa entre ordenamientos
+            await asyncio.sleep(random.uniform(3.0, 5.0))
             
         except asyncio.TimeoutError:
             logger.warning(f"⏳ Timeout en ordenamiento {sort} para {modelo}")
@@ -430,7 +352,7 @@ async def procesar_modelo(page: Page, modelo: str,
 
     duracion = (datetime.now() - inicio).seconds
     logger.info(f"""
-✨ MODELO: {modelo.upper()} - MEJORADO
+✨ MODELO: {modelo.upper()} - OPTIMIZADO
    Duración: {duracion} s
    Total encontrados: {contador['total']}
    Guardados nuevos: {contador['guardado']}
@@ -448,6 +370,7 @@ async def procesar_modelo(page: Page, modelo: str,
 
     return total_nuevos
 
+
 async def buscar_autos_marketplace(modelos_override: Optional[List[str]] = None) -> Tuple[List[str], List[str], List[str]]:
     inicializar_tabla_anuncios()
     modelos = modelos_override or MODELOS_INTERES
@@ -459,27 +382,18 @@ async def buscar_autos_marketplace(modelos_override: Optional[List[str]] = None)
     async with async_playwright() as p:
         browser = await p.chromium.launch(
             headless=True,
-            args=[
-                '--no-sandbox', 
-                '--disable-dev-shm-usage',
-                '--disable-blink-features=AutomationControlled',  # Anti-detección
-                '--disable-features=VizDisplayCompositor'  # Reduce carga GPU
-            ]
+            args=['--no-sandbox', '--disable-dev-shm-usage']  # Optimización de recursos
         )
         ctx = await cargar_contexto_con_cookies(browser)
         page = await ctx.new_page()
 
-        # Headers más realistas
+        # Configuración optimizada de la página
         await page.set_extra_http_headers({
-            'Accept-Language': 'es-ES,es;q=0.9,en;q=0.8',
-            'Accept': 'text/html,application/xhtml+xml,application/xml;q=0.9,image/webp,*/*;q=0.8',
-            'Accept-Encoding': 'gzip, deflate, br',
-            'DNT': '1',
-            'Connection': 'keep-alive'
+            'Accept-Language': 'es-ES,es;q=0.9,en;q=0.8'
         })
 
         await page.goto("https://www.facebook.com/marketplace")
-        await asyncio.sleep(obtener_delay_humano(3.0, 5.0))
+        await asyncio.sleep(3)
 
         if "login" in page.url or "recover" in page.url:
             alerta = "🚨 Sesión inválida: redirigido a la página de inicio de sesión. Verifica las cookies (FB_COOKIES_JSON)."
@@ -488,7 +402,7 @@ async def buscar_autos_marketplace(modelos_override: Optional[List[str]] = None)
 
         logger.info("✅ Sesión activa detectada correctamente en Marketplace.")
 
-        # Aleatorizar pero con seed para reproducibilidad si es necesario
+        # Aleatorizar el orden pero mantener determinismo para logs
         modelos_shuffled = activos.copy()
         random.shuffle(modelos_shuffled)
 
@@ -496,14 +410,13 @@ async def buscar_autos_marketplace(modelos_override: Optional[List[str]] = None)
             logger.info(f"📋 Procesando modelo {i+1}/{len(modelos_shuffled)}: {m}")
             try:
                 await asyncio.wait_for(
-                    procesar_modelo(page, m, procesados, potenciales, relevantes, i), 
-                    timeout=420  # 7 minutos por modelo (ligeramente aumentado)
+                    procesar_modelo(page, m, procesados, potenciales, relevantes), 
+                    timeout=360  # 6 minutos por modelo
                 )
                 
-                # Pausa variable entre modelos con factor de fatiga
-                if i < len(modelos_shuffled) - 1:
-                    pausa_modelo = obtener_delay_humano(10.0, 20.0, i * 0.05)
-                    await asyncio.sleep(pausa_modelo)
+                # Pausa entre modelos para evitar detección
+                if i < len(modelos_shuffled) - 1:  # No pausar después del último
+                    await asyncio.sleep(random.uniform(8.0, 15.0))
                     
             except asyncio.TimeoutError:
                 logger.warning(f"⏳ {m} → Excedió tiempo máximo. Se aborta.")
@@ -512,17 +425,18 @@ async def buscar_autos_marketplace(modelos_override: Optional[List[str]] = None)
 
     return procesados, potenciales, relevantes
 
+
 if __name__ == "__main__":
     async def main():
         procesados, potenciales, relevantes = await buscar_autos_marketplace()
 
-        logger.info("📦 Resumen final del scraping mejorado")
+        logger.info("📦 Resumen final del scraping optimizado")
         logger.info(f"Guardados totales: {len(procesados)}")
         logger.info(f"Relevantes: {len(relevantes)}")
         logger.info(f"Potenciales: {len(potenciales)}")
 
         logger.info("\n🟢 Relevantes con buen ROI:")
-        for r in relevantes[:10]:
+        for r in relevantes[:10]:  # Limitar output para logging
             logger.info(r.replace("*", "").replace("\\n", "\n"))
 
     asyncio.run(main())
