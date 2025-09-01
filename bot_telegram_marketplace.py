@@ -78,13 +78,13 @@ async def enviar_ofertas():
         "roi bajo": 0
     }
 
-    for txt in brutos:
-        res = analizar_mensaje(txt)
+    for texto in brutos:
+        res = analizar_mensaje(texto)
         if not res:
             motivos["incompleto"] += 1
             continue
 
-        logger.info(f"\n📝 TEXTO CRUDO:\n{txt[:500]}")
+        logger.info(f"\n📝 TEXTO CRUDO:\n{texto[:500]}")
 
         url, modelo, anio, precio, roi, score, relevante = (
             res["url"], res["modelo"], res["año"], res["precio"],
@@ -109,7 +109,7 @@ async def enviar_ofertas():
 
         motivo = None
         if not relevante:
-            if es_extranjero(txt):
+            if es_extranjero(texto):
                 motivo = "extranjero"
             elif roi < ROI_MINIMO:
                 motivo = "roi bajo"
