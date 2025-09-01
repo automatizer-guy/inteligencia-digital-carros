@@ -68,13 +68,29 @@ def limpiar_url(link: str) -> str:
     path = urlparse(link.strip()).path.rstrip("/")
     return f"https://www.facebook.com{path}"
 
-async def guardar_cookies(context: BrowserContext, filepath: str = "fb_cookies.json"):
-    """Guarda cookies de la sesión actual"""
+async def guardar_cookies_inteligente(context: BrowserContext, forzar: bool = False):
+    """Guarda cookies solo si han pasado más de 10 minutos desde la última vez"""
+    archivo_cookies = "fb_cookies.json"
+    
+    if not forzar:
+        try:
+            # Verificar si el archivo existe y cuándo se modificó por última vez
+            if os.path.exists(archivo_cookies):
+                tiempo_modificacion = os.path.getmtime(archivo_cookies)
+                tiempo_actual = datetime.now().timestamp()
+                diferencia_minutos = (tiempo_actual - tiempo_modificacion) / 60
+                
+                if diferencia_minutos < 10:  # Menos de 10 minutos
+                    logger.debug(f"🍪 Cookies guardadas hace {diferencia_minutos:.1f}min, saltando...")
+                    return
+        except Exception:
+            pass  # Si hay error, proceder a guardar
+    
     try:
         cookies = await context.cookies()
-        with open(filepath, 'w') as f:
+        with open(archivo_cookies, 'w') as f:
             json.dump(cookies, f)
-        logger.info(f"🍪 Cookies guardadas en {filepath}")
+        logger.info(f"🍪 Cookies {'forzadas' if forzar else 'actualizadas'}")
     except Exception as e:
         logger.warning(f"⚠️ Error al guardar cookies: {e}")
 
@@ -82,24 +98,18 @@ async def cargar_contexto_con_cookies(browser: Browser, config: Dict) -> Browser
     """Carga contexto del navegador con cookies y configuración antidetección"""
     logger.info("🔐 Configurando contexto del navegador...")
     
-    # Intentar cargar cookies desde variable de entorno primero
+    # Cargar cookies desde variable de entorno (GitHub Secrets)
     cj = os.environ.get("FB_COOKIES_JSON", "")
     cookies = []
     
     if cj:
         try:
             cookies = json.loads(cj)
-            logger.info("✅ Cookies cargadas desde variable de entorno")
+            logger.info("✅ Cookies cargadas desde GitHub Secret")
         except Exception as e:
             logger.warning(f"⚠️ Error al parsear FB_COOKIES_JSON: {e}")
     else:
-        # Intentar cargar desde archivo local
-        try:
-            with open("fb_cookies.json", 'r') as f:
-                cookies = json.load(f)
-            logger.info("✅ Cookies cargadas desde archivo local")
-        except FileNotFoundError:
-            logger.info("ℹ️ No se encontraron cookies guardadas, iniciando sesión anónima")
+        logger.info("ℹ️ No se encontraron cookies en variables de entorno")
 
     # Configuración avanzada del contexto
     context = await browser.new_context(
@@ -310,12 +320,12 @@ async def procesar_lote_urls_mejorado(page: Page, urls_lote: List[str], modelo: 
             await accion_distraccion(page)
         
         # Procesar anuncio con reintentos
-        texto = await procesar_anuncio_con_reintentos(page, url)
-        if not texto:
+        texto_anuncio = await procesar_anuncio_con_reintentos(page, url)
+        if not texto_anuncio:
             continue
         
         # Procesamiento del anuncio (mantiene lógica original)
-        if not await procesar_anuncio_individual(page, url, texto, modelo, contador, 
+        if not await procesar_anuncio_individual(page, url, texto_anuncio, modelo, contador, 
                                                procesados, potenciales, relevantes, sin_anio_ejemplos):
             continue
         
@@ -665,8 +675,7 @@ async def buscar_autos_marketplace_mejorado(modelos_override: Optional[List[str]
             except Exception as e:
                 logger.error(f"❌ Error procesando {modelo}: {e}")
 
-        # Guardar cookies finales
-        await guardar_cookies(context)
+        # Procesamiento terminado - no guardamos cookies en GitHub Actions
         await browser.close()
 
     return procesados, potenciales, relevantes
