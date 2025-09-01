@@ -53,7 +53,7 @@ async def cargar_contexto_con_cookies(browser: Browser) -> BrowserContext:
 
     context = await browser.new_context(
         locale="es-ES",
-        user_agent = "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/138.0.0.0 Safari/537.36 Edg/138.0.0.0"
+        user_agent="Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/138.0.0.0 Safari/537.36 Edg/138.0.0.0"
     )
     await context.add_cookies(cookies)
     return context
@@ -94,7 +94,6 @@ async def scroll_hasta(page: Page) -> bool:
     # Devolver si hubo cambio de altura (scroll efectivo)
     return now > prev
 
-
 async def procesar_lote_urls(page: Page, urls_lote: List[str], modelo: str, 
                            vistos_globales: Set[str], contador: Dict[str, int],
                            procesados: List[str], potenciales: List[str], 
@@ -128,7 +127,7 @@ async def procesar_lote_urls(page: Page, urls_lote: List[str], modelo: str,
 
         # Procesamiento del anuncio (mantiene la lógica original)
         if not await procesar_anuncio_individual(page, url, texto, modelo, contador, 
-                                         procesados, potenciales, relevantes, sin_anio_ejemplos):
+                                                procesados, potenciales, relevantes, sin_anio_ejemplos):
             continue
             
         nuevos_en_lote += 1
@@ -150,7 +149,6 @@ async def procesar_anuncio_individual(
     relevantes: List[str],
     sin_anio_ejemplos: List[Tuple[str, str]]
 ) -> bool:
-
     """Procesa un anuncio individual y retorna True si fue procesado exitosamente"""
     
     texto = texto.strip()
@@ -177,14 +175,17 @@ async def procesar_anuncio_individual(
 
     # Intento expandir descripción solo si no hay año válido
     if not anio or not (1990 <= anio <= datetime.now().year):
-        ver_mas = await page.query_selector("div[role='main'] span:has-text('Ver más')")
-        if ver_mas:
-            await ver_mas.click()
-            await asyncio.sleep(1.5)
-            texto_expandido = await page.inner_text("div[role='main']")
-            anio_expandido = extraer_anio(texto_expandido)
-            if anio_expandido and (1990 <= anio_expandido <= datetime.now().year):
-                anio = anio_expandido
+        try:
+            ver_mas = await page.query_selector("div[role='main'] span:has-text('Ver más')")
+            if ver_mas:
+                await ver_mas.click()
+                await asyncio.sleep(1.5)
+                texto_expandido = await page.inner_text("div[role='main']")
+                anio_expandido = extraer_anio(texto_expandido)
+                if anio_expandido and (1990 <= anio_expandido <= datetime.now().year):
+                    anio = anio_expandido
+        except Exception as e:
+            logger.warning(f"Error al expandir descripción: {e}")
     
     # Segunda validación después del intento expandido
     if not anio or not (1990 <= anio <= datetime.now().year):
@@ -192,8 +193,6 @@ async def procesar_anuncio_individual(
         if len(sin_anio_ejemplos) < MAX_EJEMPLOS_SIN_ANIO:
             sin_anio_ejemplos.append((texto, url))
         return False
-
-
 
     roi_data = calcular_roi_real(modelo, precio, anio)
     score = puntuar_anuncio({
@@ -370,7 +369,6 @@ async def procesar_modelo(page: Page, modelo: str,
 
     return total_nuevos
 
-
 async def buscar_autos_marketplace(modelos_override: Optional[List[str]] = None) -> Tuple[List[str], List[str], List[str]]:
     inicializar_tabla_anuncios()
     modelos = modelos_override or MODELOS_INTERES
@@ -424,7 +422,6 @@ async def buscar_autos_marketplace(modelos_override: Optional[List[str]] = None)
         await browser.close()
 
     return procesados, potenciales, relevantes
-
 
 if __name__ == "__main__":
     async def main():
