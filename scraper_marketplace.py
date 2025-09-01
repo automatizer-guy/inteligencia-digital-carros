@@ -112,6 +112,9 @@ async def procesar_lote_urls(page: Page, urls_lote: List[str], modelo: str,
             await asyncio.wait_for(page.goto(url), timeout=15)
             await asyncio.sleep(DELAY_ENTRE_ANUNCIOS)
             
+            # Inicializar texto por defecto
+            texto = ""
+            
             # Extraer texto con timeout
             try:
                 texto = await asyncio.wait_for(page.inner_text("div[role='main']"), timeout=10)
