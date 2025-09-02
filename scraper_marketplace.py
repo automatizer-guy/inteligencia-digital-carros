@@ -94,13 +94,20 @@ async def scroll_hasta(page: Page) -> bool:
     # Devolver si hubo cambio de altura (scroll efectivo)
     return now > prev
 
-async def procesar_lote_urls(page: Page, urls_lote: List[str], modelo: str, 
-                           vistos_globales: Set[str], contador: Dict[str, int],
-                           procesados: List[str], potenciales: List[str], 
-                           relevantes: List[str], sin_anio_ejemplos: List[Tuple[str, str]]) -> int:
+async def procesar_lote_urls(
+    page: Page,
+    urls_lote: List[str],
+    modelo: str,
+    vistos_globales: Set[str],
+    contador: Dict[str, int],
+    procesados: List[str],
+    potenciales: List[str],
+    relevantes: List[str],
+    sin_anio_ejemplos: List[Tuple[str, str]]
+) -> int:
     """Procesa un lote de URLs con mejor gestión de errores y timeouts"""
     nuevos_en_lote = 0
-    
+
     for url in urls_lote:
         if url in vistos_globales:
             contador["duplicado"] += 1
@@ -111,11 +118,10 @@ async def procesar_lote_urls(page: Page, urls_lote: List[str], modelo: str,
             # Timeout más agresivo para cada página
             await asyncio.wait_for(page.goto(url), timeout=15)
             await asyncio.sleep(DELAY_ENTRE_ANUNCIOS)
-            
-    
+
             # Inicializar texto por defecto
             texto = "Sin texto disponible"
-            
+
             try:
                 texto_extraido = await asyncio.wait_for(page.inner_text("div[role='main']"), timeout=10)
                 if texto_extraido and len(texto_extraido.strip()) >= 100:
@@ -127,20 +133,26 @@ async def procesar_lote_urls(page: Page, urls_lote: List[str], modelo: str,
                     texto_title = await page.title()
                     if texto_title:
                         texto = texto_title
-                except:
+                except Exception:
                     pass  # Ya tiene valor por defecto
 
+            # Procesamiento del anuncio (mantiene la lógica original)
+            if not await procesar_anuncio_individual(
+                page, url, texto, modelo, contador,
+                procesados, potenciales, relevantes, sin_anio_ejemplos
+            ):
+                continue
 
-        # Procesamiento del anuncio (mantiene la lógica original)
-        if not await procesar_anuncio_individual(page, url, texto, modelo, contador, 
-                                                procesados, potenciales, relevantes, sin_anio_ejemplos):
+            nuevos_en_lote += 1
+
+            # Pausa adaptativa basada en el éxito
+            if nuevos_en_lote % 3 == 0:
+                await asyncio.sleep(random.uniform(2.0, 3.5))
+
+        except Exception as e:
+            print(f"Error procesando URL {url}: {e}")
+            contador["error"] = contador.get("error", 0) + 1
             continue
-            
-        nuevos_en_lote += 1
-        
-        # Pausa adaptativa basada en el éxito
-        if nuevos_en_lote % 3 == 0:
-            await asyncio.sleep(random.uniform(2.0, 3.5))
 
     return nuevos_en_lote
 
