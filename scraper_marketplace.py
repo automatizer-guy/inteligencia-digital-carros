@@ -112,21 +112,24 @@ async def procesar_lote_urls(page: Page, urls_lote: List[str], modelo: str,
             await asyncio.wait_for(page.goto(url), timeout=15)
             await asyncio.sleep(DELAY_ENTRE_ANUNCIOS)
             
+    
             # Inicializar texto por defecto
-            texto = ""
+            texto = "Sin texto disponible"
             
-            # Extraer texto con timeout
             try:
-                texto = await asyncio.wait_for(page.inner_text("div[role='main']"), timeout=10)
-                if not texto or len(texto.strip()) < 100:
+                texto_extraido = await asyncio.wait_for(page.inner_text("div[role='main']"), timeout=10)
+                if texto_extraido and len(texto_extraido.strip()) >= 100:
+                    texto = texto_extraido
+                else:
                     raise ValueError("Texto insuficiente")
             except Exception:
-                # Fallback más rápido
-                texto = await page.title() or "Sin texto disponible"
+                try:
+                    texto_title = await page.title()
+                    if texto_title:
+                        texto = texto_title
+                except:
+                    pass  # Ya tiene valor por defecto
 
-        except Exception as e:
-            logger.warning(f"⚠️ Error al procesar {url}: {e}")
-            continue
 
         # Procesamiento del anuncio (mantiene la lógica original)
         if not await procesar_anuncio_individual(page, url, texto, modelo, contador, 
