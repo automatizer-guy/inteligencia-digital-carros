@@ -108,50 +108,57 @@ async def procesar_lote_urls(
     """Procesa un lote de URLs con mejor gestión de errores y timeouts"""
     nuevos_en_lote = 0
 
-for url in urls_lote:
-    texto = "Sin texto disponible"  # ← se define antes del try
-
-    if url in vistos_globales:
-        contador["duplicado"] += 1
-        continue
-    vistos_globales.add(url)
-
-    try:
-        await asyncio.wait_for(page.goto(url), timeout=15)
-        await asyncio.sleep(DELAY_ENTRE_ANUNCIOS)
+    for url in urls_lote:
+        # ✅ Definir texto ANTES del try para evitar el error "not defined"
+        texto = "Sin texto disponible"  # Valor por defecto
+        
+        if url in vistos_globales:
+            contador["duplicado"] += 1
+            continue
+        vistos_globales.add(url)
 
         try:
-            texto_extraido = await asyncio.wait_for(page.inner_text("div[role='main']"), timeout=10)
-            if texto_extraido and len(texto_extraido.strip()) >= 100:
-                texto = texto_extraido
-            else:
-                raise ValueError("Texto insuficiente")
-        except Exception:
+            await asyncio.wait_for(page.goto(url), timeout=15)
+            await asyncio.sleep(DELAY_ENTRE_ANUNCIOS)
+
             try:
-                texto_title = await page.title()
-                if texto_title:
-                    texto = texto_title
+                texto_extraido = await asyncio.wait_for(page.inner_text("div[role='main']"), timeout=10)
+                if texto_extraido and len(texto_extraido.strip()) >= 100:
+                    texto = texto_extraido
+                else:
+                    raise ValueError("Texto insuficiente")
             except Exception:
-                pass  # Ya tiene valor por defecto
+                try:
+                    texto_title = await page.title()
+                    if texto_title:
+                        texto = texto_title
+                except Exception:
+                    pass  # Mantiene el valor por defecto "Sin texto disponible"
 
-    except Exception as e:
-        print(f"Error procesando URL {url}: {e}")
-        contador["error"] = contador.get("error", 0) + 1
-        # Aquí también puedes decidir si procesar el anuncio con texto por defecto
-        # o simplemente continuar sin procesarlo
-        continue
+        except Exception as e:
+            logger.warning(f"Error procesando URL {url}: {e}")
+            contador["error"] = contador.get("error", 0) + 1
+            # ✅ Aquí puedes decidir si continuar o procesar con texto por defecto
+            # Opción 1: Continuar sin procesar (recomendado para errores de carga)
+            continue
+            
+            # Opción 2: Procesar con texto por defecto (descomentar si quieres intentarlo)
+            # logger.info(f"Procesando {url} con texto por defecto debido a error de carga")
 
-    # Este bloque queda fuera del try para asegurar que se ejecuta solo si no hubo error
-    if not await procesar_anuncio_individual(
-        page, url, texto, modelo, contador,
-        procesados, potenciales, relevantes, sin_anio_ejemplos
-    ):
-        continue
+        # ✅ Este bloque ahora siempre tendrá 'texto' definido
+        if not await procesar_anuncio_individual(
+            page, url, texto, modelo, contador,
+            procesados, potenciales, relevantes, sin_anio_ejemplos
+        ):
+            continue
 
-    nuevos_en_lote += 1
+        nuevos_en_lote += 1
 
-    if nuevos_en_lote % 3 == 0:
-        await asyncio.sleep(random.uniform(2.0, 3.5))
+        # Pausa cada 3 anuncios procesados exitosamente
+        if nuevos_en_lote % 3 == 0:
+            await asyncio.sleep(random.uniform(2.0, 3.5))
+    
+    return nuevos_en_lote
 
 async def procesar_anuncio_individual(
     page: Page,
