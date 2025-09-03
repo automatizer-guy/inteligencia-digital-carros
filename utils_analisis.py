@@ -482,7 +482,7 @@ def es_extranjero(texto: str) -> bool:
     return any(p in texto.lower() for p in LUGARES_EXTRANJEROS)
 
 # MEJORADO: Validación de precio más estricta pero no excesiva
-def validar_precio_coherente(precio: int, modelo: str, anio: int) -> bool:
+def validar_precio_coherente(precio: int, modelo: str, anio: int, texto: str = "") -> bool:
     # Rango base más estricto
     if precio < 2000 or precio > 600000:
         return False
@@ -910,7 +910,7 @@ def puntuar_anuncio(anuncio: Dict[str, Any]) -> int:
     if es_extranjero(texto):
         score -= 30  # Más severo para ubicaciones extranjeras
 
-    if not validar_precio_coherente(precio, modelo, anio):
+    if not validar_precio_coherente(precio, modelo, anio, texto):
         score -= 50  # Muy severo para precios incoherentes
 
     if anio > CURRENT_YEAR:
