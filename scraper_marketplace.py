@@ -507,7 +507,9 @@ async def procesar_modelo(page: Page, modelo: str,
    - Error procesamiento: {contador.get('error_procesamiento', 0)}
    - Error DB: {contador.get('error_db', 0)}
    - Error general: {contador.get('error_general', 0)}
+   - Parámetros inválidos: {contador.get('parametros_invalidos', 0)}
    ✨""")
+
 
     return total_nuevos
 
