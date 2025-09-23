@@ -25,21 +25,13 @@ MIN_PRECIO_VALIDO = 3000
 MAX_EJEMPLOS_SIN_ANIO = 5
 ROI_POTENCIAL_MIN = ROI_MINIMO - 10
 
-# Configuración optimizada con mejoras anti-detección
-MAX_SCROLLS_POR_SORT = 12  # Reducido de 15
-MIN_DELAY = 3  # Aumentado de 2
-MAX_DELAY = 7  # Aumentado de 4
-DELAY_ENTRE_ANUNCIOS = 3.5  # Aumentado de 2
-MAX_CONSECUTIVOS_SIN_NUEVOS = 3  # Mantenido
-BATCH_SIZE_SCROLL = 8  # Mantenido
-
-# User-agents rotativos para mayor naturalidad
-USER_AGENTS = [
-    "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/138.0.0.0 Safari/537.36 Edg/138.0.0.0",
-    "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36",
-    "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/119.0.0.0 Safari/537.36 Edg/119.0.0.0",
-    "Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36"
-]
+# Configuración optimizada
+MAX_SCROLLS_POR_SORT = 15  # Reducido de 25
+MIN_DELAY = 2  # Reducido de 2.0
+MAX_DELAY = 4  # Reducido de 4.0
+DELAY_ENTRE_ANUNCIOS = 2  # Reducido de 2.5
+MAX_CONSECUTIVOS_SIN_NUEVOS = 3  # Reducido de 5
+BATCH_SIZE_SCROLL = 8  # Procesar en lotes pequeños
 
 def limpiar_url(link: str) -> str:
     """Limpia y normaliza URLs de Facebook Marketplace"""
@@ -64,8 +56,7 @@ async def cargar_contexto_con_cookies(browser: Browser) -> BrowserContext:
         cookies = json.loads(cj)
         context = await browser.new_context(
             locale="es-ES",
-            user_agent=random.choice(USER_AGENTS),  # User-agent rotativo
-            viewport={'width': random.randint(1280, 1920), 'height': random.randint(800, 1080)}  # Viewport variable
+            user_agent="Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/138.0.0.0 Safari/537.36 Edg/138.0.0.0"
         )
         await context.add_cookies(cookies)
         return context
@@ -94,28 +85,21 @@ async def extraer_items_pagina(page: Page) -> List[Dict[str, str]]:
         return []
 
 async def scroll_hasta(page: Page) -> bool:
-    """Realiza scroll simulando comportamiento humano mejorado"""
+    """Realiza scroll simulando comportamiento humano"""
     try:
         # Simular movimiento de mouse humano antes del scroll
         await page.mouse.move(
             random.randint(100, 800),
-            random.randint(100, 600),
-            steps=random.randint(5, 15)  # Movimiento gradual más natural
+            random.randint(100, 600)
         )
-        await asyncio.sleep(random.uniform(0.8, 2.0))  # Pausa más humana
+        await asyncio.sleep(random.uniform(0.5, 1.2))  # Pausa entre movimiento y scroll
 
         # Evaluar altura inicial de la página
         prev = await page.evaluate("document.body.scrollHeight")
 
         # Scroll más suave y realista
-        scroll_amount = random.randint(200, 500)  # Rango más amplio
-        
-        # 5% probabilidad de scroll hacia arriba (simular corrección humana)
-        if random.random() < 0.05:
-            scroll_amount = -random.randint(50, 150)
-        
-        await page.mouse.wheel(0, scroll_amount)
-        await asyncio.sleep(random.uniform(2.5, 4.5))  # Delay más humano y variable
+        await page.mouse.wheel(0, random.randint(150, 300))
+        await asyncio.sleep(random.uniform(1.5, 2.5))  # Delay más humano
 
         # Evaluar nueva altura de la página
         now = await page.evaluate("document.body.scrollHeight")
@@ -125,19 +109,6 @@ async def scroll_hasta(page: Page) -> bool:
     except Exception as e:
         logger.warning(f"Error durante scroll: {e}")
         return False
-
-async def pausa_despues_error():
-    """Pausa como humano después de errores"""
-    await asyncio.sleep(random.uniform(8.0, 20.0))
-
-def obtener_sort_options():
-    """Obtiene opciones de ordenamiento variables"""
-    opciones = [
-        ["best_match", "price_asc"],
-        ["price_asc", "best_match"], 
-        ["best_match"]  # A veces solo uno para ser menos predecible
-    ]
-    return random.choice(opciones)
 
 async def extraer_texto_anuncio(page: Page, url: str) -> str:
     """Extrae texto del anuncio con múltiples estrategias de fallback"""
@@ -229,12 +200,10 @@ async def procesar_lote_urls(
         except asyncio.TimeoutError:
             logger.warning(f"Timeout procesando URL {url}")
             contador["timeout"] = contador.get("timeout", 0) + 1
-            await pausa_despues_error()  # Pausa después de timeout
             continue
         except Exception as e:
             logger.warning(f"Error procesando URL {url}: {e}")
             contador["error"] = contador.get("error", 0) + 1
-            await pausa_despues_error()  # Pausa después de error
             continue
 
         # ✅ Solo procesar si la navegación fue exitosa
@@ -251,7 +220,7 @@ async def procesar_lote_urls(
                 
                 # Pausa cada 3 anuncios procesados exitosamente
                 if nuevos_en_lote % 3 == 0:
-                    await asyncio.sleep(random.uniform(3.0, 5.0))  # Pausa ligeramente mayor
+                    await asyncio.sleep(random.uniform(2.0, 3.5))
         except Exception as e:
             logger.error(f"Error en procesar_anuncio_individual para {url}: {e}")
             contador["error_procesamiento"] = contador.get("error_procesamiento", 0) + 1
@@ -482,8 +451,8 @@ async def procesar_modelo(page: Page, modelo: str,
         "error_procesamiento", "error_db", "error_general", "texto_vacio"
     ]}
     
-    # Ordenamientos variables más naturales
-    SORT_OPTS = obtener_sort_options()
+    # Ordenamientos optimizados
+    SORT_OPTS = ["best_match", "price_asc"]
     inicio = datetime.now()
     total_nuevos = 0
 
@@ -498,17 +467,15 @@ async def procesar_modelo(page: Page, modelo: str,
             total_nuevos += nuevos_sort
             logger.info(f"✅ {sort}: {nuevos_sort} nuevos anuncios procesados")
             
-            # Pausa entre ordenamientos más variable
+            # Pausa entre ordenamientos
             if sort != SORT_OPTS[-1]:  # No pausar después del último
-                await asyncio.sleep(random.uniform(5.0, 12.0))  # Pausa más larga y variable
+                await asyncio.sleep(random.uniform(3.0, 5.0))
             
         except asyncio.TimeoutError:
             logger.warning(f"⏳ Timeout en ordenamiento {sort} para {modelo}")
-            await pausa_despues_error()  # Pausa después de timeout
             continue
         except Exception as e:
             logger.error(f"❌ Error en ordenamiento {sort} para {modelo}: {e}")
-            await pausa_despues_error()  # Pausa después de error
             continue
 
     duracion = (datetime.now() - inicio).seconds
@@ -543,6 +510,7 @@ async def procesar_modelo(page: Page, modelo: str,
    - Parámetros inválidos: {contador.get('parametros_invalidos', 0)}
    ✨""")
 
+
     return total_nuevos
 
 async def buscar_autos_marketplace(modelos_override: Optional[List[str]] = None) -> Tuple[List[str], List[str], List[str]]:
@@ -568,13 +536,11 @@ async def buscar_autos_marketplace(modelos_override: Optional[List[str]] = None)
 
                 # Configuración optimizada de la página
                 await page.set_extra_http_headers({
-                    'Accept-Language': 'es-ES,es;q=0.9,en;q=0.8',
-                    'Accept-Encoding': 'gzip, deflate, br',
-                    'Cache-Control': 'no-cache'
+                    'Accept-Language': 'es-ES,es;q=0.9,en;q=0.8'
                 })
 
                 await page.goto("https://www.facebook.com/marketplace", wait_until='domcontentloaded')
-                await asyncio.sleep(random.uniform(3, 6))  # Pausa inicial variable
+                await asyncio.sleep(3)
 
                 if "login" in page.url or "recover" in page.url:
                     alerta = "🚨 Sesión inválida: redirigido a la página de inicio de sesión. Verifica las cookies (FB_COOKIES_JSON)."
@@ -595,16 +561,14 @@ async def buscar_autos_marketplace(modelos_override: Optional[List[str]] = None)
                             timeout=360  # 6 minutos por modelo
                         )
                         
-                        # Pausa entre modelos más larga y variable
+                        # Pausa entre modelos para evitar detección
                         if i < len(modelos_shuffled) - 1:  # No pausar después del último
-                            await asyncio.sleep(random.uniform(12.0, 25.0))  # Pausa más humana
+                            await asyncio.sleep(random.uniform(8.0, 15.0))
                             
                     except asyncio.TimeoutError:
                         logger.warning(f"⏳ {m} → Excedió tiempo máximo. Se aborta.")
-                        await pausa_despues_error()  # Pausa después de timeout
                     except Exception as e:
                         logger.error(f"❌ Error procesando modelo {m}: {e}")
-                        await pausa_despues_error()  # Pausa después de error
 
             finally:
                 await browser.close()
