@@ -26,12 +26,20 @@ MAX_EJEMPLOS_SIN_ANIO = 5
 ROI_POTENCIAL_MIN = ROI_MINIMO - 10
 
 # Configuración optimizada
-MAX_SCROLLS_POR_SORT = 15  # Reducido de 25
-MIN_DELAY = 2  # Reducido de 2.0
-MAX_DELAY = 4  # Reducido de 4.0
-DELAY_ENTRE_ANUNCIOS = 2  # Reducido de 2.5
+MAX_SCROLLS_POR_SORT = 13  # Reducido de 25
+MIN_DELAY = 3  # Reducido de 2.0
+MAX_DELAY = 7  # Reducido de 4.0
+DELAY_ENTRE_ANUNCIOS = 2.5  # Reducido de 2.5
 MAX_CONSECUTIVOS_SIN_NUEVOS = 3  # Reducido de 5
 BATCH_SIZE_SCROLL = 8  # Procesar en lotes pequeños
+
+USER_AGENTS = [
+    "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/138.0.0.0 Safari/537.36 Edg/138.0.0.0",  # Tu actual
+    "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36",
+    "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/119.0.0.0 Safari/537.36 Edg/119.0.0.0",
+    "Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36"
+]
+
 
 def limpiar_url(link: str) -> str:
     """Limpia y normaliza URLs de Facebook Marketplace"""
@@ -56,13 +64,15 @@ async def cargar_contexto_con_cookies(browser: Browser) -> BrowserContext:
         cookies = json.loads(cj)
         context = await browser.new_context(
             locale="es-ES",
-            user_agent="Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/138.0.0.0 Safari/537.36 Edg/138.0.0.0"
+            user_agent=random.choice(USER_AGENTS),  # ← ÚNICO CAMBIO AQUÍ
+            viewport={'width': random.randint(1280, 1920), 'height': random.randint(800, 1080)}  # ← Y AQUÍ
         )
         await context.add_cookies(cookies)
         return context
     except Exception as e:
         logger.error(f"❌ Error al parsear FB_COOKIES_JSON: {e}")
         return await browser.new_context(locale="es-ES")
+
 
 async def extraer_items_pagina(page: Page) -> List[Dict[str, str]]:
     """Extrae items de anuncios de la página actual"""
@@ -90,25 +100,32 @@ async def scroll_hasta(page: Page) -> bool:
         # Simular movimiento de mouse humano antes del scroll
         await page.mouse.move(
             random.randint(100, 800),
-            random.randint(100, 600)
+            random.randint(100, 600),
+            steps=random.randint(5, 15)  # ← NUEVO: movimiento gradual
         )
-        await asyncio.sleep(random.uniform(0.5, 1.2))  # Pausa entre movimiento y scroll
+        await asyncio.sleep(random.uniform(0.8, 2.0))  # ← AUMENTADO
 
         # Evaluar altura inicial de la página
         prev = await page.evaluate("document.body.scrollHeight")
 
         # Scroll más suave y realista
-        await page.mouse.wheel(0, random.randint(150, 300))
-        await asyncio.sleep(random.uniform(1.5, 2.5))  # Delay más humano
+        scroll_amount = random.randint(200, 500)  # ← AUMENTADO rango
+        
+        # 5% probabilidad de scroll hacia arriba (simular corrección humana)
+        if random.random() < 0.05:  # ← NUEVO
+            scroll_amount = -random.randint(50, 150)
+        
+        await page.mouse.wheel(0, scroll_amount)
+        await asyncio.sleep(random.uniform(2.5, 4.5))  # ← AUMENTADO
 
         # Evaluar nueva altura de la página
         now = await page.evaluate("document.body.scrollHeight")
 
-        # Devolver si hubo cambio de altura (scroll efectivo)
         return now > prev
     except Exception as e:
         logger.warning(f"Error durante scroll: {e}")
         return False
+
 
 async def extraer_texto_anuncio(page: Page, url: str) -> str:
     """Extrae texto del anuncio con múltiples estrategias de fallback"""
@@ -436,6 +453,16 @@ async def procesar_ordenamiento_optimizado(page: Page, modelo: str, sort: str,
         logger.error(f"Error en procesar_ordenamiento_optimizado: {e}")
         return 0
 
+def obtener_sort_options():
+    opciones = [
+        ["best_match", "price_asc"],
+        ["price_asc", "best_match"], 
+        ["best_match"]  # A veces solo uno
+    ]
+    return random.choice(opciones)
+
+
+
 async def procesar_modelo(page: Page, modelo: str,
                           procesados: List[str],
                           potenciales: List[str],
@@ -452,7 +479,7 @@ async def procesar_modelo(page: Page, modelo: str,
     ]}
     
     # Ordenamientos optimizados
-    SORT_OPTS = ["best_match", "price_asc"]
+    SORT_OPTS = obtener_sort_options()
     inicio = datetime.now()
     total_nuevos = 0
 
@@ -563,7 +590,7 @@ async def buscar_autos_marketplace(modelos_override: Optional[List[str]] = None)
                         
                         # Pausa entre modelos para evitar detección
                         if i < len(modelos_shuffled) - 1:  # No pausar después del último
-                            await asyncio.sleep(random.uniform(8.0, 15.0))
+                            await asyncio.sleep(random.uniform(12.0, 25.0))
                             
                     except asyncio.TimeoutError:
                         logger.warning(f"⏳ {m} → Excedió tiempo máximo. Se aborta.")
