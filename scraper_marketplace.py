@@ -553,6 +553,11 @@ async def buscar_autos_marketplace(modelos_override: Optional[List[str]] = None)
         modelos = modelos_override or MODELOS_INTERES
         flops = modelos_bajo_rendimiento()
         activos = [m for m in modelos if m not in flops]
+        
+        if not activos:
+            logger.warning("⚠️ No hay modelos activos por rendimiento. Usando todos los modelos por defecto.")
+            activos = modelos
+
 
         procesados, potenciales, relevantes = [], [], []
 
