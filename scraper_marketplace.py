@@ -607,6 +607,7 @@ async def buscar_autos_marketplace(modelos_override: Optional[List[str]] = None)
             logger.warning("⚠️ No hay modelos activos por rendimiento. Usando todos los modelos por defecto.")
             activos = modelos
 
+
         procesados, potenciales, relevantes = [], [], []
 
         async with async_playwright() as p:
