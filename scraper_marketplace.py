@@ -184,6 +184,14 @@ async def procesar_lote_urls(
         try:
             # Intentar navegar a la URL
             await asyncio.wait_for(page.goto(url, wait_until='domcontentloaded'), timeout=15)
+            await asyncio.sleep(random.uniform(2.5, 4.5))  # Pausa para estabilizar el DOM
+        except Exception as e:
+            if "Page Crashed" in str(e):
+                logger.error(f"❌ Navegador crashó al cargar {url_busq}")
+                await asyncio.sleep(5)
+                return 0
+            raise
+            
             await asyncio.sleep(DELAY_ENTRE_ANUNCIOS)
 
             # Extraer texto del anuncio
@@ -529,8 +537,15 @@ async def buscar_autos_marketplace(modelos_override: Optional[List[str]] = None)
         async with async_playwright() as p:
             browser = await p.chromium.launch(
                 headless=True,
-                args=['--no-sandbox', '--disable-dev-shm-usage', '--disable-blink-features=AutomationControlled']
+                args=[
+                    '--no-sandbox',
+                    '--disable-dev-shm-usage',
+                    '--disable-blink-features=AutomationControlled',
+                    '--disable-gpu',
+                    '--single-process'
+                ]
             )
+
             
             try:
                 ctx = await cargar_contexto_con_cookies(browser)
