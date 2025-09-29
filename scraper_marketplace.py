@@ -48,16 +48,26 @@ class BrowserManager:
             headless=True,
             args=[
                 '--no-sandbox',
+                '--disable-setuid-sandbox',
                 '--disable-dev-shm-usage',
                 '--disable-blink-features=AutomationControlled',
-                '--disable-gpu',
-                '--single-process',
-                '--disable-web-security',
-                '--disable-features=IsolateOrigins,site-per-process',
-                '--disable-setuid-sandbox'
+                '--disable-background-timer-throttling',
+                '--disable-backgrounding-occluded-windows',
+                '--disable-renderer-backgrounding',
+                '--disable-hang-monitor',
+                '--disable-prompt-on-repost',
+                '--disable-sync',
+                '--force-color-profile=srgb',
+                '--metrics-recording-only',
+                '--no-first-run',
+                '--mute-audio',
+                '--hide-scrollbars',
+                '--disable-infobars',
+                '--window-size=1920,1080',
+                '--disable-features=TranslateUI,BlinkGenPropertyTrees'
             ]
         )
-        await self.crear_contexto()
+        await self.criar_contexto()
         
     async def crear_contexto(self):
         """Crea un nuevo contexto con cookies"""
