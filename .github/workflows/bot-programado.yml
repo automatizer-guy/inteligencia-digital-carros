@@ -81,6 +81,16 @@ jobs:
           echo "💡 Instalando Chromium de Playwright..."
           python -m playwright install chromium --with-deps
           echo "✅ Chromium instalado correctamente"
+          
+      # 7️⃣.5️⃣ Configurar límites de recursos para Chromium
+      - name: Configurar límites de recursos
+        run: |
+          echo "⚙️ Configurando límites de recursos..."
+          # Aumentar límites de archivos abiertos
+          ulimit -n 4096 || true
+          # Aumentar límites de memoria virtual
+          ulimit -v unlimited || true
+          echo "✅ Límites configurados"
 
       # 8️⃣ Verificar instalación de Chromium
       - name: Verificar instalación de Chromium
