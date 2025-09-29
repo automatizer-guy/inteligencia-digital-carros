@@ -9,16 +9,16 @@ on:
     - cron: '0 23 * * *'  # 5:00 Guatemala
   workflow_dispatch:
 
-
-
 jobs:
   run-bot:
     runs-on: ubuntu-latest
+    timeout-minutes: 120  # Timeout global de 2 horas
     env:
       BOT_TOKEN: ${{ secrets.BOT_TOKEN }}
       CHAT_ID: ${{ secrets.CHAT_ID }}
       FB_COOKIES_JSON: ${{ secrets.FB_COOKIES_JSON }}
       DB_PATH: upload-artifact/anuncios.db
+      PLAYWRIGHT_BROWSERS_PATH: ${{ github.workspace }}/.cache/ms-playwright
 
     steps:
       # 1️⃣ Clonar main
@@ -43,7 +43,7 @@ jobs:
           mkdir -p upload-artifact
           if [ -f data/anuncios.db ]; then
             cp data/anuncios.db "${{ env.DB_PATH }}"
-            echo "✅ Base histórica cargada"
+            echo "✅ Base histórica cargada ($(stat -c%s data/anuncios.db) bytes)"
           else
             echo "⚠️ No hay base previa. Se inicia nueva"
             touch "${{ env.DB_PATH }}"
@@ -51,27 +51,59 @@ jobs:
 
       # 4️⃣ Setup Python con cache
       - name: Setup Python con cache
-        uses: actions/setup-python@v4
+        uses: actions/setup-python@v5
         with:
           python-version: '3.11'
           cache: 'pip'
           cache-dependency-path: 'requirements.txt'
 
-      # 5️⃣ Cache de Playwright browsers
+      # 5️⃣ Instalar dependencias Python PRIMERO
+      - name: Instalar dependencias Python
+        run: |
+          python -m pip install --upgrade pip --quiet
+          pip install -r requirements.txt --quiet
+          echo "✅ Dependencias Python instaladas"
+
+      # 6️⃣ Cache de Playwright browsers (DESPUÉS de instalar playwright)
       - name: Cache Playwright browsers
-        uses: actions/cache@v3
+        uses: actions/cache@v4
         id: playwright-cache
         with:
-          path: |
-            ~/.cache/ms-playwright
-          key: playwright-browsers-${{ runner.os }}-${{ hashFiles('requirements.txt') }}
+          path: ${{ env.PLAYWRIGHT_BROWSERS_PATH }}
+          key: playwright-chromium-${{ runner.os }}-${{ hashFiles('requirements.txt') }}
           restore-keys: |
-            playwright-browsers-${{ runner.os }}-
+            playwright-chromium-${{ runner.os }}-
 
-      # 6️⃣ Inicializar estructura de la base
+      # 7️⃣ Instalar Playwright Chromium
+      - name: Instalar Playwright Chromium
+        if: steps.playwright-cache.outputs.cache-hit != 'true'
+        run: |
+          echo "💡 Instalando Chromium de Playwright..."
+          python -m playwright install chromium --with-deps
+          echo "✅ Chromium instalado correctamente"
+
+      # 8️⃣ Verificar instalación de Chromium
+      - name: Verificar instalación de Chromium
+        run: |
+          echo "🔍 Verificando Chromium..."
+          if [ -d "$PLAYWRIGHT_BROWSERS_PATH/chromium-"* ]; then
+            echo "✅ Chromium encontrado en caché"
+            ls -lh "$PLAYWRIGHT_BROWSERS_PATH/chromium-"* | head -5
+          else
+            echo "❌ Chromium no encontrado, instalando..."
+            python -m playwright install chromium --with-deps
+          fi
+
+      # 9️⃣ Instalar SQLite3
+      - name: Instalar SQLite3
+        run: |
+          sudo apt-get update -qq
+          sudo apt-get install -y -qq sqlite3
+          sqlite3 --version
+
+      # 🔟 Inicializar estructura de la base
       - name: Inicializar estructura de la base
         run: |
-          sudo apt-get update -qq && sudo apt-get install -y -qq sqlite3
           sqlite3 "${{ env.DB_PATH }}" "
             CREATE TABLE IF NOT EXISTS anuncios (
               link TEXT PRIMARY KEY,
@@ -84,60 +116,79 @@ jobs:
               score INTEGER
             );
           "
-          if ! sqlite3 "${{ env.DB_PATH }}" "PRAGMA table_info(anuncios);" | grep -q updated_at; then
-            echo "✅ Agregando columna updated_at"
-            sqlite3 "${{ env.DB_PATH }}" "
-              ALTER TABLE anuncios ADD COLUMN updated_at DATE;
-            "
-          else
-            echo "ℹ️ Columna updated_at ya existe"
-          fi
+          
+          # Agregar columnas adicionales si no existen
+          for col in updated_at relevante confianza_precio muestra_precio; do
+            if ! sqlite3 "${{ env.DB_PATH }}" "PRAGMA table_info(anuncios);" | grep -q "^[0-9]*|$col|"; then
+              echo "✅ Agregando columna $col"
+              case $col in
+                updated_at|fecha_scrape)
+                  sqlite3 "${{ env.DB_PATH }}" "ALTER TABLE anuncios ADD COLUMN $col DATE;"
+                  ;;
+                relevante)
+                  sqlite3 "${{ env.DB_PATH }}" "ALTER TABLE anuncios ADD COLUMN $col BOOLEAN DEFAULT 0;"
+                  ;;
+                confianza_precio|muestra_precio)
+                  sqlite3 "${{ env.DB_PATH }}" "ALTER TABLE anuncios ADD COLUMN $col INTEGER;"
+                  ;;
+              esac
+            else
+              echo "ℹ️ Columna $col ya existe"
+            fi
+          done
+          
+          echo "✅ Estructura de DB verificada"
 
-      # 7️⃣ Contar anuncios antes del run
+      # 1️⃣1️⃣ Contar anuncios antes del run
       - name: Contar anuncios antes del run
         id: db_prev
         run: |
           echo "🕒 Contando anuncios previos..."
           BEFORE=$(sqlite3 "${{ env.DB_PATH }}" 'SELECT COUNT(*) FROM anuncios;')
           echo "before=$BEFORE" >> $GITHUB_OUTPUT
+          echo "📊 Total de anuncios previos: $BEFORE"
 
-      # 8️⃣ Volumen previo por modelo
+      # 1️⃣2️⃣ Volumen previo por modelo
       - name: Volumen previo en DB
         run: |
-          echo "📊 Anuncios por modelo (previo):"
+          echo "📊 Top 10 modelos en DB:"
           sqlite3 "${{ env.DB_PATH }}" \
-            "SELECT modelo, COUNT(*) FROM anuncios GROUP BY modelo ORDER BY COUNT(*) DESC;"
+            "SELECT modelo, COUNT(*) as cnt FROM anuncios GROUP BY modelo ORDER BY cnt DESC LIMIT 10;" \
+            || echo "⚠️ No hay datos previos"
 
-      # 9️⃣ Instalar dependencias Python
-      - name: Instalar dependencias Python
-        run: |
-          python -m pip install --upgrade pip --quiet
-          pip install -r requirements.txt --quiet
-
-      # 🔟 Instalar Playwright Chromium (Mejora aplicada)
-      - name: Instalar Playwright Chromium (Forzado)
-        run: |
-          echo "💡 Descargando navegadores de Playwright..."
-          playwright install chromium --with-deps || {
-            echo "🔄 Intentando instalación directa..."
-            npx playwright install chromium --with-deps
-          }
-
-      # 1️⃣1️⃣ Ejecutar el bot con Telegram
+      # 1️⃣3️⃣ Ejecutar el bot con Telegram (CON TIMEOUT)
       - name: Ejecutar bot con Telegram
         id: run_bot
+        timeout-minutes: 90
         run: |
-          python bot_telegram_marketplace.py | tee resultado.log
-          NUEVOS=$(grep '^NUEVOS=' resultado.log | cut -d= -f2)
-          ACTUALIZADOS=$(grep '^ACTUALIZADOS=' resultado.log | cut -d= -f2)
+          echo "🤖 Iniciando bot..."
+          python bot_telegram_marketplace.py 2>&1 | tee resultado.log
+          
+          # Extraer métricas del log
+          NUEVOS=$(grep -oP 'NUEVOS=\K\d+' resultado.log || echo "0")
+          ACTUALIZADOS=$(grep -oP 'ACTUALIZADOS=\K\d+' resultado.log || echo "0")
+          
           echo "nuevos=$NUEVOS" >> $GITHUB_OUTPUT
           echo "actualizados=$ACTUALIZADOS" >> $GITHUB_OUTPUT
+          echo "✅ Bot ejecutado: $NUEVOS nuevos, $ACTUALIZADOS actualizados"
 
-      # 1️⃣2️⃣ Guardar nueva versión de la DB
+      # 1️⃣4️⃣ Verificar integridad de DB
+      - name: Verificar integridad de DB
+        run: |
+          echo "🔍 Verificando integridad de la base..."
+          sqlite3 "${{ env.DB_PATH }}" "PRAGMA integrity_check;" || {
+            echo "❌ Base de datos corrupta"
+            exit 1
+          }
+          echo "✅ Base de datos íntegra"
+
+      # 1️⃣5️⃣ Guardar nueva versión de la DB
       - name: Copiar DB al branch data
-        run: cp "${{ env.DB_PATH }}" data/anuncios.db
+        run: |
+          cp "${{ env.DB_PATH }}" data/anuncios.db
+          echo "✅ DB copiada ($(stat -c%s data/anuncios.db) bytes)"
 
-      # 1️⃣3️⃣ Commit & push DB actualizada
+      # 1️⃣6️⃣ Commit & push DB actualizada
       - name: Commit & push DB actualizada
         env:
           PAT_PUSH: ${{ secrets.PAT_PUSH }}
@@ -147,40 +198,58 @@ jobs:
           git config user.email "github-actions[bot]@users.noreply.github.com"
           git remote set-url origin https://x-access-token:${PAT_PUSH}@github.com/${{ github.repository }}
           git add anuncios.db
+          
           if ! git diff --cached --quiet; then
-            git commit -m "🔄 Actualiza DB (run #${{ github.run_number }})"
+            TIMESTAMP=$(date -u '+%Y-%m-%d %H:%M:%S UTC')
+            git commit -m "🔄 DB actualizada: ${{ steps.run_bot.outputs.nuevos }} nuevos, ${{ steps.run_bot.outputs.actualizados }} actualizados [$TIMESTAMP]"
             git push origin data
+            echo "✅ DB pusheada exitosamente"
           else
-            echo "📁 Sin cambios detectados en la base, se omite push"
+            echo "📁 Sin cambios en DB, se omite push"
           fi
 
-      # 1️⃣4️⃣ Resumen final del run
+      # 1️⃣7️⃣ Resumen final del run
       - name: Resumen final del run
+        if: always()
         run: |
-          echo "✅ Bot ejecutado con éxito"
-          echo "📊 Anuncios antes del run: ${{ steps.db_prev.outputs.before }}"
-          FINAL=$(sqlite3 "${{ env.DB_PATH }}" "SELECT COUNT(*) FROM anuncios;")
-          echo "📦 Total actual: $FINAL"
-          echo "➕ Nuevos anuncios agregados: $((FINAL - ${{ steps.db_prev.outputs.before }}))"
-          echo "📈 Reporte de inserciones:"
-          echo " • Nuevos: ${{ steps.run_bot.outputs.nuevos }}"
-          echo " • Actualizados: ${{ steps.run_bot.outputs.actualizados }}"
-
-          if sqlite3 "${{ env.DB_PATH }}" "PRAGMA table_info(anuncios);" | grep -q updated_at; then
-            echo "🔍 Último anuncio registrado (por updated_at):"
+          echo "━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━"
+          echo "📊 RESUMEN DE EJECUCIÓN"
+          echo "━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━"
+          
+          BEFORE="${{ steps.db_prev.outputs.before }}"
+          FINAL=$(sqlite3 "${{ env.DB_PATH }}" "SELECT COUNT(*) FROM anuncios;" || echo "ERROR")
+          NUEVOS="${{ steps.run_bot.outputs.nuevos }}"
+          ACTUALIZADOS="${{ steps.run_bot.outputs.actualizados }}"
+          
+          echo "📦 Anuncios antes:     $BEFORE"
+          echo "📦 Anuncios después:   $FINAL"
+          echo "➕ Nuevos insertados:  $NUEVOS"
+          echo "🔄 Actualizados:       $ACTUALIZADOS"
+          echo "━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━"
+          
+          if [ "$FINAL" != "ERROR" ]; then
+            echo ""
+            echo "🔍 Último anuncio registrado:"
             sqlite3 "${{ env.DB_PATH }}" \
-              "SELECT link, fecha_scrape, updated_at FROM anuncios ORDER BY updated_at DESC, rowid DESC LIMIT 1;"
-          else
-            echo "🔍 Último anuncio registrado (por fecha_scrape):"
+              "SELECT modelo, precio, anio, fecha_scrape FROM anuncios ORDER BY rowid DESC LIMIT 1;" \
+              || echo "⚠️ No se pudo consultar"
+            
+            echo ""
+            echo "📈 Top 5 modelos:"
             sqlite3 "${{ env.DB_PATH }}" \
-              "SELECT link, fecha_scrape FROM anuncios ORDER BY fecha_scrape DESC, rowid DESC LIMIT 1;"
+              "SELECT modelo, COUNT(*) as cnt FROM anuncios GROUP BY modelo ORDER BY cnt DESC LIMIT 5;" \
+              || echo "⚠️ No se pudo consultar"
           fi
+          
+          echo "━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━"
 
-      # ✅ 1️⃣5️⃣ Verificar instalación de Chromium (extra seguro)
-      - name: Verificar instalación de Chromium
-        run: |
-          echo "🔍 Verificando instalación de Chromium..."
-          ls ~/.cache/ms-playwright/chromium* || {
-            echo "❌ Chromium no está correctamente instalado. Reintentando..."
-            npx playwright install chromium --with-deps
-          }
+      # 1️⃣8️⃣ Subir logs en caso de error
+      - name: Subir logs si hay error
+        if: failure()
+        uses: actions/upload-artifact@v4
+        with:
+          name: logs-error-${{ github.run_number }}
+          path: |
+            resultado.log
+            upload-artifact/anuncios.db
+          retention-days: 7
