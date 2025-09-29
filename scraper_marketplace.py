@@ -151,7 +151,7 @@ async def scroll_hasta(page: Page) -> bool:
             ),
             timeout=5
         )
-        await asyncio.sleep(random.uniform(0.5, 1.2))
+        await asyncio.sleep(random.uniform(0.3, 0.8))  # Reducido para evitar timeouts
 
         # Evaluar altura inicial de la página
         prev = await asyncio.wait_for(
@@ -164,7 +164,7 @@ async def scroll_hasta(page: Page) -> bool:
             page.mouse.wheel(0, random.randint(150, 300)),
             timeout=5
         )
-        await asyncio.sleep(random.uniform(1.5, 2.5))
+        await asyncio.sleep(random.uniform(1.0, 2.0))  # Reducido para evitar timeouts
 
         # Evaluar nueva altura de la página
         now = await asyncio.wait_for(
@@ -582,10 +582,29 @@ async def procesar_ordenamiento_optimizado(page: Page, modelo: str, sort: str,
         logger.error(f"❌ Error general en procesar_ordenamiento_optimizado ({sort}): {e}")
         return 0
 
+async def recrear_pagina_si_necesario(page: Page, ctx: BrowserContext) -> Page:
+    """Recrea la página si está cerrada"""
+    if not await verificar_pagina_activa(page):
+        logger.warning("🔄 Recreando página cerrada...")
+        try:
+            if not page.is_closed():
+                await page.close()
+        except Exception:
+            pass
+        
+        nueva_pagina = await ctx.new_page()
+        await nueva_pagina.set_extra_http_headers({
+            'Accept-Language': 'es-ES,es;q=0.9,en;q=0.8'
+        })
+        logger.info("✅ Nueva página creada")
+        return nueva_pagina
+    return page
+
 async def procesar_modelo(page: Page, modelo: str,
                           procesados: List[str],
                           potenciales: List[str],
-                          relevantes: List[str]) -> int:
+                          relevantes: List[str],
+                          ctx: BrowserContext) -> int:
     """Procesa un modelo específico con todos los ordenamientos"""
     
     vistos_globales = set()
@@ -603,10 +622,8 @@ async def procesar_modelo(page: Page, modelo: str,
     total_nuevos = 0
 
     for sort in SORT_OPTS:
-        # Verificar página antes de cada ordenamiento
-        if not await verificar_pagina_activa(page):
-            logger.error(f"❌ Página no activa antes de ordenamiento {sort}")
-            break
+        # Recrear página si está cerrada
+        page = await recrear_pagina_si_necesario(page, ctx)
         
         logger.info(f"🔍 Procesando {modelo} con ordenamiento: {sort}")
         try:
@@ -660,7 +677,7 @@ async def procesar_modelo(page: Page, modelo: str,
    - Error general: {contador.get('error_general', 0)}
    ✨""")
 
-    return total_nuevos
+    return total_nuevos, page  # Retornar también la página
 
 async def buscar_autos_marketplace(modelos_override: Optional[List[str]] = None) -> Tuple[List[str], List[str], List[str]]:
     """Función principal de búsqueda en Marketplace"""
@@ -722,15 +739,13 @@ async def buscar_autos_marketplace(modelos_override: Optional[List[str]] = None)
                 random.shuffle(modelos_shuffled)
 
                 for i, m in enumerate(modelos_shuffled):
-                    # Verificar página antes de cada modelo
-                    if not await verificar_pagina_activa(page):
-                        logger.error(f"❌ Página cerrada antes de procesar modelo {m}")
-                        break
+                    # Recrear página si está cerrada
+                    page = await recrear_pagina_si_necesario(page, ctx)
                     
                     logger.info(f"📋 Procesando modelo {i+1}/{len(modelos_shuffled)}: {m}")
                     try:
-                        await asyncio.wait_for(
-                            procesar_modelo(page, m, procesados, potenciales, relevantes), 
+                        _, page = await asyncio.wait_for(
+                            procesar_modelo(page, m, procesados, potenciales, relevantes, ctx), 
                             timeout=360
                         )
                         
