@@ -9,7 +9,7 @@ import logging
 from urllib.parse import urlparse
 from datetime import datetime
 from typing import List, Dict, Optional, Tuple, Set
-from playwright.async_api import async_playwright, Browser, Page, BrowserContext, Error as PlaywrightError
+from playwright.async_api import async_playwright, Browser, Page, BrowserContext, Error as PlaywrightError, Playwright
 from utils_analisis import (
     limpiar_precio, contiene_negativos, puntuar_anuncio,
     calcular_roi_real, coincide_modelo, extraer_anio,
@@ -26,12 +26,151 @@ MAX_EJEMPLOS_SIN_ANIO = 5
 ROI_POTENCIAL_MIN = ROI_MINIMO - 10
 
 # Configuración optimizada
-MAX_SCROLLS_POR_SORT = 15
+MAX_SCROLLS_POR_SORT = 12  # Reducido más para evitar detección
 MIN_DELAY = 2
 MAX_DELAY = 4
 DELAY_ENTRE_ANUNCIOS = 2
 MAX_CONSECUTIVOS_SIN_NUEVOS = 3
-BATCH_SIZE_SCROLL = 8
+BATCH_SIZE_SCROLL = 6  # Reducido para procesar más rápido
+
+class BrowserManager:
+    """Gestiona el ciclo de vida del navegador y contextos"""
+    def __init__(self, playwright: Playwright):
+        self.playwright = playwright
+        self.browser: Optional[Browser] = None
+        self.context: Optional[BrowserContext] = None
+        self.page: Optional[Page] = None
+        
+    async def inicializar(self):
+        """Inicializa el navegador y contexto"""
+        logger.info("🚀 Inicializando navegador...")
+        self.browser = await self.playwright.chromium.launch(
+            headless=True,
+            args=[
+                '--no-sandbox',
+                '--disable-dev-shm-usage',
+                '--disable-blink-features=AutomationControlled',
+                '--disable-gpu',
+                '--single-process',
+                '--disable-web-security',
+                '--disable-features=IsolateOrigins,site-per-process',
+                '--disable-setuid-sandbox'
+            ]
+        )
+        await self.crear_contexto()
+        
+    async def crear_contexto(self):
+        """Crea un nuevo contexto con cookies"""
+        logger.info("🔐 Creando contexto con cookies...")
+        cj = os.environ.get("FB_COOKIES_JSON", "")
+        
+        if not cj:
+            logger.warning("⚠️ Sin cookies encontradas. Usando sesión anónima.")
+            self.context = await self.browser.new_context(locale="es-ES")
+        else:
+            try:
+                cookies_raw = json.loads(cj)
+                
+                # Limpiar y validar cookies
+                cookies_limpias = []
+                for cookie in cookies_raw:
+                    cookie_limpia = {
+                        "name": cookie.get("name"),
+                        "value": cookie.get("value"),
+                        "domain": cookie.get("domain"),
+                        "path": cookie.get("path", "/")
+                    }
+                    
+                    if "expires" in cookie and isinstance(cookie["expires"], (int, float)) and cookie["expires"] > 0:
+                        cookie_limpia["expires"] = cookie["expires"]
+                    
+                    if "httpOnly" in cookie:
+                        cookie_limpia["httpOnly"] = cookie["httpOnly"]
+                    
+                    if "secure" in cookie:
+                        cookie_limpia["secure"] = cookie["secure"]
+                    
+                    if "sameSite" in cookie and cookie["sameSite"] in ["Strict", "Lax", "None"]:
+                        cookie_limpia["sameSite"] = cookie["sameSite"]
+                    
+                    cookies_limpias.append(cookie_limpia)
+                
+                self.context = await self.browser.new_context(
+                    locale="es-ES",
+                    user_agent="Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/138.0.0.0 Safari/537.36 Edg/138.0.0.0",
+                    viewport={"width": 1920, "height": 1080}
+                )
+                await self.context.add_cookies(cookies_limpias)
+            except Exception as e:
+                logger.error(f"❌ Error al parsear cookies: {e}")
+                self.context = await self.browser.new_context(locale="es-ES")
+        
+        await self.crear_pagina()
+        
+    async def crear_pagina(self):
+        """Crea una nueva página"""
+        if self.context:
+            self.page = await self.context.new_page()
+            await self.page.set_extra_http_headers({
+                'Accept-Language': 'es-ES,es;q=0.9,en;q=0.8'
+            })
+            logger.info("✅ Nueva página creada")
+    
+    async def verificar_y_recrear(self) -> bool:
+        """Verifica el estado y recrea si es necesario"""
+        try:
+            # Verificar navegador
+            if not self.browser or not self.browser.is_connected():
+                logger.error("❌ Navegador desconectado - no se puede recuperar")
+                return False
+            
+            # Verificar contexto
+            if not self.context:
+                logger.warning("🔄 Recreando contexto...")
+                await self.crear_contexto()
+                return True
+            
+            # Verificar página
+            if not self.page or self.page.is_closed():
+                logger.warning("🔄 Recreando página...")
+                await self.crear_pagina()
+                return True
+            
+            # Verificar que la página realmente funciona
+            try:
+                await asyncio.wait_for(self.page.evaluate("1"), timeout=2)
+                return True
+            except Exception:
+                logger.warning("🔄 Página no responde, recreando...")
+                await self.crear_pagina()
+                return True
+                
+        except Exception as e:
+            logger.error(f"❌ Error verificando estado: {e}")
+            return False
+    
+    async def cerrar(self):
+        """Cierra todos los recursos"""
+        try:
+            if self.page and not self.page.is_closed():
+                await self.page.close()
+                logger.info("✅ Página cerrada")
+        except Exception as e:
+            logger.warning(f"Error cerrando página: {e}")
+        
+        try:
+            if self.context:
+                await self.context.close()
+                logger.info("✅ Contexto cerrado")
+        except Exception as e:
+            logger.warning(f"Error cerrando contexto: {e}")
+        
+        try:
+            if self.browser:
+                await self.browser.close()
+                logger.info("✅ Navegador cerrado")
+        except Exception as e:
+            logger.warning(f"Error cerrando navegador: {e}")
 
 def limpiar_url(link: str) -> str:
     """Limpia y normaliza URLs de Facebook Marketplace"""
@@ -44,68 +183,8 @@ def limpiar_url(link: str) -> str:
         logger.warning(f"Error limpiando URL {link}: {e}")
         return ""
 
-async def verificar_pagina_activa(page: Page) -> bool:
-    """Verifica si la página está activa y disponible"""
-    try:
-        await page.evaluate("1")
-        return not page.is_closed()
-    except Exception:
-        return False
-
-async def cargar_contexto_con_cookies(browser: Browser) -> BrowserContext:
-    """Carga el contexto del browser con cookies de Facebook"""
-    logger.info("🔐 Cargando cookies desde entorno…")
-    cj = os.environ.get("FB_COOKIES_JSON", "")
-    if not cj:
-        logger.warning("⚠️ Sin cookies encontradas. Usando sesión anónima.")
-        return await browser.new_context(locale="es-ES")
-    
-    try:
-        cookies_raw = json.loads(cj)
-        
-        # Limpiar y validar cookies
-        cookies_limpias = []
-        for cookie in cookies_raw:
-            cookie_limpia = {
-                "name": cookie.get("name"),
-                "value": cookie.get("value"),
-                "domain": cookie.get("domain"),
-                "path": cookie.get("path", "/")
-            }
-            
-            # Agregar campos opcionales solo si son válidos
-            if "expires" in cookie and isinstance(cookie["expires"], (int, float)) and cookie["expires"] > 0:
-                cookie_limpia["expires"] = cookie["expires"]
-            
-            if "httpOnly" in cookie:
-                cookie_limpia["httpOnly"] = cookie["httpOnly"]
-            
-            if "secure" in cookie:
-                cookie_limpia["secure"] = cookie["secure"]
-            
-            # Validar sameSite
-            if "sameSite" in cookie and cookie["sameSite"] in ["Strict", "Lax", "None"]:
-                cookie_limpia["sameSite"] = cookie["sameSite"]
-            
-            cookies_limpias.append(cookie_limpia)
-        
-        context = await browser.new_context(
-            locale="es-ES",
-            user_agent="Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/138.0.0.0 Safari/537.36 Edg/138.0.0.0",
-            viewport={"width": 1920, "height": 1080}
-        )
-        await context.add_cookies(cookies_limpias)
-        return context
-    except Exception as e:
-        logger.error(f"❌ Error al parsear FB_COOKIES_JSON: {e}")
-        return await browser.new_context(locale="es-ES")
-
 async def extraer_items_pagina(page: Page) -> List[Dict[str, str]]:
     """Extrae items de anuncios de la página actual"""
-    if not await verificar_pagina_activa(page):
-        logger.warning("⚠️ Página no activa en extraer_items_pagina")
-        return []
-    
     try:
         items = await asyncio.wait_for(
             page.query_selector_all("a[href*='/marketplace/item']"),
@@ -119,79 +198,49 @@ async def extraer_items_pagina(page: Page) -> List[Dict[str, str]]:
                 texto_completo = f"{titulo} {aria_label}".strip()
                 href = await a.get_attribute("href") or ""
                 resultados.append({"texto": texto_completo, "url": limpiar_url(href)})
-            except Exception as e:
-                logger.warning(f"Error extrayendo item individual: {e}")
+            except Exception:
                 continue
         return resultados
-    except asyncio.TimeoutError:
-        logger.warning("⏳ Timeout extrayendo items de página")
-        return []
-    except PlaywrightError as e:
-        if "closed" in str(e).lower():
-            logger.error("❌ Página/contexto cerrado durante extracción de items")
-        else:
-            logger.error(f"❌ Error de Playwright al extraer items: {e}")
-        return []
     except Exception as e:
-        logger.error(f"❌ Error inesperado al extraer items: {e}")
+        logger.warning(f"Error extrayendo items: {e}")
         return []
 
 async def scroll_hasta(page: Page) -> bool:
     """Realiza scroll simulando comportamiento humano"""
-    if not await verificar_pagina_activa(page):
-        logger.warning("⚠️ Página no activa en scroll_hasta")
-        return False
-    
     try:
-        # Simular movimiento de mouse humano antes del scroll
+        # Movimiento de mouse más rápido
         await asyncio.wait_for(
             page.mouse.move(
                 random.randint(100, 800),
                 random.randint(100, 600)
             ),
-            timeout=5
+            timeout=3
         )
-        await asyncio.sleep(random.uniform(0.3, 0.8))  # Reducido para evitar timeouts
+        await asyncio.sleep(random.uniform(0.2, 0.5))
 
-        # Evaluar altura inicial de la página
         prev = await asyncio.wait_for(
             page.evaluate("document.body.scrollHeight"),
-            timeout=5
+            timeout=3
         )
 
-        # Scroll más suave y realista
         await asyncio.wait_for(
             page.mouse.wheel(0, random.randint(150, 300)),
-            timeout=5
+            timeout=3
         )
-        await asyncio.sleep(random.uniform(1.0, 2.0))  # Reducido para evitar timeouts
+        await asyncio.sleep(random.uniform(0.8, 1.5))
 
-        # Evaluar nueva altura de la página
         now = await asyncio.wait_for(
             page.evaluate("document.body.scrollHeight"),
-            timeout=5
+            timeout=3
         )
 
         return now > prev
-    except asyncio.TimeoutError:
-        logger.warning("⏳ Timeout durante scroll")
-        return False
-    except PlaywrightError as e:
-        if "closed" in str(e).lower():
-            logger.error("❌ Página/contexto cerrado durante scroll")
-        else:
-            logger.warning(f"Error de Playwright durante scroll: {e}")
-        return False
     except Exception as e:
-        logger.warning(f"Error inesperado durante scroll: {e}")
+        logger.warning(f"Error en scroll: {e}")
         return False
 
 async def extraer_texto_anuncio(page: Page, url: str) -> str:
     """Extrae texto del anuncio con múltiples estrategias de fallback"""
-    if not await verificar_pagina_activa(page):
-        logger.warning("⚠️ Página no activa en extraer_texto_anuncio")
-        return "Sin texto disponible"
-    
     texto = "Sin texto disponible"
     
     try:
@@ -199,7 +248,7 @@ async def extraer_texto_anuncio(page: Page, url: str) -> str:
         try:
             texto_extraido = await asyncio.wait_for(
                 page.inner_text("div[role='main']"), 
-                timeout=10
+                timeout=8
             )
             if texto_extraido and len(texto_extraido.strip()) >= 100:
                 return texto_extraido.strip()
@@ -225,7 +274,7 @@ async def extraer_texto_anuncio(page: Page, url: str) -> str:
         except Exception:
             pass
 
-        # Estrategia 4: Contenido del body (último recurso)
+        # Estrategia 4: Contenido del body
         try:
             if texto == "Sin texto disponible":
                 body_text = await asyncio.wait_for(
@@ -238,104 +287,9 @@ async def extraer_texto_anuncio(page: Page, url: str) -> str:
             pass
 
     except Exception as e:
-        logger.warning(f"Error general extrayendo texto de {url}: {e}")
+        logger.warning(f"Error extrayendo texto de {url}: {e}")
     
     return texto
-
-async def procesar_lote_urls(
-    page: Page,
-    urls_lote: List[str],
-    modelo: str,
-    vistos_globales: Set[str],
-    contador: Dict[str, int],
-    procesados: List[str],
-    potenciales: List[str],
-    relevantes: List[str],
-    sin_anio_ejemplos: List[Tuple[str, str]]
-) -> int:
-    """Procesa un lote de URLs con manejo robusto de errores"""
-    if not await verificar_pagina_activa(page):
-        logger.error("❌ Página no activa al inicio de procesar_lote_urls")
-        return 0
-    
-    nuevos_en_lote = 0
-
-    for url in urls_lote:
-        texto = "Sin texto disponible"
-        procesado_exitosamente = False
-        
-        if url in vistos_globales:
-            contador["duplicado"] += 1
-            continue
-        vistos_globales.add(url)
-
-        # Verificar estado antes de navegar
-        if not await verificar_pagina_activa(page):
-            logger.error(f"❌ Página cerrada antes de navegar a {url}")
-            contador["error"] += 1
-            break  # Salir del loop si la página está cerrada
-        
-        try:
-            # Intentar navegar a la URL
-            await asyncio.wait_for(
-                page.goto(url, wait_until='domcontentloaded'),
-                timeout=15
-            )
-            await asyncio.sleep(random.uniform(2.5, 4.5))
-        except asyncio.TimeoutError:
-            logger.warning(f"⏳ Timeout navegando a {url}")
-            contador["timeout"] = contador.get("timeout", 0) + 1
-            continue
-        except PlaywrightError as e:
-            if "Page crashed" in str(e) or "closed" in str(e).lower():
-                logger.error(f"❌ Navegador crasheó o se cerró al cargar {url}")
-                contador["error"] += 1
-                return nuevos_en_lote  # Retornar lo procesado hasta ahora
-            logger.warning(f"Error de Playwright navegando a {url}: {e}")
-            contador["error"] += 1
-            continue
-        except Exception as e:
-            logger.warning(f"Error navegando a {url}: {e}")
-            contador["error"] += 1
-            continue
-
-        try:
-            await asyncio.sleep(DELAY_ENTRE_ANUNCIOS)
-
-            # Extraer texto del anuncio
-            texto = await extraer_texto_anuncio(page, url)
-            
-            # Verificar que tenemos texto útil
-            if len(texto.strip()) < 10:
-                logger.warning(f"Texto insuficiente para {url}: '{texto[:50]}...'")
-                contador["texto_insuficiente"] = contador.get("texto_insuficiente", 0) + 1
-                continue
-                
-            procesado_exitosamente = True
-
-        except Exception as e:
-            logger.warning(f"Error extrayendo texto de {url}: {e}")
-            contador["error"] = contador.get("error", 0) + 1
-            continue
-
-        if not procesado_exitosamente:
-            continue
-
-        try:
-            if await procesar_anuncio_individual(
-                page, url, texto, modelo, contador,
-                procesados, potenciales, relevantes, sin_anio_ejemplos
-            ):
-                nuevos_en_lote += 1
-                
-                if nuevos_en_lote % 3 == 0:
-                    await asyncio.sleep(random.uniform(2.0, 3.5))
-        except Exception as e:
-            logger.error(f"Error en procesar_anuncio_individual para {url}: {e}")
-            contador["error_procesamiento"] = contador.get("error_procesamiento", 0) + 1
-            continue
-    
-    return nuevos_en_lote
 
 async def procesar_anuncio_individual(
     page: Page,
@@ -368,7 +322,6 @@ async def procesar_anuncio_individual(
             contador["extranjero"] += 1
             return False
 
-        # Extraer precio
         m = re.search(r"[Qq\$]\s?[\d\.,]+", texto)
         if not m:
             contador["sin_precio"] += 1
@@ -379,39 +332,34 @@ async def procesar_anuncio_individual(
             contador["precio_bajo"] += 1
             return False
 
-        # Extraer año
         anio = extraer_anio(texto)
 
-        # Intento expandir descripción solo si no hay año válido
         if not anio or not (1990 <= anio <= datetime.now().year):
-            if await verificar_pagina_activa(page):
-                try:
-                    ver_mas = await asyncio.wait_for(
-                        page.query_selector("div[role='main'] span:has-text('Ver más')"),
+            try:
+                ver_mas = await asyncio.wait_for(
+                    page.query_selector("div[role='main'] span:has-text('Ver más')"),
+                    timeout=3
+                )
+                if ver_mas:
+                    await ver_mas.click()
+                    await asyncio.sleep(1.0)
+                    texto_expandido = await asyncio.wait_for(
+                        page.inner_text("div[role='main']"),
                         timeout=5
                     )
-                    if ver_mas:
-                        await ver_mas.click()
-                        await asyncio.sleep(1.5)
-                        texto_expandido = await asyncio.wait_for(
-                            page.inner_text("div[role='main']"),
-                            timeout=5
-                        )
-                        anio_expandido = extraer_anio(texto_expandido)
-                        if anio_expandido and (1990 <= anio_expandido <= datetime.now().year):
-                            anio = anio_expandido
-                            texto = texto_expandido
-                except Exception as e:
-                    logger.warning(f"Error al expandir descripción: {e}")
+                    anio_expandido = extraer_anio(texto_expandido)
+                    if anio_expandido and (1990 <= anio_expandido <= datetime.now().year):
+                        anio = anio_expandido
+                        texto = texto_expandido
+            except Exception:
+                pass
         
-        # Validación final del año
         if not anio or not (1990 <= anio <= datetime.now().year):
             contador["sin_anio"] += 1
             if len(sin_anio_ejemplos) < MAX_EJEMPLOS_SIN_ANIO:
                 sin_anio_ejemplos.append((texto, url))
             return False
 
-        # Calcular ROI y score
         roi_data = calcular_roi_real(modelo, precio, anio)
         score = puntuar_anuncio({
             "texto": texto,
@@ -432,7 +380,6 @@ async def procesar_anuncio_individual(
             f"🔗 {url}"
         )
 
-        # Gestión de base de datos
         try:
             if existe_en_db(url):
                 existente = obtener_anuncio_db(url)
@@ -456,14 +403,13 @@ async def procesar_anuncio_individual(
                 insertar_anuncio_db(link=url, modelo=modelo, anio=anio, precio=precio, km="", roi=roi_data["roi"],
                                    score=score, relevante=relevante, confianza_precio=roi_data["confianza"],
                                    muestra_precio=roi_data["muestra"])
-                logger.info(f"💾 Guardado nuevo: {modelo} | ROI={roi_data['roi']:.2f}% | Score={score} | Relevante={relevante}")
+                logger.info(f"💾 Guardado nuevo: {modelo} | ROI={roi_data['roi']:.2f}% | Score={score}")
                 contador["guardado"] += 1
         except Exception as e:
-            logger.error(f"Error en base de datos para {url}: {e}")
+            logger.error(f"Error en DB para {url}: {e}")
             contador["error_db"] = contador.get("error_db", 0) + 1
             return False
 
-        # Agregar a listas de resultados
         procesados.append(mensaje_base)
 
         if relevante:
@@ -474,25 +420,95 @@ async def procesar_anuncio_individual(
         return True
 
     except Exception as e:
-        logger.error(f"Error general en procesar_anuncio_individual: {e}")
+        logger.error(f"Error en procesar_anuncio_individual: {e}")
         contador["error_general"] = contador.get("error_general", 0) + 1
         return False
 
-async def procesar_ordenamiento_optimizado(page: Page, modelo: str, sort: str, 
-                                         vistos_globales: Set[str], contador: Dict[str, int],
-                                         procesados: List[str], potenciales: List[str], 
-                                         relevantes: List[str], sin_anio_ejemplos: List[Tuple[str, str]]) -> int:
+async def procesar_lote_urls(
+    browser_manager: BrowserManager,
+    urls_lote: List[str],
+    modelo: str,
+    vistos_globales: Set[str],
+    contador: Dict[str, int],
+    procesados: List[str],
+    potenciales: List[str],
+    relevantes: List[str],
+    sin_anio_ejemplos: List[Tuple[str, str]]
+) -> int:
+    """Procesa un lote de URLs con manejo robusto de errores"""
+    nuevos_en_lote = 0
+
+    for url in urls_lote:
+        if url in vistos_globales:
+            contador["duplicado"] += 1
+            continue
+        vistos_globales.add(url)
+
+        # Verificar y recrear si es necesario
+        if not await browser_manager.verificar_y_recrear():
+            logger.error("❌ No se pudo recuperar el navegador")
+            return nuevos_en_lote
+        
+        try:
+            await asyncio.wait_for(
+                browser_manager.page.goto(url, wait_until='domcontentloaded'),
+                timeout=12
+            )
+            await asyncio.sleep(random.uniform(2.0, 3.5))
+        except asyncio.TimeoutError:
+            logger.warning(f"⏳ Timeout navegando a {url}")
+            contador["timeout"] = contador.get("timeout", 0) + 1
+            continue
+        except Exception as e:
+            logger.warning(f"Error navegando a {url}: {e}")
+            contador["error"] += 1
+            continue
+
+        try:
+            await asyncio.sleep(DELAY_ENTRE_ANUNCIOS)
+            texto = await extraer_texto_anuncio(browser_manager.page, url)
+            
+            if len(texto.strip()) < 10:
+                contador["texto_insuficiente"] = contador.get("texto_insuficiente", 0) + 1
+                continue
+            
+            if await procesar_anuncio_individual(
+                browser_manager.page, url, texto, modelo, contador,
+                procesados, potenciales, relevantes, sin_anio_ejemplos
+            ):
+                nuevos_en_lote += 1
+                
+                if nuevos_en_lote % 3 == 0:
+                    await asyncio.sleep(random.uniform(1.5, 2.5))
+        except Exception as e:
+            logger.error(f"Error procesando {url}: {e}")
+            contador["error_procesamiento"] = contador.get("error_procesamiento", 0) + 1
+            continue
+    
+    return nuevos_en_lote
+
+async def procesar_ordenamiento_optimizado(
+    browser_manager: BrowserManager,
+    modelo: str,
+    sort: str,
+    vistos_globales: Set[str],
+    contador: Dict[str, int],
+    procesados: List[str],
+    potenciales: List[str],
+    relevantes: List[str],
+    sin_anio_ejemplos: List[Tuple[str, str]]
+) -> int:
     """Versión optimizada del procesamiento por ordenamiento"""
     
-    if not await verificar_pagina_activa(page):
-        logger.error("❌ Página no activa al inicio de procesar_ordenamiento_optimizado")
+    if not await browser_manager.verificar_y_recrear():
+        logger.error("❌ No se pudo verificar navegador")
         return 0
     
     try:
         url_busq = f"https://www.facebook.com/marketplace/guatemala/search/?query={modelo.replace(' ', '%20')}&minPrice=1000&maxPrice=60000&sortBy={sort}"
         await asyncio.wait_for(
-            page.goto(url_busq, wait_until='domcontentloaded'),
-            timeout=30
+            browser_manager.page.goto(url_busq, wait_until='domcontentloaded'),
+            timeout=25
         )
         await asyncio.sleep(random.uniform(MIN_DELAY, MAX_DELAY))
 
@@ -502,41 +518,33 @@ async def procesar_ordenamiento_optimizado(page: Page, modelo: str, sort: str,
         urls_pendientes = []
 
         while scrolls_realizados < MAX_SCROLLS_POR_SORT:
-            # Verificar estado de la página antes de continuar
-            if not await verificar_pagina_activa(page):
-                logger.error(f"❌ Página cerrada durante scroll en {sort}")
+            # Verificar antes de cada scroll
+            if not await browser_manager.verificar_y_recrear():
+                logger.error(f"❌ Navegador no disponible en scroll {scrolls_realizados}")
                 break
             
-            # Extraer URLs en lote
             try:
-                items = await extraer_items_pagina(page)
+                items = await extraer_items_pagina(browser_manager.page)
                 urls_nuevas = []
                 
                 for itm in items:
                     url = limpiar_link(itm["url"])
                     contador["total"] += 1
 
-                    if not url or not url.startswith("https://www.facebook.com/marketplace/item/"):
-                        continue
-                        
-                    if url not in vistos_globales:
+                    if url and url.startswith("https://www.facebook.com/marketplace/item/") and url not in vistos_globales:
                         urls_nuevas.append(url)
 
                 urls_pendientes.extend(urls_nuevas)
                 
-                # Procesar en lotes cuando tengamos suficientes URLs o al final
                 if len(urls_pendientes) >= BATCH_SIZE_SCROLL or scrolls_realizados >= MAX_SCROLLS_POR_SORT - 1:
                     if urls_pendientes:
                         lote_actual = urls_pendientes[:BATCH_SIZE_SCROLL]
                         urls_pendientes = urls_pendientes[BATCH_SIZE_SCROLL:]
                         
-                        nuevos_en_lote = await procesar_lote_urls(page, lote_actual, modelo, vistos_globales, 
-                                                                contador, procesados, potenciales, relevantes, sin_anio_ejemplos)
-                        
-                        # Si procesar_lote_urls retornó 0 por página cerrada, salir
-                        if nuevos_en_lote == 0 and not await verificar_pagina_activa(page):
-                            logger.error("❌ Página cerrada durante procesamiento de lote")
-                            break
+                        nuevos_en_lote = await procesar_lote_urls(
+                            browser_manager, lote_actual, modelo, vistos_globales,
+                            contador, procesados, potenciales, relevantes, sin_anio_ejemplos
+                        )
                         
                         nuevos_total += nuevos_en_lote
                         
@@ -546,65 +554,37 @@ async def procesar_ordenamiento_optimizado(page: Page, modelo: str, sort: str,
                             consec_repetidos = 0
 
             except Exception as e:
-                logger.warning(f"Error extrayendo items en scroll {scrolls_realizados}: {e}")
-                if not await verificar_pagina_activa(page):
-                    logger.error("❌ Página ya no está activa")
-                    break
+                logger.warning(f"Error en scroll {scrolls_realizados}: {e}")
 
             scrolls_realizados += 1
             
-            # Salida temprana optimizada
             if consec_repetidos >= MAX_CONSECUTIVOS_SIN_NUEVOS and len(urls_nuevas) < 2:
-                logger.info(f"🔄 Salida temprana en {sort}: {consec_repetidos} scrolls consecutivos sin nuevos")
+                logger.info(f"🔄 Salida temprana en {sort}")
                 break
                 
-            if not await scroll_hasta(page):
-                logger.info(f"🔄 Fin de contenido detectado en {sort}")
+            if not await scroll_hasta(browser_manager.page):
+                logger.info(f"🔄 Fin de contenido en {sort}")
                 break
 
-        # Procesar URLs restantes
-        if urls_pendientes and await verificar_pagina_activa(page):
-            await procesar_lote_urls(page, urls_pendientes, modelo, vistos_globales, 
-                                   contador, procesados, potenciales, relevantes, sin_anio_ejemplos)
+        if urls_pendientes:
+            await procesar_lote_urls(
+                browser_manager, urls_pendientes, modelo, vistos_globales,
+                contador, procesados, potenciales, relevantes, sin_anio_ejemplos
+            )
 
         return nuevos_total
         
-    except asyncio.TimeoutError:
-        logger.warning(f"⏳ Timeout en navegación inicial de {sort}")
-        return 0
-    except PlaywrightError as e:
-        if "closed" in str(e).lower():
-            logger.error(f"❌ Página/contexto cerrado en {sort}")
-        else:
-            logger.error(f"❌ Error de Playwright en {sort}: {e}")
-        return 0
     except Exception as e:
-        logger.error(f"❌ Error general en procesar_ordenamiento_optimizado ({sort}): {e}")
+        logger.error(f"❌ Error en ordenamiento {sort}: {e}")
         return 0
 
-async def recrear_pagina_si_necesario(page: Page, ctx: BrowserContext) -> Page:
-    """Recrea la página si está cerrada"""
-    if not await verificar_pagina_activa(page):
-        logger.warning("🔄 Recreando página cerrada...")
-        try:
-            if not page.is_closed():
-                await page.close()
-        except Exception:
-            pass
-        
-        nueva_pagina = await ctx.new_page()
-        await nueva_pagina.set_extra_http_headers({
-            'Accept-Language': 'es-ES,es;q=0.9,en;q=0.8'
-        })
-        logger.info("✅ Nueva página creada")
-        return nueva_pagina
-    return page
-
-async def procesar_modelo(page: Page, modelo: str,
-                          procesados: List[str],
-                          potenciales: List[str],
-                          relevantes: List[str],
-                          ctx: BrowserContext) -> int:
+async def procesar_modelo(
+    browser_manager: BrowserManager,
+    modelo: str,
+    procesados: List[str],
+    potenciales: List[str],
+    relevantes: List[str]
+) -> int:
     """Procesa un modelo específico con todos los ordenamientos"""
     
     vistos_globales = set()
@@ -616,75 +596,49 @@ async def procesar_modelo(page: Page, modelo: str,
         "error_procesamiento", "error_db", "error_general", "texto_vacio"
     ]}
     
-    # Ordenamientos optimizados
     SORT_OPTS = ["best_match", "price_asc"]
     inicio = datetime.now()
     total_nuevos = 0
 
     for sort in SORT_OPTS:
-        # Recrear página si está cerrada
-        page = await recrear_pagina_si_necesario(page, ctx)
+        if not await browser_manager.verificar_y_recrear():
+            logger.error(f"❌ No se pudo recuperar navegador para {sort}")
+            break
         
         logger.info(f"🔍 Procesando {modelo} con ordenamiento: {sort}")
         try:
             nuevos_sort = await asyncio.wait_for(
-                procesar_ordenamiento_optimizado(page, modelo, sort, vistos_globales, contador,
-                                                procesados, potenciales, relevantes, sin_anio_ejemplos), 
-                timeout=180
+                procesar_ordenamiento_optimizado(
+                    browser_manager, modelo, sort, vistos_globales, contador,
+                    procesados, potenciales, relevantes, sin_anio_ejemplos
+                ),
+                timeout=150
             )
             total_nuevos += nuevos_sort
-            logger.info(f"✅ {sort}: {nuevos_sort} nuevos anuncios procesados")
+            logger.info(f"✅ {sort}: {nuevos_sort} nuevos anuncios")
             
-            # Pausa entre ordenamientos
             if sort != SORT_OPTS[-1]:
                 await asyncio.sleep(random.uniform(3.0, 5.0))
             
         except asyncio.TimeoutError:
-            logger.warning(f"⏳ Timeout en ordenamiento {sort} para {modelo}")
+            logger.warning(f"⏳ Timeout en {sort} para {modelo}")
             continue
         except Exception as e:
-            logger.error(f"❌ Error en ordenamiento {sort} para {modelo}: {e}")
+            logger.error(f"❌ Error en {sort} para {modelo}: {e}")
             continue
 
     duracion = (datetime.now() - inicio).seconds
     
-    # Log detallado con todos los contadores
     logger.info(f"""
-✨ MODELO: {modelo.upper()} - OPTIMIZADO
-   Duración: {duracion} s
-   Total encontrados: {contador['total']}
-   Guardados nuevos: {contador['guardado']}
-   Actualizados: {contador.get('actualizados', 0)}
-   Repetidos sin cambios: {contador.get('repetidos', 0)}
-   Relevantes: {len([r for r in relevantes if modelo.lower() in r.lower()])}
-   Potenciales: {len([p for p in potenciales if modelo.lower() in p.lower()])}
-   
-   Filtrados por:
-   - Duplicados: {contador['duplicado']}
-   - Modelo no coincide: {contador['filtro_modelo']}
-   - Precio bajo: {contador['precio_bajo']}
-   - Sin año: {contador['sin_anio']}
-   - Negativos: {contador['negativo']}
-   - Extranjero: {contador['extranjero']}
-   - Sin precio: {contador['sin_precio']}
-   
-   Errores:
-   - Errores de carga: {contador.get('error', 0)}
-   - Timeouts: {contador.get('timeout', 0)}
-   - Texto insuficiente: {contador.get('texto_insuficiente', 0)}
-   - Error procesamiento: {contador.get('error_procesamiento', 0)}
-   - Error DB: {contador.get('error_db', 0)}
-   - Error general: {contador.get('error_general', 0)}
+✨ MODELO: {modelo.upper()}
+   Duración: {duracion}s | Guardados: {contador['guardado']} | Relevantes: {len([r for r in relevantes if modelo.lower() in r.lower()])}
+   Filtrados: Duplicados={contador['duplicado']}, Sin año={contador['sin_anio']}, Precio bajo={contador['precio_bajo']}
    ✨""")
 
-    return total_nuevos, page  # Retornar también la página
+    return total_nuevos
 
 async def buscar_autos_marketplace(modelos_override: Optional[List[str]] = None) -> Tuple[List[str], List[str], List[str]]:
     """Función principal de búsqueda en Marketplace"""
-    
-    browser = None
-    ctx = None
-    page = None
     
     try:
         inicializar_tabla_anuncios()
@@ -693,115 +647,74 @@ async def buscar_autos_marketplace(modelos_override: Optional[List[str]] = None)
         activos = [m for m in modelos if m not in flops]
         
         if not activos:
-            logger.warning("⚠️ No hay modelos activos por rendimiento. Usando todos los modelos por defecto.")
+            logger.warning("⚠️ No hay modelos activos por rendimiento. Usando todos.")
             activos = modelos
 
         procesados, potenciales, relevantes = [], [], []
 
         async with async_playwright() as p:
-            browser = await p.chromium.launch(
-                headless=True,
-                args=[
-                    '--no-sandbox',
-                    '--disable-dev-shm-usage',
-                    '--disable-blink-features=AutomationControlled',
-                    '--disable-gpu',
-                    '--single-process',
-                    '--disable-web-security',
-                    '--disable-features=IsolateOrigins,site-per-process'
-                ]
-            )
+            browser_manager = BrowserManager(p)
             
             try:
-                ctx = await cargar_contexto_con_cookies(browser)
-                page = await ctx.new_page()
-
-                # Configuración optimizada de la página
-                await page.set_extra_http_headers({
-                    'Accept-Language': 'es-ES,es;q=0.9,en;q=0.8'
-                })
-
+                await browser_manager.inicializar()
+                
                 await asyncio.wait_for(
-                    page.goto("https://www.facebook.com/marketplace", wait_until='domcontentloaded'),
+                    browser_manager.page.goto("https://www.facebook.com/marketplace", wait_until='domcontentloaded'),
                     timeout=30
                 )
                 await asyncio.sleep(3)
 
-                if "login" in page.url or "recover" in page.url:
-                    alerta = "🚨 Sesión inválida: redirigido a la página de inicio de sesión. Verifica las cookies (FB_COOKIES_JSON)."
+                if "login" in browser_manager.page.url or "recover" in browser_manager.page.url:
+                    alerta = "🚨 Sesión inválida. Verifica FB_COOKIES_JSON."
                     logger.warning(alerta)
                     return [], [], [alerta]
 
-                logger.info("✅ Sesión activa detectada correctamente en Marketplace.")
+                logger.info("✅ Sesión activa en Marketplace.")
 
-                # Aleatorizar el orden pero mantener determinismo para logs
                 modelos_shuffled = activos.copy()
                 random.shuffle(modelos_shuffled)
 
                 for i, m in enumerate(modelos_shuffled):
-                    # Recrear página si está cerrada
-                    page = await recrear_pagina_si_necesario(page, ctx)
+                    if not await browser_manager.verificar_y_recrear():
+                        logger.error(f"❌ No se pudo recuperar navegador para {m}")
+                        break
                     
-                    logger.info(f"📋 Procesando modelo {i+1}/{len(modelos_shuffled)}: {m}")
+                    logger.info(f"📋 Modelo {i+1}/{len(modelos_shuffled)}: {m}")
                     try:
-                        _, page = await asyncio.wait_for(
-                            procesar_modelo(page, m, procesados, potenciales, relevantes, ctx), 
-                            timeout=360
+                        await asyncio.wait_for(
+                            procesar_modelo(browser_manager, m, procesados, potenciales, relevantes),
+                            timeout=300
                         )
                         
-                        # Pausa entre modelos para evitar detección
                         if i < len(modelos_shuffled) - 1:
-                            await asyncio.sleep(random.uniform(8.0, 15.0))
+                            await asyncio.sleep(random.uniform(8.0, 12.0))
                             
                     except asyncio.TimeoutError:
-                        logger.warning(f"⏳ {m} → Excedió tiempo máximo. Se aborta.")
+                        logger.warning(f"⏳ {m} → Timeout")
                     except Exception as e:
-                        logger.error(f"❌ Error procesando modelo {m}: {e}")
+                        logger.error(f"❌ Error en {m}: {e}")
 
-            except Exception as e:
-                logger.error(f"❌ Error durante ejecución principal: {e}")
             finally:
-                # Limpieza explícita y ordenada
-                try:
-                    if page and not page.is_closed():
-                        await page.close()
-                        logger.info("✅ Página cerrada correctamente")
-                except Exception as e:
-                    logger.warning(f"Error cerrando página: {e}")
-                
-                try:
-                    if ctx:
-                        await ctx.close()
-                        logger.info("✅ Contexto cerrado correctamente")
-                except Exception as e:
-                    logger.warning(f"Error cerrando contexto: {e}")
-                
-                try:
-                    if browser:
-                        await browser.close()
-                        logger.info("✅ Navegador cerrado correctamente")
-                except Exception as e:
-                    logger.warning(f"Error cerrando navegador: {e}")
+                await browser_manager.cerrar()
 
         return procesados, potenciales, relevantes
         
     except Exception as e:
-        logger.error(f"❌ Error general en buscar_autos_marketplace: {e}")
-        return [], [], [f"🚨 Error general: {str(e)}"]
+        logger.error(f"❌ Error general: {e}")
+        return [], [], [f"🚨 Error: {str(e)}"]
 
 if __name__ == "__main__":
     async def main():
         try:
             procesados, potenciales, relevantes = await buscar_autos_marketplace()
 
-            logger.info("📦 Resumen final del scraping optimizado")
-            logger.info(f"Guardados totales: {len(procesados)}")
-            logger.info(f"Relevantes: {len(relevantes)}")
-            logger.info(f"Potenciales: {len(potenciales)}")
+            logger.info("📦 Resumen final")
+            logger.info(f"Guardados: {len(procesados)} | Relevantes: {len(relevantes)} | Potenciales: {len(potenciales)}")
 
-            logger.info("\n🟢 Relevantes con buen ROI:")
-            for r in relevantes[:10]:
-                logger.info(r.replace("*", "").replace("\\n", "\n"))
+            if relevantes:
+                logger.info("\n🟢 Relevantes:")
+                for r in relevantes[:10]:
+                    logger.info(r.replace("*", "").replace("\\n", "\n"))
                 
         except Exception as e:
             logger.error(f"❌ Error en main: {e}")
