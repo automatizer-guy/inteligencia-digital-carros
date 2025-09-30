@@ -2,7 +2,6 @@ name: Ejecutar Bot Automáticamente
 
 on:
   schedule:
-    # Corre cada 3 horas desde las 8:00 AM hasta las 5:00 PM (Guatemala, UTC-6)
     - cron: '0 14 * * *'  # 8:00 Guatemala
     - cron: '0 17 * * *'  # 11:00 Guatemala
     - cron: '0 20 * * *'  # 2:00 Guatemala
@@ -12,7 +11,7 @@ on:
 jobs:
   run-bot:
     runs-on: ubuntu-latest
-    timeout-minutes: 120  # Timeout global de 2 horas
+    timeout-minutes: 120
     env:
       BOT_TOKEN: ${{ secrets.BOT_TOKEN }}
       CHAT_ID: ${{ secrets.CHAT_ID }}
@@ -21,13 +20,11 @@ jobs:
       PLAYWRIGHT_BROWSERS_PATH: ${{ github.workspace }}/.cache/ms-playwright
 
     steps:
-      # 1️⃣ Clonar main
       - name: Checkout main
         uses: actions/checkout@v4
         with:
           fetch-depth: 1
 
-      # 2️⃣ Clonar el branch 'data'
       - name: Checkout branch de datos
         uses: actions/checkout@v4
         with:
@@ -37,19 +34,17 @@ jobs:
           path: data
           fetch-depth: 1
 
-      # 3️⃣ Restaurar o iniciar base
       - name: Preparar DB histórica
         run: |
           mkdir -p upload-artifact
           if [ -f data/anuncios.db ]; then
             cp data/anuncios.db "${{ env.DB_PATH }}"
-            echo "✅ Base histórica cargada ($(stat -c%s data/anuncios.db) bytes)"
+            echo "Base histórica cargada ($(stat -c%s data/anuncios.db) bytes)"
           else
-            echo "⚠️ No hay base previa. Se inicia nueva"
+            echo "No hay base previa. Se inicia nueva"
             touch "${{ env.DB_PATH }}"
           fi
 
-      # 4️⃣ Setup Python con cache
       - name: Setup Python con cache
         uses: actions/setup-python@v5
         with:
@@ -57,14 +52,12 @@ jobs:
           cache: 'pip'
           cache-dependency-path: 'requirements.txt'
 
-      # 5️⃣ Instalar dependencias Python PRIMERO
       - name: Instalar dependencias Python
         run: |
           python -m pip install --upgrade pip --quiet
           pip install -r requirements.txt --quiet
-          echo "✅ Dependencias Python instaladas"
+          echo "Dependencias Python instaladas"
 
-      # 6️⃣ Cache de Playwright browsers (DESPUÉS de instalar playwright)
       - name: Cache Playwright browsers
         uses: actions/cache@v4
         id: playwright-cache
@@ -74,44 +67,37 @@ jobs:
           restore-keys: |
             playwright-chromium-${{ runner.os }}-
 
-      # 7️⃣ Instalar Playwright Chromium
       - name: Instalar Playwright Chromium
         if: steps.playwright-cache.outputs.cache-hit != 'true'
         run: |
-          echo "💡 Instalando Chromium de Playwright..."
+          echo "Instalando Chromium de Playwright..."
           python -m playwright install chromium --with-deps
-          echo "✅ Chromium instalado correctamente"
+          echo "Chromium instalado correctamente"
           
-      # 7️⃣.5️⃣ Configurar límites de recursos para Chromium
       - name: Configurar límites de recursos
         run: |
-          echo "⚙️ Configurando límites de recursos..."
-          # Aumentar límites de archivos abiertos
+          echo "Configurando límites de recursos..."
           ulimit -n 4096 || true
-          # Aumentar límites de memoria virtual
           ulimit -v unlimited || true
-          echo "✅ Límites configurados"
+          echo "Límites configurados"
 
-      # 8️⃣ Verificar instalación de Chromium
       - name: Verificar instalación de Chromium
         run: |
-          echo "🔍 Verificando Chromium..."
+          echo "Verificando Chromium..."
           if [ -d "$PLAYWRIGHT_BROWSERS_PATH/chromium-"* ]; then
-            echo "✅ Chromium encontrado en caché"
+            echo "Chromium encontrado en caché"
             ls -lh "$PLAYWRIGHT_BROWSERS_PATH/chromium-"* | head -5
           else
-            echo "❌ Chromium no encontrado, instalando..."
+            echo "Chromium no encontrado, instalando..."
             python -m playwright install chromium --with-deps
           fi
 
-      # 9️⃣ Instalar SQLite3
       - name: Instalar SQLite3
         run: |
           sudo apt-get update -qq
           sudo apt-get install -y -qq sqlite3
           sqlite3 --version
 
-      # 🔟 Inicializar estructura de la base
       - name: Inicializar estructura de la base
         run: |
           sqlite3 "${{ env.DB_PATH }}" "
@@ -127,10 +113,9 @@ jobs:
             );
           "
           
-          # Agregar columnas adicionales si no existen
           for col in updated_at relevante confianza_precio muestra_precio; do
             if ! sqlite3 "${{ env.DB_PATH }}" "PRAGMA table_info(anuncios);" | grep -q "^[0-9]*|$col|"; then
-              echo "✅ Agregando columna $col"
+              echo "Agregando columna $col"
               case $col in
                 updated_at|fecha_scrape)
                   sqlite3 "${{ env.DB_PATH }}" "ALTER TABLE anuncios ADD COLUMN $col DATE;"
@@ -142,63 +127,58 @@ jobs:
                   sqlite3 "${{ env.DB_PATH }}" "ALTER TABLE anuncios ADD COLUMN $col INTEGER;"
                   ;;
               esac
-            else
-              echo "ℹ️ Columna $col ya existe"
             fi
           done
           
-          echo "✅ Estructura de DB verificada"
+          echo "Estructura de DB verificada"
 
-      # 1️⃣1️⃣ Contar anuncios antes del run
       - name: Contar anuncios antes del run
         id: db_prev
         run: |
-          echo "🕒 Contando anuncios previos..."
+          echo "Contando anuncios previos..."
           BEFORE=$(sqlite3 "${{ env.DB_PATH }}" 'SELECT COUNT(*) FROM anuncios;')
           echo "before=$BEFORE" >> $GITHUB_OUTPUT
-          echo "📊 Total de anuncios previos: $BEFORE"
+          echo "Total de anuncios previos: $BEFORE"
 
-      # 1️⃣2️⃣ Volumen previo por modelo
       - name: Volumen previo en DB
         run: |
-          echo "📊 Top 10 modelos en DB:"
+          echo "Top 10 modelos en DB:"
           sqlite3 "${{ env.DB_PATH }}" \
             "SELECT modelo, COUNT(*) as cnt FROM anuncios GROUP BY modelo ORDER BY cnt DESC LIMIT 10;" \
-            || echo "⚠️ No hay datos previos"
+            || echo "No hay datos previos"
 
-      # 1️⃣3️⃣ Ejecutar el bot con Telegram (CON TIMEOUT)
       - name: Ejecutar bot con Telegram
         id: run_bot
         timeout-minutes: 90
+        env:
+          PLAYWRIGHT_SKIP_BROWSER_GC: 1
         run: |
-          echo "🤖 Iniciando bot..."
+          echo "Iniciando bot..."
+          export CHROMIUM_FLAGS="--disable-dev-shm-usage --no-sandbox"
+          
           python bot_telegram_marketplace.py 2>&1 | tee resultado.log
           
-          # Extraer métricas del log
           NUEVOS=$(grep -oP 'NUEVOS=\K\d+' resultado.log || echo "0")
           ACTUALIZADOS=$(grep -oP 'ACTUALIZADOS=\K\d+' resultado.log || echo "0")
           
           echo "nuevos=$NUEVOS" >> $GITHUB_OUTPUT
           echo "actualizados=$ACTUALIZADOS" >> $GITHUB_OUTPUT
-          echo "✅ Bot ejecutado: $NUEVOS nuevos, $ACTUALIZADOS actualizados"
+          echo "Bot ejecutado: $NUEVOS nuevos, $ACTUALIZADOS actualizados"
 
-      # 1️⃣4️⃣ Verificar integridad de DB
       - name: Verificar integridad de DB
         run: |
-          echo "🔍 Verificando integridad de la base..."
+          echo "Verificando integridad de la base..."
           sqlite3 "${{ env.DB_PATH }}" "PRAGMA integrity_check;" || {
-            echo "❌ Base de datos corrupta"
+            echo "Base de datos corrupta"
             exit 1
           }
-          echo "✅ Base de datos íntegra"
+          echo "Base de datos íntegra"
 
-      # 1️⃣5️⃣ Guardar nueva versión de la DB
       - name: Copiar DB al branch data
         run: |
           cp "${{ env.DB_PATH }}" data/anuncios.db
-          echo "✅ DB copiada ($(stat -c%s data/anuncios.db) bytes)"
+          echo "DB copiada ($(stat -c%s data/anuncios.db) bytes)"
 
-      # 1️⃣6️⃣ Commit & push DB actualizada
       - name: Commit & push DB actualizada
         env:
           PAT_PUSH: ${{ secrets.PAT_PUSH }}
@@ -211,49 +191,47 @@ jobs:
           
           if ! git diff --cached --quiet; then
             TIMESTAMP=$(date -u '+%Y-%m-%d %H:%M:%S UTC')
-            git commit -m "🔄 DB actualizada: ${{ steps.run_bot.outputs.nuevos }} nuevos, ${{ steps.run_bot.outputs.actualizados }} actualizados [$TIMESTAMP]"
+            git commit -m "DB actualizada: ${{ steps.run_bot.outputs.nuevos }} nuevos, ${{ steps.run_bot.outputs.actualizados }} actualizados [$TIMESTAMP]"
             git push origin data
-            echo "✅ DB pusheada exitosamente"
+            echo "DB pusheada exitosamente"
           else
-            echo "📁 Sin cambios en DB, se omite push"
+            echo "Sin cambios en DB, se omite push"
           fi
 
-      # 1️⃣7️⃣ Resumen final del run
       - name: Resumen final del run
         if: always()
         run: |
-          echo "━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━"
-          echo "📊 RESUMEN DE EJECUCIÓN"
-          echo "━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━"
+          echo "=========================================="
+          echo "RESUMEN DE EJECUCIÓN"
+          echo "=========================================="
           
           BEFORE="${{ steps.db_prev.outputs.before }}"
           FINAL=$(sqlite3 "${{ env.DB_PATH }}" "SELECT COUNT(*) FROM anuncios;" || echo "ERROR")
           NUEVOS="${{ steps.run_bot.outputs.nuevos }}"
           ACTUALIZADOS="${{ steps.run_bot.outputs.actualizados }}"
           
-          echo "📦 Anuncios antes:     $BEFORE"
-          echo "📦 Anuncios después:   $FINAL"
-          echo "➕ Nuevos insertados:  $NUEVOS"
-          echo "🔄 Actualizados:       $ACTUALIZADOS"
-          echo "━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━"
+          echo "Anuncios antes:     $BEFORE"
+          echo "Anuncios después:   $FINAL"
+          echo "Nuevos insertados:  $NUEVOS"
+          echo "Actualizados:       $ACTUALIZADOS"
+          echo "=========================================="
           
           if [ "$FINAL" != "ERROR" ]; then
             echo ""
-            echo "🔍 Último anuncio registrado:"
+            echo "Último anuncio registrado:"
             sqlite3 "${{ env.DB_PATH }}" \
               "SELECT modelo, precio, anio, fecha_scrape FROM anuncios ORDER BY rowid DESC LIMIT 1;" \
-              || echo "⚠️ No se pudo consultar"
+              || echo "No se pudo consultar"
             
             echo ""
-            echo "📈 Top 5 modelos:"
+            echo "Top 5 modelos:"
             sqlite3 "${{ env.DB_PATH }}" \
               "SELECT modelo, COUNT(*) as cnt FROM anuncios GROUP BY modelo ORDER BY cnt DESC LIMIT 5;" \
-              || echo "⚠️ No se pudo consultar"
+              || echo "No se pudo consultar"
           fi
           
-          echo "━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━"
+          echo "=========================================="
 
-      # 1️⃣8️⃣ Subir logs en caso de error
       - name: Subir logs si hay error
         if: failure()
         uses: actions/upload-artifact@v4
