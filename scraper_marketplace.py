@@ -26,12 +26,12 @@ MAX_EJEMPLOS_SIN_ANIO = 5
 ROI_POTENCIAL_MIN = ROI_MINIMO - 10
 
 # Configuración optimizada
-MAX_SCROLLS_POR_SORT = 12  # Reducido más para evitar detección
+MAX_SCROLLS_POR_SORT = 12
 MIN_DELAY = 2
 MAX_DELAY = 4
 DELAY_ENTRE_ANUNCIOS = 2
 MAX_CONSECUTIVOS_SIN_NUEVOS = 3
-BATCH_SIZE_SCROLL = 6  # Reducido para procesar más rápido
+BATCH_SIZE_SCROLL = 6
 
 class BrowserManager:
     """Gestiona el ciclo de vida del navegador y contextos"""
@@ -67,7 +67,7 @@ class BrowserManager:
                 '--disable-features=TranslateUI,BlinkGenPropertyTrees'
             ]
         )
-        await self.criar_contexto()
+        await self.crear_contexto()
         
     async def crear_contexto(self):
         """Crea un nuevo contexto con cookies"""
@@ -218,7 +218,6 @@ async def extraer_items_pagina(page: Page) -> List[Dict[str, str]]:
 async def scroll_hasta(page: Page) -> bool:
     """Realiza scroll simulando comportamiento humano"""
     try:
-        # Movimiento de mouse más rápido
         await asyncio.wait_for(
             page.mouse.move(
                 random.randint(100, 800),
@@ -454,7 +453,6 @@ async def procesar_lote_urls(
             continue
         vistos_globales.add(url)
 
-        # Verificar y recrear si es necesario
         if not await browser_manager.verificar_y_recrear():
             logger.error("❌ No se pudo recuperar el navegador")
             return nuevos_en_lote
@@ -528,7 +526,6 @@ async def procesar_ordenamiento_optimizado(
         urls_pendientes = []
 
         while scrolls_realizados < MAX_SCROLLS_POR_SORT:
-            # Verificar antes de cada scroll
             if not await browser_manager.verificar_y_recrear():
                 logger.error(f"❌ Navegador no disponible en scroll {scrolls_realizados}")
                 break
