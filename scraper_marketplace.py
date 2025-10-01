@@ -26,12 +26,12 @@ MAX_EJEMPLOS_SIN_ANIO = 5
 ROI_POTENCIAL_MIN = ROI_MINIMO - 10
 
 # Configuración optimizada
-MAX_SCROLLS_POR_SORT = 12
+MAX_SCROLLS_POR_SORT = 15  # Aumentado de 12 para cubrir más anuncios
 MIN_DELAY = 2
 MAX_DELAY = 4
-DELAY_ENTRE_ANUNCIOS = 2
-MAX_CONSECUTIVOS_SIN_NUEVOS = 3
-BATCH_SIZE_SCROLL = 6
+DELAY_ENTRE_ANUNCIOS = 1.5  # Reducido de 2 para acelerar
+MAX_CONSECUTIVOS_SIN_NUEVOS = 4  # Aumentado de 3 para ser menos agresivo
+BATCH_SIZE_SCROLL = 8  # Aumentado de 6 para procesar más por lote
 
 class BrowserManager:
     """Gestiona el ciclo de vida del navegador y contextos"""
@@ -146,12 +146,21 @@ class BrowserManager:
                 await self.crear_pagina()
                 return True
             
-            # Verificar que la página realmente funciona
+            # Verificar que la página realmente funciona (timeout más generoso)
             try:
-                await asyncio.wait_for(self.page.evaluate("1"), timeout=2)
+                await asyncio.wait_for(self.page.evaluate("1"), timeout=8)
+                return True
+            except asyncio.TimeoutError:
+                logger.warning("🔄 Página no responde, recreando...")
+                try:
+                    if not self.page.is_closed():
+                        await self.page.close()
+                except Exception:
+                    pass
+                await self.crear_pagina()
                 return True
             except Exception:
-                logger.warning("🔄 Página no responde, recreando...")
+                logger.warning("🔄 Página con error, recreando...")
                 await self.crear_pagina()
                 return True
                 
@@ -453,16 +462,18 @@ async def procesar_lote_urls(
             continue
         vistos_globales.add(url)
 
-        if not await browser_manager.verificar_y_recrear():
-            logger.error("❌ No se pudo recuperar el navegador")
-            return nuevos_en_lote
+        # Solo verificar si hay un problema evidente, no en cada iteración
+        if browser_manager.page.is_closed():
+            if not await browser_manager.verificar_y_recrear():
+                logger.error("❌ No se pudo recuperar el navegador")
+                return nuevos_en_lote
         
         try:
             await asyncio.wait_for(
                 browser_manager.page.goto(url, wait_until='domcontentloaded'),
-                timeout=12
+                timeout=15
             )
-            await asyncio.sleep(random.uniform(2.0, 3.5))
+            await asyncio.sleep(random.uniform(1.5, 2.5))
         except asyncio.TimeoutError:
             logger.warning(f"⏳ Timeout navegando a {url}")
             contador["timeout"] = contador.get("timeout", 0) + 1
@@ -486,8 +497,8 @@ async def procesar_lote_urls(
             ):
                 nuevos_en_lote += 1
                 
-                if nuevos_en_lote % 3 == 0:
-                    await asyncio.sleep(random.uniform(1.5, 2.5))
+                if nuevos_en_lote % 5 == 0:
+                    await asyncio.sleep(random.uniform(2.0, 3.0))
         except Exception as e:
             logger.error(f"Error procesando {url}: {e}")
             contador["error_procesamiento"] = contador.get("error_procesamiento", 0) + 1
@@ -508,15 +519,17 @@ async def procesar_ordenamiento_optimizado(
 ) -> int:
     """Versión optimizada del procesamiento por ordenamiento"""
     
-    if not await browser_manager.verificar_y_recrear():
-        logger.error("❌ No se pudo verificar navegador")
-        return 0
+    # Verificación inicial solamente
+    if browser_manager.page.is_closed():
+        if not await browser_manager.verificar_y_recrear():
+            logger.error("❌ No se pudo verificar navegador")
+            return 0
     
     try:
         url_busq = f"https://www.facebook.com/marketplace/guatemala/search/?query={modelo.replace(' ', '%20')}&minPrice=1000&maxPrice=60000&sortBy={sort}"
         await asyncio.wait_for(
             browser_manager.page.goto(url_busq, wait_until='domcontentloaded'),
-            timeout=25
+            timeout=30
         )
         await asyncio.sleep(random.uniform(MIN_DELAY, MAX_DELAY))
 
@@ -526,9 +539,11 @@ async def procesar_ordenamiento_optimizado(
         urls_pendientes = []
 
         while scrolls_realizados < MAX_SCROLLS_POR_SORT:
-            if not await browser_manager.verificar_y_recrear():
-                logger.error(f"❌ Navegador no disponible en scroll {scrolls_realizados}")
-                break
+            # Verificar solo cada 3 scrolls para reducir overhead
+            if scrolls_realizados % 3 == 0 and browser_manager.page.is_closed():
+                if not await browser_manager.verificar_y_recrear():
+                    logger.error(f"❌ Navegador no disponible en scroll {scrolls_realizados}")
+                    break
             
             try:
                 items = await extraer_items_pagina(browser_manager.page)
@@ -608,9 +623,11 @@ async def procesar_modelo(
     total_nuevos = 0
 
     for sort in SORT_OPTS:
-        if not await browser_manager.verificar_y_recrear():
-            logger.error(f"❌ No se pudo recuperar navegador para {sort}")
-            break
+        # Verificación única al inicio de cada ordenamiento
+        if browser_manager.page.is_closed():
+            if not await browser_manager.verificar_y_recrear():
+                logger.error(f"❌ No se pudo recuperar navegador para {sort}")
+                break
         
         logger.info(f"🔍 Procesando {modelo} con ordenamiento: {sort}")
         try:
@@ -619,7 +636,7 @@ async def procesar_modelo(
                     browser_manager, modelo, sort, vistos_globales, contador,
                     procesados, potenciales, relevantes, sin_anio_ejemplos
                 ),
-                timeout=150
+                timeout=180
             )
             total_nuevos += nuevos_sort
             logger.info(f"✅ {sort}: {nuevos_sort} nuevos anuncios")
